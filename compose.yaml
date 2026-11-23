@@ -1,0 +1,20 @@
+# Local development only; use managed secrets and storage in production.
+services:
+  db:
+    image: postgres:17.12
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: viora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: viora
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - viora_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viora -d viora"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  viora_pgdata:

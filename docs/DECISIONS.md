@@ -84,6 +84,12 @@ See [TECH-STACK.md](TECH-STACK.md) and the actual installation manifests. Versio
 7. Suppress small-cohort institution analytics to prevent identifying students.
 8. Use application-level access checks from day one; evaluate PostgreSQL RLS as additional protection, not a substitute.
 
+### Phase 1 relational foundation
+
+Memberships link a global user to one institution. A role is eligible only in its institution. Department, section, offering and guardian assignments narrow the resource scope. A guardian link starts inactive and requires recorded verification and consent to activate. The eventual policy service owns action-level permission and disclosure decisions.
+
+Revision 0002 preserves Phase 0 source tenant IDs as inactive institution records. Activating one requires institutional reconciliation. Tenant-aware foreign keys protect relationship integrity. PostgreSQL row-level read and write policies remain open under DEC-003. Before pilot, validate them with a non-owner application role and transaction-local tenant context, including connection reuse and revocation.
+
 ## Remaining technical checks
 
 - FastAPI/SQLAlchemy/Psycopg and npm/Remotion package compatibility on the team's actual OSes.

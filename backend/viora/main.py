@@ -9,6 +9,8 @@ from .contracts import ErrorResponse
 from .db import Database
 from .health import health_router
 from .http import Correlation, configure_errors
+from .identity.public import register_models as register_identity
+from .institution.public import register_models as register_institution
 from .security import Access
 from .sources import public as sources
 
@@ -18,6 +20,8 @@ def create_app(
     database: Database | None = None,
     access: Access | None = None,
 ) -> FastAPI:
+    register_institution()
+    register_identity()
     config = settings or Settings.load()
     db = database or Database(config)
 

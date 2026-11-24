@@ -9,23 +9,26 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "codegen": "npx --yes openapi-typescript@7.6.1 ../contracts/http/openapi.json -o src/api/generated.ts",
+    "test": "node --test src/**/*.test.ts"
   },
   "dependencies": {
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "remotion": "4.0.545",
+    "@remotion/bundler": "4.0.545",
     "@remotion/player": "4.0.545",
     "@remotion/renderer": "4.0.545",
-    "@remotion/bundler": "4.0.545"
+    "openapi-fetch": "^0.17.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.545"
   },
   "devDependencies": {
-    "vite": "8.3.8",
-    "@vitejs/plugin-react": "6.3.0",
-    "typescript": "7.0.2",
+    "@remotion/cli": "4.0.545",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@remotion/cli": "4.0.545"
+    "@vitejs/plugin-react": "6.3.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
   }
 }

@@ -10,4 +10,5 @@ web/node_modules/
 web/dist/
 storage/
 *.log
+*.tsbuildinfo
 .DS_Store

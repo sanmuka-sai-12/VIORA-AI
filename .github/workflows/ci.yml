@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend Lint, Test & Contract Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.16"
+
+      - name: Install dependencies from lockfile
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip check
+
+      - name: Run Ruff checks
+        run: |
+          ruff check .
+
+      - name: Run unit and HTTP tests
+        env:
+          PYTHONPATH: backend
+        run: |
+          pytest -m "not postgres"
+
+      - name: Validate offline Alembic migrations
+        run: |
+          alembic upgrade head --sql
+
+      - name: Verify OpenAPI contract drift
+        env:
+          PYTHONPATH: backend
+        run: |
+          python -m viora.export_contracts
+          git diff --exit-code contracts/http/openapi.json
+
+  postgres-integration:
+    name: PostgreSQL Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17.12
+        env:
+          POSTGRES_USER: viora
+          POSTGRES_PASSWORD: change-this-local-password
+          POSTGRES_DB: viora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.16"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+
+      - name: Run live migrations and integration tests
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test
+          VIORA_TEST_DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test
+        run: |
+          alembic upgrade head
+          pytest -m postgres -v
+
+  frontend:
+    name: Frontend Lint, Test, Client Consistency & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.3"
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: |
+          npm ci
+
+      - name: Verify TypeScript client consistency
+        run: |
+          npx --yes openapi-typescript@7.6.1 contracts/http/openapi.json -o web/src/api/generated.ts
+          git diff --exit-code web/src/api/generated.ts
+
+      - name: Run frontend unit tests
+        working-directory: web
+        run: |
+          npm test
+
+      - name: Build frontend application
+        working-directory: web
+        run: |
+          npm run build
+

@@ -139,6 +139,27 @@ def test_migrated_postgres() -> None:
         db.close()
 
 
+def check_module_import_rules(
+    module: str, targets: list[str], domains: set[str]
+) -> None:
+    for target in targets:
+        for domain in domains:
+            domain_prefix = f"viora.{domain}."
+            if target.startswith(domain_prefix) and not module.startswith(
+                domain_prefix
+            ):
+                assert (
+                    module in {"viora.main", "viora.export_contracts"}
+                    or module.split(".")[1] in domains
+                ) and target == f"viora.{domain}.public", (
+                    f"Forbidden cross-domain access from {module} to private internal {target}"
+                )
+        if module.endswith((".service", ".ports", ".schemas")):
+            assert not target.endswith(
+                (".models", ".repository", ".router", ".db")
+            ), f"Dependency inversion violated: {module} cannot import {target}"
+
+
 def test_import_boundaries() -> None:
     from graphlib import TopologicalSorter
     from importlib.util import resolve_name
@@ -150,7 +171,9 @@ def test_import_boundaries() -> None:
     }
     graph: TopologicalSorter[str] = TopologicalSorter()
     viora_dir = root / "viora"
-    domains = {p.name for p in viora_dir.iterdir() if p.is_dir() and (p / "public.py").exists()}
+    domains = {
+        p.name for p in viora_dir.iterdir() if p.is_dir() and (p / "public.py").exists()
+    }
     for module, path in paths.items():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             targets: list[str] = []
@@ -161,19 +184,41 @@ def test_import_boundaries() -> None:
                     "." * node.level + (node.module or ""), module.rpartition(".")[0]
                 )
                 targets.extend([base, *(f"{base}.{a.name}" for a in node.names)])
-            for target in filter(paths.__contains__, targets):
+            valid_targets = [t for t in targets if t in paths]
+            for target in valid_targets:
                 graph.add(module, target)
-                for domain in domains:
-                    domain_prefix = f"viora.{domain}."
-                    if target.startswith(domain_prefix) and not module.startswith(
-                        domain_prefix
-                    ):
-                        assert (
-                            module in {"viora.main", "viora.export_contracts"}
-                            and target == f"viora.{domain}.public"
-                        )
-                if module.endswith((".service", ".ports", ".schemas")):
-                    assert not target.endswith(
-                        (".models", ".repository", ".router", ".db")
-                    )
+            check_module_import_rules(module, valid_targets, domains)
     tuple(graph.static_order())
+
+
+def test_import_boundaries_positive_and_negative_rules() -> None:
+    domains = {"sources", "lessons"}
+
+    # Positive: Another domain module consuming an external domain's public interface
+    check_module_import_rules(
+        "viora.lessons.service", ["viora.sources.public"], domains
+    )
+
+    # Positive: App composition consuming public interfaces
+    check_module_import_rules(
+        "viora.main", ["viora.sources.public", "viora.lessons.public"], domains
+    )
+
+    # Negative: Another domain attempting to import private repository directly
+    with pytest.raises(AssertionError, match="Forbidden cross-domain access"):
+        check_module_import_rules(
+            "viora.lessons.service", ["viora.sources.repository"], domains
+        )
+
+    # Negative: Another domain attempting to import private models directly
+    with pytest.raises(AssertionError, match="Forbidden cross-domain access"):
+        check_module_import_rules(
+            "viora.lessons.service", ["viora.sources.models"], domains
+        )
+
+    # Negative: Domain service violating dependency inversion by importing repository
+    with pytest.raises(AssertionError, match="Dependency inversion violated"):
+        check_module_import_rules(
+            "viora.sources.service", ["viora.sources.repository"], domains
+        )
+

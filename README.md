@@ -48,11 +48,13 @@ The installable baseline is **Python 3.13.16, FastAPI 0.165.0, React 19.3.1, Vit
 
 Package versions, commands, alternatives and licensing notes are in [TECH-STACK.md](docs/TECH-STACK.md). Start there before installing anything.
 
-## Developer setup — dependency baseline
+## Developer setup — Phase 0 foundation
 
-The repository currently contains **requirements, architecture and install manifests**, not a working API or UI implementation. These commands install the intended dependencies. Application commands will become available after the source folders are implemented.
+The repository contains the modular backend foundation (FastAPI, Alembic, PostgreSQL schema, Pydantic contracts), the frontend application foundation (React, TypeScript, Vite, Design Tokens, API Client), and CI automation.
 
-Requirements: Python 3.13.16, Node.js 24.22.3 LTS, npm, Docker Desktop with Compose, and FFmpeg. On Windows, use PowerShell with a Python 3.13 virtual environment; enable Docker's Linux container backend.
+Requirements: Python 3.13.16, Node.js 24.22.3 LTS, npm, Docker Desktop with Compose, and FFmpeg.
+
+### Local Environment Setup
 
 ```powershell
 # From the repository root; Windows PowerShell
@@ -60,17 +62,50 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r backend/requirements.txt
-npm --prefix web install
+npm --prefix web ci
 Copy-Item .env.example .env
-# Set a unique local POSTGRES_PASSWORD in .env, then:
-docker compose up -d db
 ```
 
-On Linux/macOS, activate with `source .venv/bin/activate`, copy `.env.example` to `.env`, and use `python3.13` instead of `py -3.13`.
+### Running the Services Locally
 
-Verify installations with `python --version`, `node --version`, `npm --prefix web list --depth=0`, `ffmpeg -version` and `docker compose ps`. Do not place real API keys in Git.
+1. **Backend API:**
+   ```powershell
+   $env:PYTHONPATH = "backend"
+   .\.venv\Scripts\uvicorn viora.main:create_app --factory --reload --port 8000
+   ```
+2. **Frontend Application:**
+   ```powershell
+   npm --prefix web run dev
+   ```
+   Open `http://localhost:5173` in your browser. The Vite development proxy automatically routes `/api` calls to `http://127.0.0.1:8000`.
 
-**Version policy:** package manifests pin direct dependencies; commit the generated `web/package-lock.json` after the first successful `npm install`. The Python list pins direct dependencies, **not transitive hashes**; create a resolved lock for your target platform when development begins. A registry version check is not a successful integration test.
+### Testing and Code Quality
+
+- **Backend Unit Tests:**
+  ```powershell
+  $env:PYTHONPATH = "backend"
+  .\.venv\Scripts\pytest
+  ```
+- **Backend Linting:**
+  ```powershell
+  .\.venv\Scripts\ruff check .
+  ```
+- **Alembic Migration (Offline):**
+  ```powershell
+  .\.venv\Scripts\alembic upgrade head --sql
+  ```
+- **OpenAPI Export & TypeScript Client Generation:**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\web\generate-client.ps1
+  ```
+- **Frontend Typecheck & Build:**
+  ```powershell
+  npm --prefix web run build
+  ```
+- **Frontend Unit Tests:**
+  ```powershell
+  npm --prefix web test
+  ```
 
 ## Project documents
 

@@ -15,6 +15,10 @@ class Settings(BaseModel):
     cors_origins: tuple[str, ...] = ()
     pool_size: int = Field(default=5, gt=0)
     pool_timeout: int = Field(default=5, gt=0)
+    openai_api_key: SecretStr | None = None
+    openai_base_url: str | None = None
+    default_ai_model: str = "gpt-4o-mini"
+    default_embedding_model: str = "text-embedding-3-small"
 
     @model_validator(mode="after")
     def validate_connections(self) -> Self:
@@ -59,5 +63,11 @@ class Settings(BaseModel):
                 ),
                 "pool_size": values.get("DB_POOL_SIZE", 5),
                 "pool_timeout": values.get("DB_POOL_TIMEOUT", 5),
+                "openai_api_key": values.get("OPENAI_API_KEY"),
+                "openai_base_url": values.get("OPENAI_BASE_URL"),
+                "default_ai_model": values.get("DEFAULT_AI_MODEL", "gpt-4o-mini"),
+                "default_embedding_model": values.get(
+                    "DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"
+                ),
             }
         )

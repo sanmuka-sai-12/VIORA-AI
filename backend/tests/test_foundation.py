@@ -149,7 +149,7 @@ def check_module_import_rules(
                 domain_prefix
             ):
                 assert (
-                    module in {"viora.main", "viora.export_contracts"}
+                    module in {"viora.main", "viora.export_contracts", "viora.ports"}
                     or module.split(".")[1] in domains
                 ) and target == f"viora.{domain}.public", (
                     f"Forbidden cross-domain access from {module} to private internal {target}"

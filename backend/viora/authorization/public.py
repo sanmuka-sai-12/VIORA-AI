@@ -15,7 +15,13 @@ from .audit import SqlAudit
 from .policy import Policy
 from .tenant import bind_tenant, require_application_role
 
-__all__ = ["AuthorizationService", "AuthorizedTransaction", "register_models"]
+__all__ = [
+    "AuthorizationService",
+    "AuthorizedTransaction",
+    "bind_tenant",
+    "change_audit",
+    "register_models",
+]
 
 
 @dataclass(frozen=True)
@@ -120,6 +126,11 @@ class AuthorizationService:
         """Trusted worker input: reload persisted initiating actor and resource before each effect."""
         with self._actor_transaction(actor, action, resource) as scope:
             yield scope
+
+
+def change_audit(session: Session) -> ChangeAudit:
+    """Bind append-only audit writer to an operator bootstrap transaction."""
+    return SqlAudit(session)
 
 
 def register_models() -> None:

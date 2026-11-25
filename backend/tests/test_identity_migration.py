@@ -19,7 +19,11 @@ REVISION = "0002_identity_academics"
 
 def test_identity_revision_follows_sources() -> None:
     history = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert history.get_heads() == ["0005_tenant_security"]
+    assert history.get_heads() == ["0006_academic_lifecycle"]
+    assert (
+        history.get_revision("0006_academic_lifecycle").down_revision
+        == "0005_tenant_security"
+    )
     assert (
         history.get_revision("0005_tenant_security").down_revision
         == "0004_auth_rate_limits"

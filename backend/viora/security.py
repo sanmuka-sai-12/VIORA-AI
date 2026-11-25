@@ -1,4 +1,5 @@
-from typing import Protocol
+from contextlib import AbstractContextManager
+from typing import Any, Protocol
 from uuid import UUID
 
 from .contracts import Actor, ResourceRef, TenantContext
@@ -32,6 +33,25 @@ class ChangeAudit(Audit, Protocol):
     ) -> None:
         """Append a security change in the same transaction as the mutation."""
         ...
+
+
+class AuthorizedScope(Protocol):
+    @property
+    def session(self) -> Any: ...
+
+    @property
+    def context(self) -> TenantContext: ...
+
+    @property
+    def audit(self) -> ChangeAudit: ...
+
+    def recheck(self, action: str, resource: ResourceRef) -> TenantContext: ...
+
+
+class TransactionalAccess(Protocol):
+    def transaction(
+        self, bearer: str | None, action: str, resource: ResourceRef
+    ) -> AbstractContextManager[AuthorizedScope]: ...
 
 
 class WorkerAuthorization(Protocol):

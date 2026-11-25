@@ -1,21 +1,54 @@
+from collections.abc import Callable
+from typing import Any, TypeVar
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from ..contracts import Page
 from ..identity.public import IdentityDirectory, InstitutionRole
 from .models import (
+    AcademicYear,
+    Campus,
     ClassCoordinator,
+    Department,
     DepartmentHead,
     GuardianLink,
     Institution,
+    Programme,
     Section,
     Semester,
     StudentEnrolment,
+    Subject,
     SubjectOffering,
     TeacherAssignment,
 )
-from .schemas import AcademicContext, InstitutionInfo, OfferingAssignment
+from .schemas import (
+    AcademicContext,
+    AcademicYearSummary,
+    CampusSummary,
+    DepartmentSummary,
+    InstitutionInfo,
+    OfferingAssignment,
+    ProgrammeSummary,
+    SectionSummary,
+    SemesterSummary,
+    SubjectOfferingSummary,
+    SubjectSummary,
+)
+
+T = TypeVar("T")
+
+_ENTITY_MODELS: dict[str, type[Any]] = {
+    "campus": Campus,
+    "department": Department,
+    "programme": Programme,
+    "academic_year": AcademicYear,
+    "semester": Semester,
+    "section": Section,
+    "subject": Subject,
+    "offering": SubjectOffering,
+}
 
 
 class SqlInstitutionStatus:
@@ -76,11 +109,38 @@ class SqlInstitutionDirectory:
                     Semester.id == Section.semester_id,
                 ),
             )
+            .join(
+                AcademicYear,
+                and_(
+                    AcademicYear.tenant_id == Semester.tenant_id,
+                    AcademicYear.id == Semester.academic_year_id,
+                ),
+            )
+            .join(
+                Subject,
+                and_(
+                    Subject.tenant_id == SubjectOffering.tenant_id,
+                    Subject.id == SubjectOffering.subject_id,
+                ),
+            )
+            .outerjoin(
+                Programme,
+                and_(
+                    Programme.tenant_id == Section.tenant_id,
+                    Programme.id == Section.programme_id,
+                ),
+            )
             .join(Institution, Institution.tenant_id == SubjectOffering.tenant_id)
             .where(
                 SubjectOffering.tenant_id == tenant_id,
                 SubjectOffering.id == offering_id,
                 Institution.active.is_(True),
+                SubjectOffering.active.is_(True),
+                Section.active.is_(True),
+                Semester.active.is_(True),
+                AcademicYear.active.is_(True),
+                Subject.active.is_(True),
+                or_(Section.programme_id.is_(None), Programme.active.is_(True)),
             )
         )
         row = self.session.execute(query).one_or_none()
@@ -138,10 +198,19 @@ class SqlInstitutionDirectory:
         return (
             self._eligible(tenant_id, user_id, InstitutionRole.department_head)
             and self.session.scalar(
-                select(DepartmentHead.active).where(
+                select(DepartmentHead.active)
+                .join(
+                    Department,
+                    and_(
+                        Department.tenant_id == DepartmentHead.tenant_id,
+                        Department.id == DepartmentHead.department_id,
+                    ),
+                )
+                .where(
                     DepartmentHead.tenant_id == tenant_id,
                     DepartmentHead.user_id == user_id,
                     DepartmentHead.department_id == department_id,
+                    Department.active.is_(True),
                 )
             )
             is True
@@ -153,10 +222,43 @@ class SqlInstitutionDirectory:
         return (
             self._eligible(tenant_id, user_id, InstitutionRole.class_coordinator)
             and self.session.scalar(
-                select(ClassCoordinator.active).where(
+                select(ClassCoordinator.active)
+                .join(
+                    Section,
+                    and_(
+                        Section.tenant_id == ClassCoordinator.tenant_id,
+                        Section.id == ClassCoordinator.section_id,
+                    ),
+                )
+                .join(
+                    Semester,
+                    and_(
+                        Semester.tenant_id == Section.tenant_id,
+                        Semester.id == Section.semester_id,
+                    ),
+                )
+                .join(
+                    AcademicYear,
+                    and_(
+                        AcademicYear.tenant_id == Semester.tenant_id,
+                        AcademicYear.id == Semester.academic_year_id,
+                    ),
+                )
+                .outerjoin(
+                    Programme,
+                    and_(
+                        Programme.tenant_id == Section.tenant_id,
+                        Programme.id == Section.programme_id,
+                    ),
+                )
+                .where(
                     ClassCoordinator.tenant_id == tenant_id,
                     ClassCoordinator.user_id == user_id,
                     ClassCoordinator.section_id == section_id,
+                    Section.active.is_(True),
+                    Semester.active.is_(True),
+                    AcademicYear.active.is_(True),
+                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
                 )
             )
             is True
@@ -175,3 +277,943 @@ class SqlInstitutionDirectory:
             GuardianLink.student_id == student_id,
         )
         return self.session.scalar(query) is True
+
+    def entity_active(
+        self, tenant_id: UUID, kind: str, entity_id: UUID
+    ) -> bool | None:
+        model = _ENTITY_MODELS.get(kind)
+        if model is None:
+            return None
+        return self.session.scalar(
+            select(model.active).where(
+                model.tenant_id == tenant_id, model.id == entity_id
+            )
+        )
+
+    def entity_department(
+        self, tenant_id: UUID, kind: str, entity_id: UUID
+    ) -> UUID | None:
+        model = Programme if kind == "programme" else Subject if kind == "subject" else None
+        if model is None:
+            return None
+        return self.session.scalar(
+            select(model.department_id).where(
+                model.tenant_id == tenant_id, model.id == entity_id
+            )
+        )
+
+    def offering_section(self, tenant_id: UUID, offering_id: UUID) -> UUID | None:
+        return self.session.scalar(
+            select(SubjectOffering.section_id).where(
+                SubjectOffering.tenant_id == tenant_id,
+                SubjectOffering.id == offering_id,
+            )
+        )
+
+
+def _campus_dto(row: Campus) -> CampusSummary:
+    return CampusSummary(
+        tenant_id=row.tenant_id, id=row.id, name=row.name, active=row.active
+    )
+
+
+def _department_dto(row: Department) -> DepartmentSummary:
+    return DepartmentSummary(
+        tenant_id=row.tenant_id,
+        id=row.id,
+        name=row.name,
+        campus_id=row.campus_id,
+        active=row.active,
+    )
+
+
+def _programme_dto(row: Programme) -> ProgrammeSummary:
+    return ProgrammeSummary(
+        tenant_id=row.tenant_id,
+        id=row.id,
+        name=row.name,
+        department_id=row.department_id,
+        active=row.active,
+    )
+
+
+def _year_dto(row: AcademicYear) -> AcademicYearSummary:
+    return AcademicYearSummary(
+        tenant_id=row.tenant_id, id=row.id, name=row.name, active=row.active
+    )
+
+
+def _semester_dto(row: Semester) -> SemesterSummary:
+    return SemesterSummary(
+        tenant_id=row.tenant_id,
+        id=row.id,
+        name=row.name,
+        academic_year_id=row.academic_year_id,
+        active=row.active,
+    )
+
+
+def _section_dto(row: Section) -> SectionSummary:
+    return SectionSummary(
+        tenant_id=row.tenant_id,
+        id=row.id,
+        name=row.name,
+        semester_id=row.semester_id,
+        programme_id=row.programme_id,
+        active=row.active,
+    )
+
+
+def _subject_dto(row: Subject) -> SubjectSummary:
+    return SubjectSummary(
+        tenant_id=row.tenant_id,
+        id=row.id,
+        name=row.name,
+        department_id=row.department_id,
+        active=row.active,
+    )
+
+
+def _offering_dto(row: SubjectOffering) -> SubjectOfferingSummary:
+    return SubjectOfferingSummary(
+        tenant_id=row.tenant_id,
+        id=row.id,
+        name=row.name,
+        section_id=row.section_id,
+        subject_id=row.subject_id,
+        active=row.active,
+    )
+
+
+class SqlAcademicRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def _get(
+        self, model: type[Any], tenant_id: UUID, entity_id: UUID
+    ) -> Any | None:
+        return self.session.scalar(
+            select(model)
+            .where(model.tenant_id == tenant_id, model.id == entity_id)
+            .execution_options(populate_existing=True)
+        )
+
+    def _paginate(
+        self,
+        stmt: Any,
+        model: type[Any],
+        mapper: Callable[[Any], T],
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[T]:
+        if cursor is not None:
+            stmt = stmt.where(model.id > cursor)
+        rows = list(self.session.scalars(stmt.order_by(model.id).limit(limit + 1)))
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        next_cursor = str(page_rows[-1].id) if has_more and page_rows else None
+        return Page[T](
+            items=tuple(mapper(row) for row in page_rows),
+            next_cursor=next_cursor,
+        )
+
+    def _set_active(
+        self,
+        model: type[Any],
+        tenant_id: UUID,
+        entity_id: UUID,
+        active: bool,
+        mapper: Callable[[Any], T],
+    ) -> T | None:
+        row = self._get(model, tenant_id, entity_id)
+        if row is None:
+            return None
+        row.active = active
+        self.session.flush()
+        return mapper(row)
+
+    def _has_active_child(
+        self, model: type[Any], tenant_id: UUID, column: Any, parent_id: UUID
+    ) -> bool:
+        return (
+            self.session.scalar(
+                select(model.id)
+                .where(
+                    model.tenant_id == tenant_id,
+                    column == parent_id,
+                    model.active.is_(True),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def get_institution(self, tenant_id: UUID) -> InstitutionInfo | None:
+        row = self.session.scalar(
+            select(Institution)
+            .where(Institution.tenant_id == tenant_id)
+            .execution_options(populate_existing=True)
+        )
+        return (
+            None
+            if row is None
+            else InstitutionInfo(
+                tenant_id=row.tenant_id, name=row.name, active=row.active
+            )
+        )
+
+    def update_institution(
+        self, tenant_id: UUID, *, name: str
+    ) -> InstitutionInfo | None:
+        row = self.session.scalar(
+            select(Institution)
+            .where(Institution.tenant_id == tenant_id)
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            return None
+        row.name = name
+        self.session.flush()
+        return InstitutionInfo(
+            tenant_id=row.tenant_id, name=row.name, active=row.active
+        )
+
+    def list_campuses(
+        self,
+        tenant_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[CampusSummary]:
+        stmt = select(Campus).where(Campus.tenant_id == tenant_id)
+        if active is not None:
+            stmt = stmt.where(Campus.active.is_(active))
+        return self._paginate(stmt, Campus, _campus_dto, cursor, limit)
+
+    def get_campus(self, tenant_id: UUID, campus_id: UUID) -> CampusSummary | None:
+        row = self._get(Campus, tenant_id, campus_id)
+        return _campus_dto(row) if row else None
+
+    def create_campus(
+        self, tenant_id: UUID, campus_id: UUID, name: str
+    ) -> CampusSummary:
+        row = Campus(tenant_id=tenant_id, id=campus_id, name=name, active=True)
+        self.session.add(row)
+        self.session.flush()
+        return _campus_dto(row)
+
+    def update_campus(
+        self, tenant_id: UUID, campus_id: UUID, *, name: str | None = None
+    ) -> CampusSummary | None:
+        row = self._get(Campus, tenant_id, campus_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        self.session.flush()
+        return _campus_dto(row)
+
+    def set_campus_active(
+        self, tenant_id: UUID, campus_id: UUID, active: bool
+    ) -> CampusSummary | None:
+        return self._set_active(Campus, tenant_id, campus_id, active, _campus_dto)
+
+    def has_active_campus_children(self, tenant_id: UUID, campus_id: UUID) -> bool:
+        return self._has_active_child(
+            Department, tenant_id, Department.campus_id, campus_id
+        )
+
+    def list_departments(
+        self,
+        tenant_id: UUID,
+        *,
+        actor_id: UUID | None,
+        campus_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[DepartmentSummary]:
+        stmt = select(Department).where(Department.tenant_id == tenant_id)
+        if actor_id is not None:
+            stmt = stmt.join(
+                DepartmentHead,
+                and_(
+                    DepartmentHead.tenant_id == Department.tenant_id,
+                    DepartmentHead.department_id == Department.id,
+                    DepartmentHead.user_id == actor_id,
+                    DepartmentHead.active.is_(True),
+                ),
+            ).where(Department.active.is_(True))
+        if campus_id is not None:
+            stmt = stmt.where(Department.campus_id == campus_id)
+        if active is not None:
+            stmt = stmt.where(Department.active.is_(active))
+        return self._paginate(stmt, Department, _department_dto, cursor, limit)
+
+    def get_department(
+        self, tenant_id: UUID, department_id: UUID
+    ) -> DepartmentSummary | None:
+        row = self._get(Department, tenant_id, department_id)
+        return _department_dto(row) if row else None
+
+    def create_department(
+        self,
+        tenant_id: UUID,
+        department_id: UUID,
+        *,
+        name: str,
+        campus_id: UUID | None,
+    ) -> DepartmentSummary:
+        row = Department(
+            tenant_id=tenant_id,
+            id=department_id,
+            name=name,
+            campus_id=campus_id,
+            active=True,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _department_dto(row)
+
+    def update_department(
+        self,
+        tenant_id: UUID,
+        department_id: UUID,
+        *,
+        name: str | None = None,
+        campus_id: UUID | None = None,
+        update_campus: bool = False,
+    ) -> DepartmentSummary | None:
+        row = self._get(Department, tenant_id, department_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        if update_campus:
+            row.campus_id = campus_id
+        self.session.flush()
+        return _department_dto(row)
+
+    def set_department_active(
+        self, tenant_id: UUID, department_id: UUID, active: bool
+    ) -> DepartmentSummary | None:
+        return self._set_active(
+            Department, tenant_id, department_id, active, _department_dto
+        )
+
+    def has_active_department_children(
+        self, tenant_id: UUID, department_id: UUID
+    ) -> bool:
+        return self._has_active_child(
+            Programme, tenant_id, Programme.department_id, department_id
+        ) or self._has_active_child(
+            Subject, tenant_id, Subject.department_id, department_id
+        )
+
+    def list_programmes(
+        self,
+        tenant_id: UUID,
+        *,
+        actor_id: UUID | None,
+        department_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[ProgrammeSummary]:
+        stmt = select(Programme).where(Programme.tenant_id == tenant_id)
+        if actor_id is not None:
+            stmt = (
+                stmt.join(
+                    Department,
+                    and_(
+                        Department.tenant_id == Programme.tenant_id,
+                        Department.id == Programme.department_id,
+                    ),
+                )
+                .join(
+                    DepartmentHead,
+                    and_(
+                        DepartmentHead.tenant_id == Programme.tenant_id,
+                        DepartmentHead.department_id == Programme.department_id,
+                        DepartmentHead.user_id == actor_id,
+                        DepartmentHead.active.is_(True),
+                    ),
+                )
+                .where(Programme.active.is_(True), Department.active.is_(True))
+            )
+        if department_id is not None:
+            stmt = stmt.where(Programme.department_id == department_id)
+        if active is not None:
+            stmt = stmt.where(Programme.active.is_(active))
+        return self._paginate(stmt, Programme, _programme_dto, cursor, limit)
+
+    def get_programme(
+        self, tenant_id: UUID, programme_id: UUID
+    ) -> ProgrammeSummary | None:
+        row = self._get(Programme, tenant_id, programme_id)
+        return _programme_dto(row) if row else None
+
+    def create_programme(
+        self,
+        tenant_id: UUID,
+        programme_id: UUID,
+        *,
+        name: str,
+        department_id: UUID | None,
+    ) -> ProgrammeSummary:
+        row = Programme(
+            tenant_id=tenant_id,
+            id=programme_id,
+            name=name,
+            department_id=department_id,
+            active=True,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _programme_dto(row)
+
+    def update_programme(
+        self,
+        tenant_id: UUID,
+        programme_id: UUID,
+        *,
+        name: str | None = None,
+        department_id: UUID | None = None,
+        update_department: bool = False,
+    ) -> ProgrammeSummary | None:
+        row = self._get(Programme, tenant_id, programme_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        if update_department:
+            row.department_id = department_id
+        self.session.flush()
+        return _programme_dto(row)
+
+    def set_programme_active(
+        self, tenant_id: UUID, programme_id: UUID, active: bool
+    ) -> ProgrammeSummary | None:
+        return self._set_active(
+            Programme, tenant_id, programme_id, active, _programme_dto
+        )
+
+    def has_active_programme_children(
+        self, tenant_id: UUID, programme_id: UUID
+    ) -> bool:
+        return self._has_active_child(
+            Section, tenant_id, Section.programme_id, programme_id
+        )
+
+    def list_academic_years(
+        self,
+        tenant_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[AcademicYearSummary]:
+        stmt = select(AcademicYear).where(AcademicYear.tenant_id == tenant_id)
+        if active is not None:
+            stmt = stmt.where(AcademicYear.active.is_(active))
+        return self._paginate(stmt, AcademicYear, _year_dto, cursor, limit)
+
+    def get_academic_year(
+        self, tenant_id: UUID, academic_year_id: UUID
+    ) -> AcademicYearSummary | None:
+        row = self._get(AcademicYear, tenant_id, academic_year_id)
+        return _year_dto(row) if row else None
+
+    def create_academic_year(
+        self, tenant_id: UUID, academic_year_id: UUID, name: str
+    ) -> AcademicYearSummary:
+        row = AcademicYear(
+            tenant_id=tenant_id, id=academic_year_id, name=name, active=True
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _year_dto(row)
+
+    def update_academic_year(
+        self, tenant_id: UUID, academic_year_id: UUID, *, name: str | None = None
+    ) -> AcademicYearSummary | None:
+        row = self._get(AcademicYear, tenant_id, academic_year_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        self.session.flush()
+        return _year_dto(row)
+
+    def set_academic_year_active(
+        self, tenant_id: UUID, academic_year_id: UUID, active: bool
+    ) -> AcademicYearSummary | None:
+        return self._set_active(
+            AcademicYear, tenant_id, academic_year_id, active, _year_dto
+        )
+
+    def has_active_academic_year_children(
+        self, tenant_id: UUID, academic_year_id: UUID
+    ) -> bool:
+        return self._has_active_child(
+            Semester, tenant_id, Semester.academic_year_id, academic_year_id
+        )
+
+    def list_semesters(
+        self,
+        tenant_id: UUID,
+        *,
+        academic_year_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[SemesterSummary]:
+        stmt = select(Semester).where(Semester.tenant_id == tenant_id)
+        if academic_year_id is not None:
+            stmt = stmt.where(Semester.academic_year_id == academic_year_id)
+        if active is not None:
+            stmt = stmt.where(Semester.active.is_(active))
+        return self._paginate(stmt, Semester, _semester_dto, cursor, limit)
+
+    def get_semester(
+        self, tenant_id: UUID, semester_id: UUID
+    ) -> SemesterSummary | None:
+        row = self._get(Semester, tenant_id, semester_id)
+        return _semester_dto(row) if row else None
+
+    def create_semester(
+        self,
+        tenant_id: UUID,
+        semester_id: UUID,
+        *,
+        name: str,
+        academic_year_id: UUID,
+    ) -> SemesterSummary:
+        row = Semester(
+            tenant_id=tenant_id,
+            id=semester_id,
+            name=name,
+            academic_year_id=academic_year_id,
+            active=True,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _semester_dto(row)
+
+    def update_semester(
+        self,
+        tenant_id: UUID,
+        semester_id: UUID,
+        *,
+        name: str | None = None,
+        academic_year_id: UUID | None = None,
+    ) -> SemesterSummary | None:
+        row = self._get(Semester, tenant_id, semester_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        if academic_year_id is not None:
+            row.academic_year_id = academic_year_id
+        self.session.flush()
+        return _semester_dto(row)
+
+    def set_semester_active(
+        self, tenant_id: UUID, semester_id: UUID, active: bool
+    ) -> SemesterSummary | None:
+        return self._set_active(
+            Semester, tenant_id, semester_id, active, _semester_dto
+        )
+
+    def has_active_semester_children(
+        self, tenant_id: UUID, semester_id: UUID
+    ) -> bool:
+        return self._has_active_child(
+            Section, tenant_id, Section.semester_id, semester_id
+        )
+
+    def list_sections(
+        self,
+        tenant_id: UUID,
+        *,
+        actor_id: UUID | None,
+        semester_id: UUID | None,
+        programme_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[SectionSummary]:
+        stmt = select(Section).where(Section.tenant_id == tenant_id)
+        if actor_id is not None:
+            stmt = (
+                stmt.join(
+                    Semester,
+                    and_(
+                        Semester.tenant_id == Section.tenant_id,
+                        Semester.id == Section.semester_id,
+                    ),
+                )
+                .join(
+                    AcademicYear,
+                    and_(
+                        AcademicYear.tenant_id == Semester.tenant_id,
+                        AcademicYear.id == Semester.academic_year_id,
+                    ),
+                )
+                .outerjoin(
+                    Programme,
+                    and_(
+                        Programme.tenant_id == Section.tenant_id,
+                        Programme.id == Section.programme_id,
+                    ),
+                )
+                .join(
+                    ClassCoordinator,
+                    and_(
+                        ClassCoordinator.tenant_id == Section.tenant_id,
+                        ClassCoordinator.section_id == Section.id,
+                        ClassCoordinator.user_id == actor_id,
+                        ClassCoordinator.active.is_(True),
+                    ),
+                )
+                .where(
+                    Section.active.is_(True),
+                    Semester.active.is_(True),
+                    AcademicYear.active.is_(True),
+                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
+                )
+            )
+        if semester_id is not None:
+            stmt = stmt.where(Section.semester_id == semester_id)
+        if programme_id is not None:
+            stmt = stmt.where(Section.programme_id == programme_id)
+        if active is not None:
+            stmt = stmt.where(Section.active.is_(active))
+        return self._paginate(stmt, Section, _section_dto, cursor, limit)
+
+    def get_section(self, tenant_id: UUID, section_id: UUID) -> SectionSummary | None:
+        row = self._get(Section, tenant_id, section_id)
+        return _section_dto(row) if row else None
+
+    def create_section(
+        self,
+        tenant_id: UUID,
+        section_id: UUID,
+        *,
+        name: str,
+        semester_id: UUID,
+        programme_id: UUID | None,
+    ) -> SectionSummary:
+        row = Section(
+            tenant_id=tenant_id,
+            id=section_id,
+            name=name,
+            semester_id=semester_id,
+            programme_id=programme_id,
+            active=True,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _section_dto(row)
+
+    def update_section(
+        self,
+        tenant_id: UUID,
+        section_id: UUID,
+        *,
+        name: str | None = None,
+        semester_id: UUID | None = None,
+        programme_id: UUID | None = None,
+        update_programme: bool = False,
+    ) -> SectionSummary | None:
+        row = self._get(Section, tenant_id, section_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        if semester_id is not None:
+            row.semester_id = semester_id
+        if update_programme:
+            row.programme_id = programme_id
+        self.session.flush()
+        return _section_dto(row)
+
+    def set_section_active(
+        self, tenant_id: UUID, section_id: UUID, active: bool
+    ) -> SectionSummary | None:
+        return self._set_active(Section, tenant_id, section_id, active, _section_dto)
+
+    def has_active_section_children(self, tenant_id: UUID, section_id: UUID) -> bool:
+        return self._has_active_child(
+            SubjectOffering, tenant_id, SubjectOffering.section_id, section_id
+        )
+
+    def list_subjects(
+        self,
+        tenant_id: UUID,
+        *,
+        actor_id: UUID | None,
+        department_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[SubjectSummary]:
+        stmt = select(Subject).where(Subject.tenant_id == tenant_id)
+        if actor_id is not None:
+            stmt = (
+                stmt.join(
+                    Department,
+                    and_(
+                        Department.tenant_id == Subject.tenant_id,
+                        Department.id == Subject.department_id,
+                    ),
+                )
+                .join(
+                    DepartmentHead,
+                    and_(
+                        DepartmentHead.tenant_id == Subject.tenant_id,
+                        DepartmentHead.department_id == Subject.department_id,
+                        DepartmentHead.user_id == actor_id,
+                        DepartmentHead.active.is_(True),
+                    ),
+                )
+                .where(Subject.active.is_(True), Department.active.is_(True))
+            )
+        if department_id is not None:
+            stmt = stmt.where(Subject.department_id == department_id)
+        if active is not None:
+            stmt = stmt.where(Subject.active.is_(active))
+        return self._paginate(stmt, Subject, _subject_dto, cursor, limit)
+
+    def get_subject(self, tenant_id: UUID, subject_id: UUID) -> SubjectSummary | None:
+        row = self._get(Subject, tenant_id, subject_id)
+        return _subject_dto(row) if row else None
+
+    def create_subject(
+        self,
+        tenant_id: UUID,
+        subject_id: UUID,
+        *,
+        name: str,
+        department_id: UUID | None,
+    ) -> SubjectSummary:
+        row = Subject(
+            tenant_id=tenant_id,
+            id=subject_id,
+            name=name,
+            department_id=department_id,
+            active=True,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _subject_dto(row)
+
+    def update_subject(
+        self,
+        tenant_id: UUID,
+        subject_id: UUID,
+        *,
+        name: str | None = None,
+        department_id: UUID | None = None,
+        update_department: bool = False,
+    ) -> SubjectSummary | None:
+        row = self._get(Subject, tenant_id, subject_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        if update_department:
+            row.department_id = department_id
+        self.session.flush()
+        return _subject_dto(row)
+
+    def set_subject_active(
+        self, tenant_id: UUID, subject_id: UUID, active: bool
+    ) -> SubjectSummary | None:
+        return self._set_active(Subject, tenant_id, subject_id, active, _subject_dto)
+
+    def has_active_subject_children(self, tenant_id: UUID, subject_id: UUID) -> bool:
+        return self._has_active_child(
+            SubjectOffering, tenant_id, SubjectOffering.subject_id, subject_id
+        )
+
+    def list_offerings(
+        self,
+        tenant_id: UUID,
+        *,
+        actor_id: UUID | None,
+        roles: frozenset[str],
+        section_id: UUID | None,
+        subject_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[SubjectOfferingSummary]:
+        stmt = select(SubjectOffering).where(SubjectOffering.tenant_id == tenant_id)
+        if actor_id is not None:
+            filters = []
+            if "class_coordinator" in roles:
+                filters.append(
+                    SubjectOffering.section_id.in_(
+                        select(ClassCoordinator.section_id).where(
+                            ClassCoordinator.tenant_id == tenant_id,
+                            ClassCoordinator.user_id == actor_id,
+                            ClassCoordinator.active.is_(True),
+                        )
+                    )
+                )
+            if "subject_teacher" in roles:
+                filters.append(
+                    SubjectOffering.id.in_(
+                        select(TeacherAssignment.offering_id).where(
+                            TeacherAssignment.tenant_id == tenant_id,
+                            TeacherAssignment.user_id == actor_id,
+                            TeacherAssignment.active.is_(True),
+                        )
+                    )
+                )
+            if "student" in roles:
+                filters.append(
+                    SubjectOffering.id.in_(
+                        select(StudentEnrolment.offering_id).where(
+                            StudentEnrolment.tenant_id == tenant_id,
+                            StudentEnrolment.user_id == actor_id,
+                            StudentEnrolment.active.is_(True),
+                        )
+                    )
+                )
+            if not filters:
+                return Page(items=(), next_cursor=None)
+            stmt = (
+                stmt.join(
+                    Section,
+                    and_(
+                        Section.tenant_id == SubjectOffering.tenant_id,
+                        Section.id == SubjectOffering.section_id,
+                    ),
+                )
+                .join(
+                    Semester,
+                    and_(
+                        Semester.tenant_id == Section.tenant_id,
+                        Semester.id == Section.semester_id,
+                    ),
+                )
+                .join(
+                    AcademicYear,
+                    and_(
+                        AcademicYear.tenant_id == Semester.tenant_id,
+                        AcademicYear.id == Semester.academic_year_id,
+                    ),
+                )
+                .join(
+                    Subject,
+                    and_(
+                        Subject.tenant_id == SubjectOffering.tenant_id,
+                        Subject.id == SubjectOffering.subject_id,
+                    ),
+                )
+                .outerjoin(
+                    Programme,
+                    and_(
+                        Programme.tenant_id == Section.tenant_id,
+                        Programme.id == Section.programme_id,
+                    ),
+                )
+                .where(
+                    SubjectOffering.active.is_(True),
+                    Section.active.is_(True),
+                    Semester.active.is_(True),
+                    AcademicYear.active.is_(True),
+                    Subject.active.is_(True),
+                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
+                    or_(*filters),
+                )
+            )
+        if section_id is not None:
+            stmt = stmt.where(SubjectOffering.section_id == section_id)
+        if subject_id is not None:
+            stmt = stmt.where(SubjectOffering.subject_id == subject_id)
+        if active is not None:
+            stmt = stmt.where(SubjectOffering.active.is_(active))
+        return self._paginate(stmt, SubjectOffering, _offering_dto, cursor, limit)
+
+    def get_offering(
+        self, tenant_id: UUID, offering_id: UUID
+    ) -> SubjectOfferingSummary | None:
+        row = self._get(SubjectOffering, tenant_id, offering_id)
+        return _offering_dto(row) if row else None
+
+    def create_offering(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        name: str,
+        section_id: UUID,
+        subject_id: UUID,
+    ) -> SubjectOfferingSummary:
+        row = SubjectOffering(
+            tenant_id=tenant_id,
+            id=offering_id,
+            name=name,
+            section_id=section_id,
+            subject_id=subject_id,
+            active=True,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _offering_dto(row)
+
+    def update_offering(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        name: str | None = None,
+        section_id: UUID | None = None,
+        subject_id: UUID | None = None,
+    ) -> SubjectOfferingSummary | None:
+        row = self._get(SubjectOffering, tenant_id, offering_id)
+        if row is None:
+            return None
+        if name is not None:
+            row.name = name
+        if section_id is not None:
+            row.section_id = section_id
+        if subject_id is not None:
+            row.subject_id = subject_id
+        self.session.flush()
+        return _offering_dto(row)
+
+    def set_offering_active(
+        self, tenant_id: UUID, offering_id: UUID, active: bool
+    ) -> SubjectOfferingSummary | None:
+        return self._set_active(
+            SubjectOffering, tenant_id, offering_id, active, _offering_dto
+        )
+
+    def has_duplicate_offering(
+        self,
+        tenant_id: UUID,
+        *,
+        section_id: UUID,
+        subject_id: UUID,
+        name: str,
+        exclude_id: UUID | None = None,
+    ) -> bool:
+        self.session.scalar(
+            select(Section.id)
+            .where(Section.tenant_id == tenant_id, Section.id == section_id)
+            .with_for_update()
+        )
+        stmt = select(SubjectOffering.id).where(
+            SubjectOffering.tenant_id == tenant_id,
+            SubjectOffering.section_id == section_id,
+            SubjectOffering.subject_id == subject_id,
+            func.lower(func.btrim(SubjectOffering.name)) == name.strip().lower(),
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(SubjectOffering.id != exclude_id)
+        return self.session.scalar(stmt.limit(1)) is not None

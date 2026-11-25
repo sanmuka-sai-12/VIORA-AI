@@ -9,6 +9,8 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     false,
+    func,
+    text,
     true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -48,12 +50,19 @@ class AcademicRecord:
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, sort_order=-1)
     name: Mapped[str]
+    active: Mapped[bool] = mapped_column(Boolean, server_default=true())
 
 
 class Campus(AcademicRecord, Base):
     __tablename__ = "campuses"
     __table_args__ = (
         CheckConstraint("length(trim(name)) > 0", name="ck_campuses_name"),
+        Index(
+            "uq_campuses_tenant_name",
+            "tenant_id",
+            func.lower(func.btrim(text("name"))),
+            unique=True,
+        ),
     )
 
 
@@ -63,6 +72,16 @@ class Department(AcademicRecord, Base):
         CheckConstraint("length(trim(name)) > 0", name="ck_departments_name"),
         tenant_reference("campus_id", "campuses"),
         Index("ix_departments_campus_id", "tenant_id", "campus_id"),
+        Index(
+            "uq_departments_scope_name",
+            "tenant_id",
+            func.coalesce(
+                text("campus_id"),
+                text("'00000000-0000-0000-0000-000000000000'::uuid"),
+            ),
+            func.lower(func.btrim(text("name"))),
+            unique=True,
+        ),
     )
 
     campus_id: Mapped[UUID | None]
@@ -74,6 +93,16 @@ class Programme(AcademicRecord, Base):
         CheckConstraint("length(trim(name)) > 0", name="ck_programmes_name"),
         tenant_reference("department_id", "departments"),
         Index("ix_programmes_department_id", "tenant_id", "department_id"),
+        Index(
+            "uq_programmes_scope_name",
+            "tenant_id",
+            func.coalesce(
+                text("department_id"),
+                text("'00000000-0000-0000-0000-000000000000'::uuid"),
+            ),
+            func.lower(func.btrim(text("name"))),
+            unique=True,
+        ),
     )
 
     department_id: Mapped[UUID | None]
@@ -83,6 +112,12 @@ class AcademicYear(AcademicRecord, Base):
     __tablename__ = "academic_years"
     __table_args__ = (
         CheckConstraint("length(trim(name)) > 0", name="ck_academic_years_name"),
+        Index(
+            "uq_academic_years_tenant_name",
+            "tenant_id",
+            func.lower(func.btrim(text("name"))),
+            unique=True,
+        ),
     )
 
 
@@ -92,6 +127,13 @@ class Semester(AcademicRecord, Base):
         CheckConstraint("length(trim(name)) > 0", name="ck_semesters_name"),
         tenant_reference("academic_year_id", "academic_years"),
         Index("ix_semesters_academic_year_id", "tenant_id", "academic_year_id"),
+        Index(
+            "uq_semesters_year_name",
+            "tenant_id",
+            "academic_year_id",
+            func.lower(func.btrim(text("name"))),
+            unique=True,
+        ),
     )
 
     academic_year_id: Mapped[UUID]
@@ -105,6 +147,17 @@ class Section(AcademicRecord, Base):
         Index("ix_sections_programme_id", "tenant_id", "programme_id"),
         tenant_reference("semester_id", "semesters"),
         Index("ix_sections_semester_id", "tenant_id", "semester_id"),
+        Index(
+            "uq_sections_scope_name",
+            "tenant_id",
+            func.coalesce(
+                text("programme_id"),
+                text("'00000000-0000-0000-0000-000000000000'::uuid"),
+            ),
+            "semester_id",
+            func.lower(func.btrim(text("name"))),
+            unique=True,
+        ),
     )
 
     programme_id: Mapped[UUID | None]
@@ -117,6 +170,16 @@ class Subject(AcademicRecord, Base):
         CheckConstraint("length(trim(name)) > 0", name="ck_subjects_name"),
         tenant_reference("department_id", "departments"),
         Index("ix_subjects_department_id", "tenant_id", "department_id"),
+        Index(
+            "uq_subjects_scope_name",
+            "tenant_id",
+            func.coalesce(
+                text("department_id"),
+                text("'00000000-0000-0000-0000-000000000000'::uuid"),
+            ),
+            func.lower(func.btrim(text("name"))),
+            unique=True,
+        ),
     )
 
     department_id: Mapped[UUID | None]

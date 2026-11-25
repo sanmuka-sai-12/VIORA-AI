@@ -1,9 +1,13 @@
+from uuid import UUID
+
 from fastapi import APIRouter
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import AuthSettings, Settings
 from ..db import Database
 from .auth import AuthFailure, AuthService, TokenPair
+from .models import MembershipRecord, RoleGrant, User, VerifiedIdentityAttribute
 from .ports import IdentityDirectory, InstitutionStatusReader
 from .provision import provision_account
 from .repository import SqlIdentityDirectory as _SqlIdentityDirectory
@@ -34,7 +38,9 @@ __all__ = [
     "UserSummary",
     "auth_router",
     "build_auth_service",
+    "grant_initial_owner_membership",
     "identity_directory",
+    "is_verified_active_user",
     "provision_account",
     "register_models",
 ]
@@ -63,3 +69,39 @@ def identity_directory(
 ) -> IdentityDirectory:
     """Bind the read-only directory to the caller's transaction."""
     return _SqlIdentityDirectory(session, institutions)
+
+
+def is_verified_active_user(session: Session, user_id: UUID) -> bool:
+    """Return True only when user exists, is active, and has a verified identifier."""
+    found = session.scalar(
+        select(User.user_id)
+        .join(
+            VerifiedIdentityAttribute,
+            VerifiedIdentityAttribute.user_id == User.user_id,
+        )
+        .where(User.user_id == user_id, User.status == AccountStatus.active)
+        .limit(1)
+    )
+    return found is not None
+
+
+def grant_initial_owner_membership(
+    session: Session, tenant_id: UUID, user_id: UUID
+) -> None:
+    """Create initial active membership and institution_owner role inside caller transaction."""
+    session.add(
+        MembershipRecord(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            status=MembershipStatus.active,
+        )
+    )
+    session.flush()
+    session.add(
+        RoleGrant(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=InstitutionRole.institution_owner,
+        )
+    )
+    session.flush()

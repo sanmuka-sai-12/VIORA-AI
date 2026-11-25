@@ -14,6 +14,7 @@ from .http import Correlation, configure_errors
 from .identity.public import auth_router, build_auth_service
 from .identity.public import register_models as register_identity
 from .institution.public import register_models as register_institution
+from .institution.public import router as institution_router
 from .security import Access
 from .sources import public as sources
 
@@ -51,19 +52,22 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(config.cors_origins),
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Viora-CSRF"],
         expose_headers=["X-Request-ID"],
     )
     api = APIRouter(
         prefix="/api/v1",
         responses={
-            code: {"model": ErrorResponse} for code in (401, 403, 404, 422, 500, 503)
+            code: {"model": ErrorResponse}
+            for code in (401, 403, 404, 409, 422, 500, 503)
         },
     )
 
     api.include_router(health_router(db))
     api.include_router(auth_router(config, db, auth_service))
+    if isinstance(effective_access, AuthorizationService):
+        api.include_router(institution_router(effective_access))
     api.include_router(sources.router(db, effective_access))
     app.include_router(api)
     return app

@@ -24,7 +24,7 @@ This file records the choices that affect other modules. We keep requirements, d
 | DEC-011 | Quiz answer keys stay on the server; offline quiz grading is practice-only | Selected for build | A downloadable package cannot protect a secret answer key |
 | DEC-012 | Use a configurable AI provider interface; first SDK integration is OpenAI | Selected for build | Avoid coupling the rest of the system to one model or API shape |
 
-## FR-001 — approved
+## FR-001 â€” approved
 
 | Decision | Requirement |
 |---|---|
@@ -36,7 +36,7 @@ This file records the choices that affect other modules. We keep requirements, d
 
 The full FR-001 functional baseline was approved on 23 November 2026. Database schema, package integration and benchmark numbers still need engineering work.
 
-## Other FRs — design selections for the next build
+## Other FRs â€” design selections for the next build
 
 | FR | Approach | Why |
 |---|---|---|
@@ -58,7 +58,7 @@ The full FR-001 functional baseline was approved on 23 November 2026. Database s
 
 These designs guide implementation but do not indicate passed tests.
 
-## Technology decisions — first install baseline
+## Technology decisions â€” first install baseline
 
 | Category | Version | Alternative or constraint |
 |---|---|---|
@@ -73,17 +73,17 @@ These designs guide implementation but do not indicate passed tests.
 
 See [TECH-STACK.md](TECH-STACK.md) and the actual installation manifests. Version existence has been checked against public release pages; dependency resolution and cross-platform tests remain pending.
 
-## DEC-003 � authorization and tenant isolation
+## DEC-003 — authorization and tenant isolation
 
-**Resolved in Phase 1, Step 4.3A.** Authorization is centralized in `viora.authorization.public.AuthorizationService`, which composes the real identity/institution directories through `Access`. Every decision rechecks active global account, active institution, active membership, unrevoked roles and current assignments. Caller-supplied role claims never authorize access. Unknown actions, resource kinds, platform administrators and cross-institution sharing deny by default.
+**Resolved in Phase 1, Step 4.3A and extended in Steps 4.4–4.5.** Authorization is centralized in `viora.authorization.public.AuthorizationService`, which composes the real identity/institution directories through `Access`. Every decision rechecks active global account, active institution, active membership, unrevoked roles and current assignments (plus active hierarchy state for non-admin assignments). Caller-supplied role claims never authorize access. Unknown actions, resource kinds, platform administrators and cross-institution sharing deny by default.
 
 | Eligible role | Explicit actions | Required resource scope |
 | --- | --- | --- |
-| Institution owner / administrator | `institution.read`, `institution.update_metadata` | Existing active institution; resource ID equals the membership tenant ID |
-| Department head | `department.read`, `department.update_metadata` | Active head assignment to that department |
-| Class coordinator | `section.read`, `section.update_metadata` | Active coordinator assignment to that section |
-| Subject teacher | `offering.read`, `offering.teach` | Existing offering and active teacher assignment |
-| Student | `offering.read`; `student.summary.read` | Active offering enrolment; own minimal summary respectively |
+| Institution owner / administrator | `institution.read`, `institution.update_metadata`, hierarchy management (`campus.*`, `department.*`, `programme.*`, `academic_year.*`, `semester.*`, `section.*`, `subject.*`, `offering.catalog.read`, `offering.update`, `offering.lifecycle`, `*.list`, and parent-scoped `*.create`) | Existing active institution; parent/target exists in same tenant (and active for child creation); excludes `offering.read` and `offering.teach` |
+| Department head | `department.read`, `department.update_metadata`, `department.list`, `programme.list`, `programme.read`, `subject.list`, `subject.read` | Active head assignment to that active department (and active child programmes/subjects) |
+| Class coordinator | `section.read`, `section.update_metadata`, `section.list`, `offering.list`, `offering.catalog.read` | Active coordinator assignment to that active section and active offerings within it |
+| Subject teacher | `offering.read`, `offering.teach`, `offering.catalog.read`, `offering.list` | Active offering chain and active teacher assignment |
+| Student | `offering.read`, `offering.catalog.read`, `offering.list`; `student.summary.read` | Active offering chain and active enrolment; own minimal summary respectively |
 | Guardian | `student.summary.read` | Active, verified, consented guardian link to an active student member |
 
 Leadership does not imply access to all offerings, students, files or assignments. Student summary permission permits only minimal institutional identification (student ID/display name), not global identifiers, contact details, grades, attendance, health, safeguarding or other sensitive records. A guardian link does not imply access to the student's teaching materials. No source metadata access is granted: existing sources lack creator/current owner/assignment/visibility fields. Those must be separately modeled and policy-tested before enabling `source.read` for any role.
@@ -104,7 +104,9 @@ Tenant-scoped `security_events` stores actor, action, resource, timestamp, decis
 
 ### Controlled bootstrap
 
-There is no public tenant creation or membership/role mutation permission yet. An audited administrative provisioning process uses a separate schema-owner connection (without BYPASSRLS), chooses a new tenant UUID, and explicitly sets that local context inside one transaction. It creates an inactive institution, references an already provisioned global user, inserts that user's active membership and initial owner role, appends a bootstrap change audit, and activates the institution only after verification. The forced RLS rules apply throughout; no disabling RLS, wildcard context, security-definer bypass or runtime owner membership is allowed. Only trusted provisioning operators may run it. Existing legacy inactive institutions require reconciliation before activation.
+There is no public tenant creation or membership/role mutation permission yet. An audited administrative provisioning process (`viora.institution.bootstrap.bootstrap_institution`) uses separate administrative credentials (`BOOTSTRAP_DATABASE_URL` or `MIGRATION_DATABASE_URL`), chooses a new tenant UUID, and explicitly sets that local context inside one transaction. It creates an inactive institution, references an already provisioned verified active global user, inserts that user's active membership and initial owner role, appends a bootstrap change audit, and activates the institution only after verification. The forced RLS rules apply throughout; no disabling RLS, wildcard context, security-definer bypass or runtime owner membership is allowed. Only trusted provisioning operators may run it. Existing legacy inactive institutions require reconciliation before activation.
+
+Cross-tenant institution discovery (`GET /api/v1/institutions`) remains deferred because `memberships` and `institutions` enforce single-tenant forced RLS without an actor-scoped cross-tenant policy or runtime `BYPASSRLS`.
 
 ### Deferred policies
 

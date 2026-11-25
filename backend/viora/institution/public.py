@@ -1,7 +1,10 @@
+from fastapi import APIRouter
 from sqlalchemy.orm import Session
 
 from ..identity.public import IdentityDirectory, InstitutionStatusReader
+from ..security import TransactionalAccess
 from .ports import InstitutionDirectory
+from .router import build_router
 from .schemas import AcademicContext, InstitutionInfo, OfferingAssignment
 
 __all__ = [
@@ -12,6 +15,7 @@ __all__ = [
     "institution_directory",
     "institution_status",
     "register_models",
+    "router",
 ]
 
 
@@ -32,3 +36,7 @@ def institution_status(session: Session) -> InstitutionStatusReader:
 def register_models() -> None:
     """Load declarative mappings into the shared Alembic metadata."""
     from . import models  # noqa: F401
+
+
+def router(access: TransactionalAccess) -> APIRouter:
+    return build_router(access)

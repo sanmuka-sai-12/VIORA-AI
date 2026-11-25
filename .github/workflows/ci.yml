@@ -83,7 +83,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt
 
-      - name: Run live migrations and integration tests
+      - name: Run live migrations and integration tests (including auth locking and replay)
         env:
           PYTHONPATH: backend
           DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test

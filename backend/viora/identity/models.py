@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     Text,
     UniqueConstraint,
 )
@@ -123,3 +124,54 @@ class RoleGrant(Base):
         primary_key=True,
     )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuthSession(Base):
+    """One login is one family; all refresh generations share this revocation root."""
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        Index("ix_auth_sessions_user_id", "user_id"),
+        CheckConstraint("expires_at > created_at", name="ck_auth_session_lifetime"),
+        CheckConstraint(
+            "refresh_expires_at <= expires_at", name="ck_auth_refresh_limit"
+        ),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="RESTRICT")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    refresh_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RefreshToken(Base):
+    """Retain consumed hashes until the family expires to detect replay."""
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (Index("ix_refresh_tokens_session_id", "session_id"),)
+
+    token_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("auth_sessions.session_id", ondelete="CASCADE")
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuthRateLimit(Base):
+    """Multi-worker rate-limit buckets for authentication transport endpoints."""
+
+    __tablename__ = "auth_rate_limits"
+    __table_args__ = (
+        CheckConstraint("request_count >= 1", name="ck_auth_rate_limit_count"),
+        Index("ix_auth_rate_limits_window_started_at", "window_started_at"),
+    )
+
+    scope: Mapped[str] = mapped_column(Text, primary_key=True)
+    bucket_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    request_count: Mapped[int] = mapped_column(Integer)

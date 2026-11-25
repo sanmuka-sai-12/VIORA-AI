@@ -20,7 +20,11 @@ def failure(request: Request, status: int, code: str, message: str) -> JSONRespo
     body = ErrorResponse(
         code=code, message=message, request_id=request.state.request_id
     )
-    headers = {"WWW-Authenticate": "Bearer"} if status == 401 else {}
+    headers: dict[str, str] = {}
+    if status == 401:
+        headers["WWW-Authenticate"] = "Bearer"
+    if request.url.path.startswith("/api/v1/auth"):
+        headers["Cache-Control"] = "no-store"
     return JSONResponse(
         body.model_dump(mode="json"), status_code=status, headers=headers
     )
@@ -48,7 +52,10 @@ class Correlation:
             if message["type"] == "http.response.start":
                 started = True
                 status = message["status"]
-                MutableHeaders(scope=message)["X-Request-ID"] = str(rid)
+                headers = MutableHeaders(scope=message)
+                headers["X-Request-ID"] = str(rid)
+                if scope["path"].startswith("/api/v1/auth"):
+                    headers["Cache-Control"] = "no-store"
             await send(message)
 
         try:

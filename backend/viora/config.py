@@ -7,9 +7,39 @@ from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from sqlalchemy.engine import make_url
 
+DEFAULT_ACCESS_SECONDS = 15 * 60
+DEFAULT_REFRESH_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_ABSOLUTE_SECONDS = 30 * 24 * 60 * 60
+
+
+class AuthSettings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    signing_key: SecretStr
+    issuer: str = Field(default="viora", min_length=1)
+    audience: str = Field(default="viora-api", min_length=1)
+    access_seconds: int = Field(default=DEFAULT_ACCESS_SECONDS, gt=0)
+    refresh_seconds: int = Field(default=DEFAULT_REFRESH_SECONDS, gt=0)
+    absolute_seconds: int = Field(default=DEFAULT_ABSOLUTE_SECONDS, gt=0)
+    cookie_secure: bool = True
+    login_rate_limit: int = Field(default=10, gt=0)
+    login_rate_window_seconds: int = Field(default=60, gt=0)
+    refresh_rate_limit: int = Field(default=30, gt=0)
+    refresh_rate_window_seconds: int = Field(default=60, gt=0)
+
+    @model_validator(mode="after")
+    def validate_security(self) -> Self:
+        if len(self.signing_key.get_secret_value().encode()) < 32:
+            raise ValueError(
+                "JWT signing key requires at least 32 bytes of random secret material"
+            )
+        if self.refresh_seconds > self.absolute_seconds:
+            raise ValueError("Refresh lifetime cannot exceed absolute session lifetime")
+        return self
+
 
 class Settings(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+    auth: AuthSettings | None = None
     database_url: SecretStr
     environment: Literal["development", "test", "production"] = "development"
     cors_origins: tuple[str, ...] = ()
@@ -44,6 +74,12 @@ class Settings(BaseModel):
             ):
                 raise ValueError("Expected an explicit HTTP origin")
             _ = parts.port
+        if (
+            self.environment == "production"
+            and self.auth is not None
+            and not self.auth.cookie_secure
+        ):
+            raise ValueError("Production requires Secure authentication cookies")
         return self
 
     @classmethod
@@ -55,6 +91,31 @@ class Settings(BaseModel):
         return cls.model_validate(
             {
                 "database_url": values.get("DATABASE_URL"),
+                "auth": {
+                    "signing_key": values.get("AUTH_SIGNING_KEY"),
+                    "issuer": values.get("AUTH_ISSUER", "viora"),
+                    "audience": values.get("AUTH_AUDIENCE", "viora-api"),
+                    "access_seconds": values.get(
+                        "AUTH_ACCESS_SECONDS", DEFAULT_ACCESS_SECONDS
+                    ),
+                    "refresh_seconds": values.get(
+                        "AUTH_REFRESH_SECONDS", DEFAULT_REFRESH_SECONDS
+                    ),
+                    "absolute_seconds": values.get(
+                        "AUTH_ABSOLUTE_SECONDS", DEFAULT_ABSOLUTE_SECONDS
+                    ),
+                    "cookie_secure": values.get("AUTH_COOKIE_SECURE", "true"),
+                    "login_rate_limit": values.get("AUTH_LOGIN_RATE_LIMIT", 10),
+                    "login_rate_window_seconds": values.get(
+                        "AUTH_LOGIN_RATE_WINDOW_SECONDS", 60
+                    ),
+                    "refresh_rate_limit": values.get("AUTH_REFRESH_RATE_LIMIT", 30),
+                    "refresh_rate_window_seconds": values.get(
+                        "AUTH_REFRESH_RATE_WINDOW_SECONDS", 60
+                    ),
+                }
+                if values.get("AUTH_SIGNING_KEY")
+                else None,
                 "environment": values.get("APP_ENV", "development"),
                 "cors_origins": tuple(
                     x.strip()

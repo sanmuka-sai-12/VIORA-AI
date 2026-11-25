@@ -1,9 +1,97 @@
 import createClient, { type Middleware } from "openapi-fetch";
-import type { paths } from "./generated";
+import type { components, paths } from "./generated";
+
+export type ApiSchema<T extends keyof components["schemas"]> =
+  components["schemas"][T];
+
+export type ErrorResponse = ApiSchema<"ErrorResponse">;
+export type TokenResponse = ApiSchema<"TokenResponse">;
+export type AuthenticatedUser = ApiSchema<"AuthenticatedUser">;
+export type AccountStatus = ApiSchema<"AccountStatus">;
+export type InstitutionDiscovery = ApiSchema<"InstitutionDiscovery">;
+export type InstitutionInfo = ApiSchema<"InstitutionInfo">;
+export type InstitutionRole = ApiSchema<"InstitutionRole">;
+export type MembershipStatus = ApiSchema<"MembershipStatus">;
+export type MemberSummary = ApiSchema<"MemberSummary">;
+export type CampusSummary = ApiSchema<"CampusSummary">;
+export type DepartmentSummary = ApiSchema<"DepartmentSummary">;
+export type DepartmentHeadSummary = ApiSchema<"DepartmentHeadSummary">;
+export type ProgrammeSummary = ApiSchema<"ProgrammeSummary">;
+export type AcademicYearSummary = ApiSchema<"AcademicYearSummary">;
+export type SemesterSummary = ApiSchema<"SemesterSummary">;
+export type SectionSummary = ApiSchema<"SectionSummary">;
+export type ClassCoordinatorSummary = ApiSchema<"ClassCoordinatorSummary">;
+export type SubjectSummary = ApiSchema<"SubjectSummary">;
+export type SubjectOfferingSummary = ApiSchema<"SubjectOfferingSummary">;
+export type OfferingAssignmentSummary = ApiSchema<"OfferingAssignmentSummary">;
+export type GuardianLinkSummary = ApiSchema<"GuardianLinkSummary">;
+export type StudentSummary = ApiSchema<"StudentSummary">;
+
+export interface NormalizedApiError {
+  status: number;
+  code: string;
+  message: string;
+  requestId?: string;
+}
+
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export function isAuthEndpoint(urlOrPath: string): boolean {
+  try {
+    const pathname = urlOrPath.startsWith("http")
+      ? new URL(urlOrPath).pathname
+      : urlOrPath;
+    return pathname.startsWith("/api/v1/auth/");
+  } catch {
+    return urlOrPath.includes("/api/v1/auth/");
+  }
+}
+
+export function isRefreshOrLoginEndpoint(urlOrPath: string): boolean {
+  try {
+    const pathname = urlOrPath.startsWith("http")
+      ? new URL(urlOrPath).pathname
+      : urlOrPath;
+    return (
+      pathname === "/api/v1/auth/login" || pathname === "/api/v1/auth/refresh"
+    );
+  } catch {
+    return (
+      urlOrPath.endsWith("/api/v1/auth/login") ||
+      urlOrPath.endsWith("/api/v1/auth/refresh")
+    );
+  }
+}
+
+export function normalizeApiError(
+  error: unknown,
+  status: number,
+  fallbackMessage = "Request failed",
+): NormalizedApiError {
+  if (error && typeof error === "object") {
+    const record = error as Partial<ErrorResponse>;
+    if (typeof record.code === "string" && typeof record.message === "string") {
+      return {
+        status,
+        code: record.code,
+        message: record.message,
+        requestId:
+          typeof record.request_id === "string" ? record.request_id : undefined,
+      };
+    }
+  }
+  return {
+    status,
+    code: status >= 500 ? "server_error" : "request_failed",
+    message: fallbackMessage,
+  };
+}
 
 export interface ApiClientOptions {
   baseUrl?: string;
   getAuthToken?: () => string | null;
+  fetch?: typeof globalThis.fetch;
+  onResponseError?: (response: Response, schemaPath: string) => void;
 }
 
 export function createApiClient(options: ApiClientOptions = {}) {
@@ -14,33 +102,45 @@ export function createApiClient(options: ApiClientOptions = {}) {
   const baseUrl = options.baseUrl ?? envApiUrl ?? "";
 
   const authMiddleware: Middleware = {
-    async onRequest({ request }) {
-      // Correlation ID propagation
+    async onRequest({ request, schemaPath }) {
       if (!request.headers.get("X-Request-ID")) {
         const correlationId = crypto.randomUUID();
         request.headers.set("X-Request-ID", correlationId);
       }
 
-      // Future auth integration hook
-      const token = options.getAuthToken ? options.getAuthToken() : null;
-      if (token) {
-        request.headers.set("Authorization", `Bearer ${token}`);
+      if (
+        MUTATING_METHODS.has(request.method.toUpperCase()) &&
+        isAuthEndpoint(schemaPath)
+      ) {
+        request.headers.set("X-Viora-CSRF", "1");
+      }
+
+      if (!isRefreshOrLoginEndpoint(schemaPath)) {
+        const token = options.getAuthToken ? options.getAuthToken() : null;
+        if (token) {
+          request.headers.set("Authorization", `Bearer ${token}`);
+        }
       }
 
       return request;
     },
-    async onResponse({ response }) {
-      if (!response.ok) {
-        // Centralized handling or observability points can hook here
+    async onResponse({ response, schemaPath }) {
+      if (!response.ok && options.onResponseError) {
+        options.onResponseError(response, schemaPath);
       }
       return response;
     },
   };
 
-  const client = createClient<paths>({ baseUrl });
+  const client = createClient<paths>({
+    baseUrl,
+    credentials: "include",
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  });
   client.use(authMiddleware);
   return client;
 }
 
-export const api = createApiClient();
+export type VioraApiClient = ReturnType<typeof createApiClient>;
 
+export const api = createApiClient();

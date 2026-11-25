@@ -6,9 +6,13 @@ from .schemas import (
     AcademicContext,
     AcademicYearSummary,
     CampusSummary,
+    ClassCoordinatorSummary,
+    DepartmentHeadSummary,
     DepartmentSummary,
+    GuardianLinkSummary,
     InstitutionInfo,
     OfferingAssignment,
+    OfferingAssignmentSummary,
     ProgrammeSummary,
     SectionSummary,
     SemesterSummary,
@@ -56,8 +60,16 @@ class InstitutionDirectory(Protocol):
 
     def offering_section(self, tenant_id: UUID, offering_id: UUID) -> UUID | None: ...
 
+    def section_active(self, tenant_id: UUID, section_id: UUID) -> bool: ...
+
+    def has_guardian_link_record(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> bool: ...
+
 
 class AcademicRepository(Protocol):
+    def lock_resource(self, tenant_id: UUID, kind: str, resource_id: UUID) -> None: ...
+
     def get_institution(self, tenant_id: UUID) -> InstitutionInfo | None: ...
 
     def update_institution(
@@ -379,3 +391,105 @@ class AcademicRepository(Protocol):
         name: str,
         exclude_id: UUID | None = None,
     ) -> bool: ...
+
+    def list_department_heads(
+        self,
+        tenant_id: UUID,
+        department_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[DepartmentHeadSummary]: ...
+
+    def assign_department_head(
+        self, tenant_id: UUID, department_id: UUID, user_id: UUID
+    ) -> DepartmentHeadSummary: ...
+
+    def revoke_department_head(
+        self, tenant_id: UUID, department_id: UUID, user_id: UUID
+    ) -> DepartmentHeadSummary | None: ...
+
+    def list_section_coordinators(
+        self,
+        tenant_id: UUID,
+        section_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[ClassCoordinatorSummary]: ...
+
+    def assign_section_coordinator(
+        self, tenant_id: UUID, section_id: UUID, user_id: UUID
+    ) -> ClassCoordinatorSummary: ...
+
+    def revoke_section_coordinator(
+        self, tenant_id: UUID, section_id: UUID, user_id: UUID
+    ) -> ClassCoordinatorSummary | None: ...
+
+    def list_offering_teachers(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[OfferingAssignmentSummary]: ...
+
+    def assign_offering_teacher(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary: ...
+
+    def revoke_offering_teacher(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary | None: ...
+
+    def list_offering_enrolments(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[OfferingAssignmentSummary]: ...
+
+    def enrol_student(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary: ...
+
+    def withdraw_student(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary | None: ...
+
+    def list_guardian_links(
+        self,
+        tenant_id: UUID,
+        *,
+        actor_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[GuardianLinkSummary]: ...
+
+    def create_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary: ...
+
+    def verify_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None: ...
+
+    def consent_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None: ...
+
+    def activate_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None: ...
+
+    def revoke_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None: ...

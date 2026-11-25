@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -15,6 +16,12 @@ class InstitutionInfo(Contract):
     tenant_id: UUID
     name: str
     active: bool
+
+
+class InstitutionDiscovery(Contract):
+    tenant_id: UUID
+    name: str
+    roles: tuple[str, ...]
 
 
 class InstitutionUpdate(Contract):
@@ -188,3 +195,48 @@ class SubjectOfferingSummary(Contract):
 class PageQuery(Contract):
     limit: int = Field(default=50, ge=1, le=100)
     cursor: UUID | None = None
+
+
+class AssignmentCreate(Contract):
+    user_id: UUID
+
+
+class DepartmentHeadSummary(Contract):
+    tenant_id: UUID
+    department_id: UUID
+    user_id: UUID
+    active: bool
+
+
+class ClassCoordinatorSummary(Contract):
+    tenant_id: UUID
+    section_id: UUID
+    user_id: UUID
+    active: bool
+
+
+class OfferingAssignmentSummary(Contract):
+    tenant_id: UUID
+    offering_id: UUID
+    user_id: UUID
+    active: bool
+
+
+class GuardianLinkCreate(Contract):
+    guardian_user_id: UUID
+    student_user_id: UUID
+
+
+class GuardianLinkSummary(Contract):
+    tenant_id: UUID
+    guardian_user_id: UUID
+    student_user_id: UUID
+    active: bool
+    verified_at: datetime | None
+    consent_at: datetime | None
+
+
+class StudentSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    display_name: str

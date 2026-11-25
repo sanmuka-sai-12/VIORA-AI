@@ -46,3 +46,17 @@ def bind_tenant(session: Session, tenant_id: UUID) -> None:
         {"tenant": str(tenant_id)},
     )
     session.info["viora_tenant"] = tenant_id
+
+
+def bind_actor(session: Session, actor_id: UUID) -> None:
+    """Bind an authenticated actor for actor-scoped discovery SELECT policies."""
+    if not session.in_transaction():
+        raise RuntimeError("Actor context requires an explicit transaction")
+    previous = session.info.get("viora_actor")
+    if previous is not None and previous != actor_id:
+        raise RuntimeError("Cannot switch actors inside a transaction")
+    session.execute(
+        text("SELECT set_config('viora.actor_id', :actor, true)"),
+        {"actor": str(actor_id)},
+    )
+    session.info["viora_actor"] = actor_id

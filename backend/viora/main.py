@@ -11,7 +11,7 @@ from .contracts import ErrorResponse
 from .db import Database
 from .health import health_router
 from .http import Correlation, configure_errors
-from .identity.public import auth_router, build_auth_service
+from .identity.public import auth_router, build_auth_service, membership_router
 from .identity.public import register_models as register_identity
 from .institution.public import register_models as register_institution
 from .institution.public import router as institution_router
@@ -67,6 +67,7 @@ def create_app(
     api.include_router(health_router(db))
     api.include_router(auth_router(config, db, auth_service))
     if isinstance(effective_access, AuthorizationService):
+        api.include_router(membership_router(effective_access))
         api.include_router(institution_router(effective_access))
     api.include_router(sources.router(db, effective_access))
     app.include_router(api)

@@ -141,9 +141,7 @@ async def _read_bounded_json(
     return parsed
 
 
-def _set_refresh_cookie(
-    response: Response, config: Settings, pair: TokenPair
-) -> None:
+def _set_refresh_cookie(response: Response, config: Settings, pair: TokenPair) -> None:
     max_age = max(0, int((pair.refresh_expires_at - datetime.now(UTC)).total_seconds()))
     response.set_cookie(
         key=cookie_name(config),
@@ -181,9 +179,7 @@ def _auth_failure(
     return response
 
 
-def _token_response(
-    config: Settings, pair: TokenPair
-) -> JSONResponse:
+def _token_response(config: Settings, pair: TokenPair) -> JSONResponse:
     body = TokenResponse(
         access_token=pair.access_token.get_secret_value(),
         expires_in=pair.access_expires_in,

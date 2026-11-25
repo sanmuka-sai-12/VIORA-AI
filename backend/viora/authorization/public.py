@@ -9,11 +9,16 @@ from sqlalchemy.orm import Session, sessionmaker
 from ..contracts import Actor, ResourceRef, TenantContext
 from ..db import Database
 from ..identity.public import identity_directory
-from ..institution.public import institution_directory, institution_status
+from ..institution.public import (
+    InstitutionDiscovery,
+    discover_institutions,
+    institution_directory,
+    institution_status,
+)
 from ..security import Access, AccessError, Authentication, ChangeAudit
 from .audit import SqlAudit
 from .policy import Policy
-from .tenant import bind_tenant, require_application_role
+from .tenant import bind_actor, bind_tenant, require_application_role
 
 __all__ = [
     "AuthorizationService",
@@ -118,6 +123,27 @@ class AuthorizationService:
         """Decision only. Protected SQL must instead run inside transaction()."""
         with self.transaction(bearer, action, resource) as scope:
             return scope.context
+
+    def discover_institutions(
+        self, bearer: str | None
+    ) -> tuple[InstitutionDiscovery, ...]:
+        """Return actor-owned active memberships through actor-scoped RLS."""
+        actor = (
+            self.authentication.verify(bearer)
+            if bearer and self.authentication
+            else None
+        )
+        if actor is None:
+            raise AccessError(
+                401, "unauthenticated", "Valid bearer credentials required"
+            )
+        from ..identity.public import discover_memberships
+
+        with self.sessions.begin() as session:
+            require_application_role(session)
+            bind_actor(session, actor.actor_id)
+            memberships = discover_memberships(session, actor.actor_id)
+            return discover_institutions(session, memberships)
 
     @contextmanager
     def reauthorize(

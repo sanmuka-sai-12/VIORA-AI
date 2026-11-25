@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from ..contracts import Contract
@@ -42,3 +43,36 @@ class MembershipSummary(Contract):
     tenant_id: UUID
     user_id: UUID
     status: MembershipStatus
+
+
+class DiscoveredMembership(Contract):
+    tenant_id: UUID
+    roles: tuple[InstitutionRole, ...]
+
+
+class MemberCreate(Contract):
+    user_id: UUID
+    status: Literal[MembershipStatus.active, MembershipStatus.invited] = (
+        MembershipStatus.active
+    )
+
+
+class MembershipLifecycleUpdate(Contract):
+    status: Literal[
+        MembershipStatus.active,
+        MembershipStatus.disabled,
+        MembershipStatus.revoked,
+    ]
+
+
+class RoleGrantCreate(Contract):
+    role: InstitutionRole
+
+
+class MemberSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    display_name: str
+    account_status: AccountStatus
+    status: MembershipStatus
+    roles: tuple[InstitutionRole, ...]

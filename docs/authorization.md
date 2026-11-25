@@ -24,7 +24,9 @@ with service.reauthorize(actor, action, resource) as scope:
 service.require(bearer: str | None, action: str, resource: ResourceRef) -> TenantContext
 ```
 
-`transaction` and `reauthorize` return context managers yielding `AuthorizedTransaction(session, context, audit, ...)`. Never manually commit, change tenant context, retain the session, or perform unapproved operations in the block. Return DTOs/materialized results, not lazy ORM data. Recheck before each subsequent security-sensitive effect. Audit changes in the same transaction as membership, role, assignment, enrolment or guardian-link mutations. Those mutation policies and endpoints are still denied/deferred; add explicit central permissions before implementing them. Unknown actions deny.
+`transaction` and `reauthorize` return context managers yielding `AuthorizedTransaction(session, context, audit, ...)`. Never manually commit, change tenant context, retain the session, or perform unapproved operations in the block. Return DTOs/materialized results, not lazy ORM data. Step 4.6 mutation endpoints lock their target and recheck actor authority before changing state. Audit changes in the same transaction as membership, role, assignment, enrolment or guardian-link mutations. Guardian verification/activation and unknown actions deny.
+
+`GET /api/v1/institutions` authenticates the bearer, opens a short actor-scoped discovery transaction, and returns `[{tenant_id, name, roles}]` for active memberships in active institutions. It does not select a tenant or authorize later requests. The browser must continue sending the chosen `tenant_id` to tenant routes, where the normal membership/resource policy is evaluated again. Never cache discovery roles as authorization claims.
 
 The existing source HTTP route now uses the real central service. It remains 403 for authenticated members because sources have no ownership/assignment/visibility scope. Existing injectable Access remains available for isolated service tests; production composition uses AuthorizationService and real directories.
 

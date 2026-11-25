@@ -3,15 +3,23 @@ from sqlalchemy.orm import Session
 
 from ..identity.public import IdentityDirectory, InstitutionStatusReader
 from ..security import TransactionalAccess
+from .discovery import discover_institutions
 from .ports import InstitutionDirectory
 from .router import build_router
-from .schemas import AcademicContext, InstitutionInfo, OfferingAssignment
+from .schemas import (
+    AcademicContext,
+    InstitutionDiscovery,
+    InstitutionInfo,
+    OfferingAssignment,
+)
 
 __all__ = [
     "AcademicContext",
     "InstitutionDirectory",
+    "InstitutionDiscovery",
     "InstitutionInfo",
     "OfferingAssignment",
+    "discover_institutions",
     "institution_directory",
     "institution_status",
     "register_models",

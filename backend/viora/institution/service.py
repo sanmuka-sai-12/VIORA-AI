@@ -3,21 +3,28 @@
 from uuid import UUID, uuid4
 
 from ..contracts import Page, ResourceRef, TenantContext
+from ..identity.public import IdentityDirectory, InstitutionRole
 from ..security import AccessError, AuthorizedScope
 from .ports import AcademicRepository
 from .schemas import (
     AcademicYearCreate,
     AcademicYearSummary,
     AcademicYearUpdate,
+    AssignmentCreate,
     CampusCreate,
     CampusSummary,
     CampusUpdate,
+    ClassCoordinatorSummary,
     DepartmentCreate,
+    DepartmentHeadSummary,
     DepartmentSummary,
     DepartmentUpdate,
+    GuardianLinkCreate,
+    GuardianLinkSummary,
     InstitutionInfo,
     InstitutionUpdate,
     LifecycleUpdate,
+    OfferingAssignmentSummary,
     ProgrammeCreate,
     ProgrammeSummary,
     ProgrammeUpdate,
@@ -27,6 +34,7 @@ from .schemas import (
     SemesterCreate,
     SemesterSummary,
     SemesterUpdate,
+    StudentSummary,
     SubjectCreate,
     SubjectOfferingCreate,
     SubjectOfferingSummary,
@@ -44,9 +52,7 @@ def _is_admin(context: TenantContext) -> bool:
 
 def _require_fields(fields_set: set[str]) -> None:
     if not fields_set:
-        raise AccessError(
-            422, "invalid_request", "At least one field must be provided"
-        )
+        raise AccessError(422, "invalid_request", "At least one field must be provided")
 
 
 def _require_non_null(fields_set: set[str], field: str, value: UUID | None) -> None:
@@ -62,13 +68,13 @@ def _require_active_parent(
     parent_id: UUID,
     active: bool | None,
 ) -> None:
-    scope.recheck(action, ResourceRef(tenant_id=tenant_id, kind=kind, resource_id=parent_id))
+    scope.recheck(
+        action, ResourceRef(tenant_id=tenant_id, kind=kind, resource_id=parent_id)
+    )
     if active is None:
         raise AccessError(404, f"{kind}_missing", f"{kind} unavailable")
     if not active:
-        raise AccessError(
-            409, "inactive_parent", f"Referenced {kind} is archived"
-        )
+        raise AccessError(409, "inactive_parent", f"Referenced {kind} is archived")
 
 
 def _ensure_no_active_children(has_children: bool, kind: str) -> None:
@@ -148,7 +154,9 @@ def update_campus(
     body: CampusUpdate,
 ) -> CampusSummary:
     _require_fields(set(body.model_fields_set))
-    _require_non_null(set(body.model_fields_set), "name", None if body.name is None else campus_id)
+    _require_non_null(
+        set(body.model_fields_set), "name", None if body.name is None else campus_id
+    )
     updated = repo.update_campus(tenant_id, campus_id, name=body.name)
     if updated is None:
         raise AccessError(404, "campus_missing", "Campus unavailable")
@@ -766,9 +774,7 @@ def set_section_lifecycle(
     else:
         semester = repo.get_semester(tenant_id, current.semester_id)
         if semester is None or not semester.active:
-            raise AccessError(
-                409, "inactive_parent", "Referenced semester is archived"
-            )
+            raise AccessError(409, "inactive_parent", "Referenced semester is archived")
         if current.programme_id is not None:
             programme = repo.get_programme(tenant_id, current.programme_id)
             if programme is None or not programme.active:
@@ -1021,8 +1027,12 @@ def update_offering(
     if current is None:
         raise AccessError(404, "offering_missing", "Subject offering unavailable")
     target_name = body.name if body.name is not None else current.name
-    target_section = body.section_id if body.section_id is not None else current.section_id
-    target_subject = body.subject_id if body.subject_id is not None else current.subject_id
+    target_section = (
+        body.section_id if body.section_id is not None else current.section_id
+    )
+    target_subject = (
+        body.subject_id if body.subject_id is not None else current.subject_id
+    )
     if repo.has_duplicate_offering(
         tenant_id,
         section_id=target_section,
@@ -1075,3 +1085,367 @@ def set_offering_lifecycle(
         ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id),
     )
     return updated
+
+
+def _require_role(
+    identities: IdentityDirectory,
+    tenant_id: UUID,
+    user_id: UUID,
+    role: InstitutionRole,
+) -> None:
+    if role not in identities.applicable_roles(user_id, tenant_id):
+        raise AccessError(
+            409,
+            "user_ineligible",
+            f"User must hold an active membership and {role.value} role in this institution",
+        )
+
+
+def list_department_heads(
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    department_id: UUID,
+    *,
+    active: bool | None,
+    cursor: UUID | None,
+    limit: int,
+) -> Page[DepartmentHeadSummary]:
+    return repo.list_department_heads(
+        tenant_id, department_id, active=active, cursor=cursor, limit=limit
+    )
+
+
+def assign_department_head(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    identities: IdentityDirectory,
+    tenant_id: UUID,
+    department_id: UUID,
+    body: AssignmentCreate,
+) -> DepartmentHeadSummary:
+    _require_role(identities, tenant_id, body.user_id, InstitutionRole.department_head)
+    created = repo.assign_department_head(tenant_id, department_id, body.user_id)
+    scope.audit.change(
+        scope.context,
+        "department.head.assign",
+        ResourceRef(tenant_id=tenant_id, kind="department", resource_id=department_id),
+    )
+    return created
+
+
+def revoke_department_head(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    department_id: UUID,
+    user_id: UUID,
+) -> DepartmentHeadSummary:
+    revoked = repo.revoke_department_head(tenant_id, department_id, user_id)
+    if revoked is None:
+        raise AccessError(404, "assignment_missing", "Active assignment unavailable")
+    scope.audit.change(
+        scope.context,
+        "department.head.revoke",
+        ResourceRef(tenant_id=tenant_id, kind="department", resource_id=department_id),
+    )
+    return revoked
+
+
+def list_section_coordinators(
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    section_id: UUID,
+    *,
+    active: bool | None,
+    cursor: UUID | None,
+    limit: int,
+) -> Page[ClassCoordinatorSummary]:
+    return repo.list_section_coordinators(
+        tenant_id, section_id, active=active, cursor=cursor, limit=limit
+    )
+
+
+def assign_section_coordinator(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    identities: IdentityDirectory,
+    tenant_id: UUID,
+    section_id: UUID,
+    body: AssignmentCreate,
+) -> ClassCoordinatorSummary:
+    _require_role(
+        identities, tenant_id, body.user_id, InstitutionRole.class_coordinator
+    )
+    created = repo.assign_section_coordinator(tenant_id, section_id, body.user_id)
+    scope.audit.change(
+        scope.context,
+        "section.coordinator.assign",
+        ResourceRef(tenant_id=tenant_id, kind="section", resource_id=section_id),
+    )
+    return created
+
+
+def revoke_section_coordinator(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    section_id: UUID,
+    user_id: UUID,
+) -> ClassCoordinatorSummary:
+    revoked = repo.revoke_section_coordinator(tenant_id, section_id, user_id)
+    if revoked is None:
+        raise AccessError(404, "assignment_missing", "Active assignment unavailable")
+    scope.audit.change(
+        scope.context,
+        "section.coordinator.revoke",
+        ResourceRef(tenant_id=tenant_id, kind="section", resource_id=section_id),
+    )
+    return revoked
+
+
+def list_offering_teachers(
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    offering_id: UUID,
+    *,
+    active: bool | None,
+    cursor: UUID | None,
+    limit: int,
+) -> Page[OfferingAssignmentSummary]:
+    return repo.list_offering_teachers(
+        tenant_id, offering_id, active=active, cursor=cursor, limit=limit
+    )
+
+
+def assign_offering_teacher(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    identities: IdentityDirectory,
+    tenant_id: UUID,
+    offering_id: UUID,
+    body: AssignmentCreate,
+) -> OfferingAssignmentSummary:
+    _require_role(identities, tenant_id, body.user_id, InstitutionRole.subject_teacher)
+    created = repo.assign_offering_teacher(tenant_id, offering_id, body.user_id)
+    scope.audit.change(
+        scope.context,
+        "offering.teacher.assign",
+        ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id),
+    )
+    return created
+
+
+def revoke_offering_teacher(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    offering_id: UUID,
+    user_id: UUID,
+) -> OfferingAssignmentSummary:
+    revoked = repo.revoke_offering_teacher(tenant_id, offering_id, user_id)
+    if revoked is None:
+        raise AccessError(404, "assignment_missing", "Active assignment unavailable")
+    scope.audit.change(
+        scope.context,
+        "offering.teacher.revoke",
+        ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id),
+    )
+    return revoked
+
+
+def list_offering_enrolments(
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    offering_id: UUID,
+    *,
+    active: bool | None,
+    cursor: UUID | None,
+    limit: int,
+) -> Page[OfferingAssignmentSummary]:
+    return repo.list_offering_enrolments(
+        tenant_id, offering_id, active=active, cursor=cursor, limit=limit
+    )
+
+
+def enrol_student(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    identities: IdentityDirectory,
+    tenant_id: UUID,
+    offering_id: UUID,
+    body: AssignmentCreate,
+) -> OfferingAssignmentSummary:
+    _require_role(identities, tenant_id, body.user_id, InstitutionRole.student)
+    created = repo.enrol_student(tenant_id, offering_id, body.user_id)
+    scope.audit.change(
+        scope.context,
+        "offering.enrolment.create",
+        ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id),
+    )
+    return created
+
+
+def withdraw_student(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    offering_id: UUID,
+    user_id: UUID,
+) -> OfferingAssignmentSummary:
+    withdrawn = repo.withdraw_student(tenant_id, offering_id, user_id)
+    if withdrawn is None:
+        raise AccessError(404, "enrolment_missing", "Active enrolment unavailable")
+    scope.audit.change(
+        scope.context,
+        "offering.enrolment.withdraw",
+        ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id),
+    )
+    return withdrawn
+
+
+def list_guardian_links(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    *,
+    active: bool | None,
+    cursor: UUID | None,
+    limit: int,
+) -> Page[GuardianLinkSummary]:
+    actor_id = None if _is_admin(scope.context) else scope.context.actor_id
+    return repo.list_guardian_links(
+        tenant_id, actor_id=actor_id, active=active, cursor=cursor, limit=limit
+    )
+
+
+def create_guardian_link(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    identities: IdentityDirectory,
+    tenant_id: UUID,
+    body: GuardianLinkCreate,
+) -> GuardianLinkSummary:
+    if body.guardian_user_id == body.student_user_id:
+        raise AccessError(
+            422, "invalid_request", "Guardian and student must be distinct users"
+        )
+    _require_role(
+        identities, tenant_id, body.guardian_user_id, InstitutionRole.guardian
+    )
+    _require_role(identities, tenant_id, body.student_user_id, InstitutionRole.student)
+    created = repo.create_guardian_link(
+        tenant_id, body.guardian_user_id, body.student_user_id
+    )
+    scope.audit.change(
+        scope.context,
+        "guardian_link.create",
+        ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=body.student_user_id
+        ),
+    )
+    return created
+
+
+def verify_guardian_link(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    guardian_user_id: UUID,
+    student_user_id: UUID,
+) -> GuardianLinkSummary:
+    verified = repo.verify_guardian_link(tenant_id, guardian_user_id, student_user_id)
+    if verified is None:
+        raise AccessError(404, "guardian_link_missing", "Guardian link unavailable")
+    scope.audit.change(
+        scope.context,
+        "guardian_link.verify",
+        ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        ),
+    )
+    return verified
+
+
+def consent_guardian_link(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    guardian_user_id: UUID,
+    student_user_id: UUID,
+) -> GuardianLinkSummary:
+    consented = repo.consent_guardian_link(tenant_id, guardian_user_id, student_user_id)
+    if consented is None:
+        raise AccessError(404, "guardian_link_missing", "Guardian link unavailable")
+    scope.audit.change(
+        scope.context,
+        "guardian_link.consent",
+        ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        ),
+    )
+    return consented
+
+
+def activate_guardian_link(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    identities: IdentityDirectory,
+    tenant_id: UUID,
+    guardian_user_id: UUID,
+    student_user_id: UUID,
+) -> GuardianLinkSummary:
+    _require_role(identities, tenant_id, guardian_user_id, InstitutionRole.guardian)
+    _require_role(identities, tenant_id, student_user_id, InstitutionRole.student)
+    activated = repo.activate_guardian_link(
+        tenant_id, guardian_user_id, student_user_id
+    )
+    if activated is None:
+        raise AccessError(404, "guardian_link_missing", "Guardian link unavailable")
+    scope.audit.change(
+        scope.context,
+        "guardian_link.activate",
+        ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        ),
+    )
+    return activated
+
+
+def revoke_guardian_link(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    guardian_user_id: UUID,
+    student_user_id: UUID,
+) -> GuardianLinkSummary:
+    if not _is_admin(scope.context) and scope.context.actor_id not in {
+        guardian_user_id,
+        student_user_id,
+    }:
+        raise AccessError(403, "forbidden", "Access denied")
+    revoked = repo.revoke_guardian_link(tenant_id, guardian_user_id, student_user_id)
+    if revoked is None:
+        raise AccessError(404, "guardian_link_missing", "Guardian link unavailable")
+    scope.audit.change(
+        scope.context,
+        "guardian_link.revoke",
+        ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        ),
+    )
+    return revoked
+
+
+def read_student_summary(
+    identities: IdentityDirectory, tenant_id: UUID, student_id: UUID
+) -> StudentSummary:
+    if InstitutionRole.student not in identities.applicable_roles(
+        student_id, tenant_id
+    ):
+        raise AccessError(404, "student_missing", "Student summary unavailable")
+    user = identities.user(student_id)
+    if user is None:
+        raise AccessError(404, "student_missing", "Student summary unavailable")
+    return StudentSummary(
+        tenant_id=tenant_id, user_id=user.user_id, display_name=user.display_name
+    )

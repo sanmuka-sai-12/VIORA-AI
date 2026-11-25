@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 
 from ..config import AuthSettings, Settings
 from ..db import Database
+from ..security import TransactionalAccess as _TransactionalAccess
 from .auth import AuthFailure, AuthService, TokenPair
+from .discovery import discover_memberships
+from .membership_router import build_membership_router
 from .models import MembershipRecord, RoleGrant, User, VerifiedIdentityAttribute
 from .ports import IdentityDirectory, InstitutionStatusReader
 from .provision import provision_account
@@ -14,6 +17,7 @@ from .repository import SqlIdentityDirectory as _SqlIdentityDirectory
 from .router import AuthenticatedUser, TokenResponse, build_auth_router
 from .schemas import (
     AccountStatus,
+    DiscoveredMembership,
     IdentityAttributeKind,
     InstitutionRole,
     MembershipStatus,
@@ -27,6 +31,7 @@ __all__ = [
     "AuthService",
     "AuthSettings",
     "AuthenticatedUser",
+    "DiscoveredMembership",
     "IdentityAttributeKind",
     "IdentityDirectory",
     "InstitutionRole",
@@ -38,12 +43,18 @@ __all__ = [
     "UserSummary",
     "auth_router",
     "build_auth_service",
+    "discover_memberships",
     "grant_initial_owner_membership",
     "identity_directory",
     "is_verified_active_user",
+    "membership_router",
     "provision_account",
     "register_models",
 ]
+
+
+def membership_router(access: _TransactionalAccess) -> APIRouter:
+    return build_membership_router(access)
 
 
 def build_auth_service(db: Database, settings: Settings) -> AuthService:

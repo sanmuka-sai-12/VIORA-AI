@@ -9,22 +9,30 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import IntegrityError
 
 from ..contracts import Page, ResourceRef
+from ..identity.public import identity_directory
 from ..security import AccessError, AuthorizedScope, TransactionalAccess
 from . import service
-from .repository import SqlAcademicRepository
+from .repository import SqlAcademicRepository, SqlInstitutionStatus
 from .schemas import (
     AcademicYearCreate,
     AcademicYearSummary,
     AcademicYearUpdate,
+    AssignmentCreate,
     CampusCreate,
     CampusSummary,
     CampusUpdate,
+    ClassCoordinatorSummary,
     DepartmentCreate,
+    DepartmentHeadSummary,
     DepartmentSummary,
     DepartmentUpdate,
+    GuardianLinkCreate,
+    GuardianLinkSummary,
+    InstitutionDiscovery,
     InstitutionInfo,
     InstitutionUpdate,
     LifecycleUpdate,
+    OfferingAssignmentSummary,
     ProgrammeCreate,
     ProgrammeSummary,
     ProgrammeUpdate,
@@ -34,6 +42,7 @@ from .schemas import (
     SemesterCreate,
     SemesterSummary,
     SemesterUpdate,
+    StudentSummary,
     SubjectCreate,
     SubjectOfferingCreate,
     SubjectOfferingSummary,
@@ -58,7 +67,12 @@ def _run_mutation(
 ) -> T:
     try:
         with access.transaction(_token(bearer), action, resource) as scope:
-            return fn(scope, SqlAcademicRepository(scope.session))
+            repository = SqlAcademicRepository(scope.session)
+            repository.lock_resource(
+                resource.tenant_id, resource.kind, resource.resource_id
+            )
+            scope.recheck(action, resource)
+            return fn(scope, repository)
     except IntegrityError as exc:
         sqlstate = getattr(exc.orig, "sqlstate", None)
         if sqlstate == "23505":
@@ -76,6 +90,17 @@ def build_router(access: TransactionalAccess) -> APIRouter:
     router = APIRouter()
     bearer_dep = Security(HTTPBearer(auto_error=False))
 
+    @router.get(
+        "/institutions", tags=["institutions"], operation_id="discoverInstitutions"
+    )
+    def get_institutions(
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> tuple[InstitutionDiscovery, ...]:
+        discover = getattr(access, "discover_institutions", None)
+        if discover is None:
+            raise AccessError(403, "forbidden", "Access denied")
+        return discover(_token(bearer))
+
     # --- Institution ---
     @router.get(
         "/institutions/{tenant_id}",
@@ -86,7 +111,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         tenant_id: UUID,
         bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
     ) -> InstitutionInfo:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "institution.read", ref) as scope:
             return service.read_institution(
                 SqlAcademicRepository(scope.session), tenant_id
@@ -102,7 +129,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         body: InstitutionUpdate,
         bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
     ) -> InstitutionInfo:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         return _run_mutation(
             access,
             bearer,
@@ -123,7 +152,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         body: CampusCreate,
         bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
     ) -> CampusSummary:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         return _run_mutation(
             access,
             bearer,
@@ -144,7 +175,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[CampusSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "campus.list", ref) as scope:
             return service.list_campuses(
                 SqlAcademicRepository(scope.session),
@@ -255,7 +288,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[DepartmentSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "department.list", ref) as scope:
             return service.list_departments(
                 scope,
@@ -381,7 +416,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[ProgrammeSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "programme.list", ref) as scope:
             return service.list_programmes(
                 scope,
@@ -471,7 +508,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         body: AcademicYearCreate,
         bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
     ) -> AcademicYearSummary:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         return _run_mutation(
             access,
             bearer,
@@ -492,7 +531,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[AcademicYearSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "academic_year.list", ref) as scope:
             return service.list_academic_years(
                 SqlAcademicRepository(scope.session),
@@ -604,7 +645,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[SemesterSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "semester.list", ref) as scope:
             return service.list_semesters(
                 SqlAcademicRepository(scope.session),
@@ -712,7 +755,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[SectionSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "section.list", ref) as scope:
             return service.list_sections(
                 scope,
@@ -833,7 +878,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[SubjectSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "subject.list", ref) as scope:
             return service.list_subjects(
                 scope,
@@ -942,7 +989,9 @@ def build_router(access: TransactionalAccess) -> APIRouter:
         cursor: UUID | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> Page[SubjectOfferingSummary]:
-        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
         with access.transaction(_token(bearer), "offering.list", ref) as scope:
             return service.list_offerings(
                 scope,
@@ -1014,5 +1063,487 @@ def build_router(access: TransactionalAccess) -> APIRouter:
                 s, repo, tenant_id, offering_id, body
             ),
         )
+
+    # --- Academic Assignments ---
+    @router.post(
+        "/tenants/{tenant_id}/departments/{department_id}/heads",
+        tags=["assignments"],
+        operation_id="assignDepartmentHead",
+        status_code=201,
+    )
+    def post_department_head(
+        tenant_id: UUID,
+        department_id: UUID,
+        body: AssignmentCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> DepartmentHeadSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="department", resource_id=department_id
+        )
+        return _run_mutation(
+            access,
+            bearer,
+            "department.head.assign",
+            ref,
+            lambda s, repo: service.assign_department_head(
+                s,
+                repo,
+                identity_directory(s.session, SqlInstitutionStatus(s.session)),
+                tenant_id,
+                department_id,
+                body,
+            ),
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/departments/{department_id}/heads",
+        tags=["assignments"],
+        operation_id="listDepartmentHeads",
+    )
+    def get_department_heads(
+        tenant_id: UUID,
+        department_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        active: bool | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[DepartmentHeadSummary]:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="department", resource_id=department_id
+        )
+        with access.transaction(_token(bearer), "department.head.list", ref) as scope:
+            return service.list_department_heads(
+                SqlAcademicRepository(scope.session),
+                tenant_id,
+                department_id,
+                active=active,
+                cursor=cursor,
+                limit=limit,
+            )
+
+    @router.post(
+        "/tenants/{tenant_id}/departments/{department_id}/heads/{user_id}/revoke",
+        tags=["assignments"],
+        operation_id="revokeDepartmentHead",
+    )
+    def post_revoke_department_head(
+        tenant_id: UUID,
+        department_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> DepartmentHeadSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="department", resource_id=department_id
+        )
+        return _run_mutation(
+            access,
+            bearer,
+            "department.head.revoke",
+            ref,
+            lambda s, repo: service.revoke_department_head(
+                s, repo, tenant_id, department_id, user_id
+            ),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/sections/{section_id}/coordinators",
+        tags=["assignments"],
+        operation_id="assignSectionCoordinator",
+        status_code=201,
+    )
+    def post_section_coordinator(
+        tenant_id: UUID,
+        section_id: UUID,
+        body: AssignmentCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> ClassCoordinatorSummary:
+        ref = ResourceRef(tenant_id=tenant_id, kind="section", resource_id=section_id)
+        return _run_mutation(
+            access,
+            bearer,
+            "section.coordinator.assign",
+            ref,
+            lambda s, repo: service.assign_section_coordinator(
+                s,
+                repo,
+                identity_directory(s.session, SqlInstitutionStatus(s.session)),
+                tenant_id,
+                section_id,
+                body,
+            ),
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/sections/{section_id}/coordinators",
+        tags=["assignments"],
+        operation_id="listSectionCoordinators",
+    )
+    def get_section_coordinators(
+        tenant_id: UUID,
+        section_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        active: bool | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[ClassCoordinatorSummary]:
+        ref = ResourceRef(tenant_id=tenant_id, kind="section", resource_id=section_id)
+        with access.transaction(
+            _token(bearer), "section.coordinator.list", ref
+        ) as scope:
+            return service.list_section_coordinators(
+                SqlAcademicRepository(scope.session),
+                tenant_id,
+                section_id,
+                active=active,
+                cursor=cursor,
+                limit=limit,
+            )
+
+    @router.post(
+        "/tenants/{tenant_id}/sections/{section_id}/coordinators/{user_id}/revoke",
+        tags=["assignments"],
+        operation_id="revokeSectionCoordinator",
+    )
+    def post_revoke_section_coordinator(
+        tenant_id: UUID,
+        section_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> ClassCoordinatorSummary:
+        ref = ResourceRef(tenant_id=tenant_id, kind="section", resource_id=section_id)
+        return _run_mutation(
+            access,
+            bearer,
+            "section.coordinator.revoke",
+            ref,
+            lambda s, repo: service.revoke_section_coordinator(
+                s, repo, tenant_id, section_id, user_id
+            ),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/offerings/{offering_id}/teachers",
+        tags=["assignments"],
+        operation_id="assignOfferingTeacher",
+        status_code=201,
+    )
+    def post_offering_teacher(
+        tenant_id: UUID,
+        offering_id: UUID,
+        body: AssignmentCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> OfferingAssignmentSummary:
+        ref = ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id)
+        return _run_mutation(
+            access,
+            bearer,
+            "offering.teacher.assign",
+            ref,
+            lambda s, repo: service.assign_offering_teacher(
+                s,
+                repo,
+                identity_directory(s.session, SqlInstitutionStatus(s.session)),
+                tenant_id,
+                offering_id,
+                body,
+            ),
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/offerings/{offering_id}/teachers",
+        tags=["assignments"],
+        operation_id="listOfferingTeachers",
+    )
+    def get_offering_teachers(
+        tenant_id: UUID,
+        offering_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        active: bool | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[OfferingAssignmentSummary]:
+        ref = ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id)
+        with access.transaction(_token(bearer), "offering.teacher.list", ref) as scope:
+            return service.list_offering_teachers(
+                SqlAcademicRepository(scope.session),
+                tenant_id,
+                offering_id,
+                active=active,
+                cursor=cursor,
+                limit=limit,
+            )
+
+    @router.post(
+        "/tenants/{tenant_id}/offerings/{offering_id}/teachers/{user_id}/revoke",
+        tags=["assignments"],
+        operation_id="revokeOfferingTeacher",
+    )
+    def post_revoke_offering_teacher(
+        tenant_id: UUID,
+        offering_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> OfferingAssignmentSummary:
+        ref = ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id)
+        return _run_mutation(
+            access,
+            bearer,
+            "offering.teacher.revoke",
+            ref,
+            lambda s, repo: service.revoke_offering_teacher(
+                s, repo, tenant_id, offering_id, user_id
+            ),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/offerings/{offering_id}/enrolments",
+        tags=["assignments"],
+        operation_id="enrolStudent",
+        status_code=201,
+    )
+    def post_enrol_student(
+        tenant_id: UUID,
+        offering_id: UUID,
+        body: AssignmentCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> OfferingAssignmentSummary:
+        ref = ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id)
+        return _run_mutation(
+            access,
+            bearer,
+            "offering.enrolment.create",
+            ref,
+            lambda s, repo: service.enrol_student(
+                s,
+                repo,
+                identity_directory(s.session, SqlInstitutionStatus(s.session)),
+                tenant_id,
+                offering_id,
+                body,
+            ),
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/offerings/{offering_id}/enrolments",
+        tags=["assignments"],
+        operation_id="listOfferingEnrolments",
+    )
+    def get_offering_enrolments(
+        tenant_id: UUID,
+        offering_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        active: bool | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[OfferingAssignmentSummary]:
+        ref = ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id)
+        with access.transaction(
+            _token(bearer), "offering.enrolment.list", ref
+        ) as scope:
+            return service.list_offering_enrolments(
+                SqlAcademicRepository(scope.session),
+                tenant_id,
+                offering_id,
+                active=active,
+                cursor=cursor,
+                limit=limit,
+            )
+
+    @router.post(
+        "/tenants/{tenant_id}/offerings/{offering_id}/enrolments/{user_id}/withdraw",
+        tags=["assignments"],
+        operation_id="withdrawStudent",
+    )
+    def post_withdraw_student(
+        tenant_id: UUID,
+        offering_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> OfferingAssignmentSummary:
+        ref = ResourceRef(tenant_id=tenant_id, kind="offering", resource_id=offering_id)
+        return _run_mutation(
+            access,
+            bearer,
+            "offering.enrolment.withdraw",
+            ref,
+            lambda s, repo: service.withdraw_student(
+                s, repo, tenant_id, offering_id, user_id
+            ),
+        )
+
+    # --- Guardian Relationships & Minimal Student Summary ---
+    @router.post(
+        "/tenants/{tenant_id}/guardian-links",
+        tags=["guardians"],
+        operation_id="createGuardianLink",
+        status_code=201,
+    )
+    def post_guardian_link(
+        tenant_id: UUID,
+        body: GuardianLinkCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> GuardianLinkSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
+        return _run_mutation(
+            access,
+            bearer,
+            "guardian_link.create",
+            ref,
+            lambda s, repo: service.create_guardian_link(
+                s,
+                repo,
+                identity_directory(s.session, SqlInstitutionStatus(s.session)),
+                tenant_id,
+                body,
+            ),
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/guardian-links",
+        tags=["guardians"],
+        operation_id="listGuardianLinks",
+    )
+    def get_guardian_links(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        active: bool | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[GuardianLinkSummary]:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
+        with access.transaction(_token(bearer), "guardian_link.list", ref) as scope:
+            return service.list_guardian_links(
+                scope,
+                SqlAcademicRepository(scope.session),
+                tenant_id,
+                active=active,
+                cursor=cursor,
+                limit=limit,
+            )
+
+    @router.post(
+        "/tenants/{tenant_id}/guardian-links/{guardian_user_id}/students/{student_user_id}/verify",
+        tags=["guardians"],
+        operation_id="verifyGuardianLink",
+    )
+    def post_verify_guardian_link(
+        tenant_id: UUID,
+        guardian_user_id: UUID,
+        student_user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> GuardianLinkSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        )
+        return _run_mutation(
+            access,
+            bearer,
+            "guardian_link.verify",
+            ref,
+            lambda s, repo: service.verify_guardian_link(
+                s, repo, tenant_id, guardian_user_id, student_user_id
+            ),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/guardian-links/{guardian_user_id}/students/{student_user_id}/consent",
+        tags=["guardians"],
+        operation_id="consentGuardianLink",
+    )
+    def post_consent_guardian_link(
+        tenant_id: UUID,
+        guardian_user_id: UUID,
+        student_user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> GuardianLinkSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        )
+        return _run_mutation(
+            access,
+            bearer,
+            "guardian_link.consent",
+            ref,
+            lambda s, repo: service.consent_guardian_link(
+                s, repo, tenant_id, guardian_user_id, student_user_id
+            ),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/guardian-links/{guardian_user_id}/students/{student_user_id}/activate",
+        tags=["guardians"],
+        operation_id="activateGuardianLink",
+    )
+    def post_activate_guardian_link(
+        tenant_id: UUID,
+        guardian_user_id: UUID,
+        student_user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> GuardianLinkSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        )
+        return _run_mutation(
+            access,
+            bearer,
+            "guardian_link.activate",
+            ref,
+            lambda s, repo: service.activate_guardian_link(
+                s,
+                repo,
+                identity_directory(s.session, SqlInstitutionStatus(s.session)),
+                tenant_id,
+                guardian_user_id,
+                student_user_id,
+            ),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/guardian-links/{guardian_user_id}/students/{student_user_id}/revoke",
+        tags=["guardians"],
+        operation_id="revokeGuardianLink",
+    )
+    def post_revoke_guardian_link(
+        tenant_id: UUID,
+        guardian_user_id: UUID,
+        student_user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> GuardianLinkSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="guardian_link", resource_id=student_user_id
+        )
+        return _run_mutation(
+            access,
+            bearer,
+            "guardian_link.revoke",
+            ref,
+            lambda s, repo: service.revoke_guardian_link(
+                s, repo, tenant_id, guardian_user_id, student_user_id
+            ),
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/students/{student_id}/summary",
+        tags=["guardians"],
+        operation_id="readStudentSummary",
+    )
+    def get_student_summary(
+        tenant_id: UUID,
+        student_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> StudentSummary:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="student_summary", resource_id=student_id
+        )
+        with access.transaction(_token(bearer), "student.summary.read", ref) as scope:
+            return service.read_student_summary(
+                identity_directory(scope.session, SqlInstitutionStatus(scope.session)),
+                tenant_id,
+                student_id,
+            )
 
     return router

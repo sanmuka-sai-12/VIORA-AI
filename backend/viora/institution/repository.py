@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..contracts import Page
 from ..identity.public import IdentityDirectory, InstitutionRole
+from ..security import AccessError
 from .models import (
     AcademicYear,
     Campus,
@@ -27,9 +29,13 @@ from .schemas import (
     AcademicContext,
     AcademicYearSummary,
     CampusSummary,
+    ClassCoordinatorSummary,
+    DepartmentHeadSummary,
     DepartmentSummary,
+    GuardianLinkSummary,
     InstitutionInfo,
     OfferingAssignment,
+    OfferingAssignmentSummary,
     ProgrammeSummary,
     SectionSummary,
     SemesterSummary,
@@ -310,6 +316,60 @@ class SqlInstitutionDirectory:
             )
         )
 
+    def section_active(self, tenant_id: UUID, section_id: UUID) -> bool:
+        return (
+            self.session.scalar(
+                select(Section.id)
+                .join(
+                    Semester,
+                    and_(
+                        Semester.tenant_id == Section.tenant_id,
+                        Semester.id == Section.semester_id,
+                    ),
+                )
+                .join(
+                    AcademicYear,
+                    and_(
+                        AcademicYear.tenant_id == Semester.tenant_id,
+                        AcademicYear.id == Semester.academic_year_id,
+                    ),
+                )
+                .outerjoin(
+                    Programme,
+                    and_(
+                        Programme.tenant_id == Section.tenant_id,
+                        Programme.id == Section.programme_id,
+                    ),
+                )
+                .join(Institution, Institution.tenant_id == Section.tenant_id)
+                .where(
+                    Section.tenant_id == tenant_id,
+                    Section.id == section_id,
+                    Institution.active.is_(True),
+                    Section.active.is_(True),
+                    Semester.active.is_(True),
+                    AcademicYear.active.is_(True),
+                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def has_guardian_link_record(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> bool:
+        return (
+            self.session.scalar(
+                select(GuardianLink.user_id).where(
+                    GuardianLink.tenant_id == tenant_id,
+                    GuardianLink.user_id == guardian_user_id,
+                    GuardianLink.student_id == student_user_id,
+                )
+            )
+            is not None
+        )
+
 
 def _campus_dto(row: Campus) -> CampusSummary:
     return CampusSummary(
@@ -388,6 +448,33 @@ def _offering_dto(row: SubjectOffering) -> SubjectOfferingSummary:
 class SqlAcademicRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def lock_resource(self, tenant_id: UUID, kind: str, resource_id: UUID) -> None:
+        if kind == "institution":
+            self.session.scalar(
+                select(Institution.tenant_id)
+                .where(Institution.tenant_id == tenant_id)
+                .with_for_update()
+            )
+            return
+        model = _ENTITY_MODELS.get(kind)
+        if model is not None:
+            self.session.scalar(
+                select(model.id)
+                .where(model.tenant_id == tenant_id, model.id == resource_id)
+                .with_for_update()
+            )
+            return
+        if kind == "guardian_link":
+            self.session.scalars(
+                select(GuardianLink.user_id)
+                .where(
+                    GuardianLink.tenant_id == tenant_id,
+                    GuardianLink.student_id == resource_id,
+                )
+                .order_by(GuardianLink.user_id)
+                .with_for_update()
+            ).all()
 
     def _get(
         self, model: type[Any], tenant_id: UUID, entity_id: UUID
@@ -1217,3 +1304,466 @@ class SqlAcademicRepository:
         if exclude_id is not None:
             stmt = stmt.where(SubjectOffering.id != exclude_id)
         return self.session.scalar(stmt.limit(1)) is not None
+
+    def _list_assignments(
+        self,
+        model: type[Any],
+        tenant_id: UUID,
+        target_col: Any,
+        target_id: UUID,
+        mapper: Callable[[Any], T],
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[T]:
+        stmt = select(model).where(
+            model.tenant_id == tenant_id, target_col == target_id
+        )
+        if active is not None:
+            stmt = stmt.where(model.active.is_(active))
+        if cursor is not None:
+            stmt = stmt.where(model.user_id > cursor)
+        rows = list(self.session.scalars(stmt.order_by(model.user_id).limit(limit + 1)))
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        next_cursor = str(page_rows[-1].user_id) if has_more and page_rows else None
+        return Page[T](
+            items=tuple(mapper(r) for r in page_rows),
+            next_cursor=next_cursor,
+        )
+
+    def _assign_member_target(
+        self,
+        model: type[Any],
+        tenant_id: UUID,
+        target_col: Any,
+        target_field: str,
+        target_id: UUID,
+        user_id: UUID,
+        mapper: Callable[[Any], T],
+    ) -> T:
+        existing = self.session.scalar(
+            select(model)
+            .where(
+                model.tenant_id == tenant_id,
+                model.user_id == user_id,
+                target_col == target_id,
+            )
+            .with_for_update()
+        )
+        if existing is not None:
+            if existing.active:
+                raise AccessError(
+                    409, "duplicate_record", "Assignment is already active"
+                )
+            existing.active = True
+            row = existing
+        else:
+            row = model(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                **{target_field: target_id, "active": True},
+            )
+            self.session.add(row)
+        self.session.flush()
+        return mapper(row)
+
+    def _revoke_member_target(
+        self,
+        model: type[Any],
+        tenant_id: UUID,
+        target_col: Any,
+        target_id: UUID,
+        user_id: UUID,
+        mapper: Callable[[Any], T],
+    ) -> T | None:
+        existing = self.session.scalar(
+            select(model)
+            .where(
+                model.tenant_id == tenant_id,
+                model.user_id == user_id,
+                target_col == target_id,
+            )
+            .with_for_update()
+        )
+        if existing is None or not existing.active:
+            return None
+        existing.active = False
+        self.session.flush()
+        return mapper(existing)
+
+    def list_department_heads(
+        self,
+        tenant_id: UUID,
+        department_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[DepartmentHeadSummary]:
+        return self._list_assignments(
+            DepartmentHead,
+            tenant_id,
+            DepartmentHead.department_id,
+            department_id,
+            lambda r: DepartmentHeadSummary(
+                tenant_id=r.tenant_id,
+                department_id=r.department_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+            active=active,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def assign_department_head(
+        self, tenant_id: UUID, department_id: UUID, user_id: UUID
+    ) -> DepartmentHeadSummary:
+        return self._assign_member_target(
+            DepartmentHead,
+            tenant_id,
+            DepartmentHead.department_id,
+            "department_id",
+            department_id,
+            user_id,
+            lambda r: DepartmentHeadSummary(
+                tenant_id=r.tenant_id,
+                department_id=r.department_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    def revoke_department_head(
+        self, tenant_id: UUID, department_id: UUID, user_id: UUID
+    ) -> DepartmentHeadSummary | None:
+        return self._revoke_member_target(
+            DepartmentHead,
+            tenant_id,
+            DepartmentHead.department_id,
+            department_id,
+            user_id,
+            lambda r: DepartmentHeadSummary(
+                tenant_id=r.tenant_id,
+                department_id=r.department_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    def list_section_coordinators(
+        self,
+        tenant_id: UUID,
+        section_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[ClassCoordinatorSummary]:
+        return self._list_assignments(
+            ClassCoordinator,
+            tenant_id,
+            ClassCoordinator.section_id,
+            section_id,
+            lambda r: ClassCoordinatorSummary(
+                tenant_id=r.tenant_id,
+                section_id=r.section_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+            active=active,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def assign_section_coordinator(
+        self, tenant_id: UUID, section_id: UUID, user_id: UUID
+    ) -> ClassCoordinatorSummary:
+        return self._assign_member_target(
+            ClassCoordinator,
+            tenant_id,
+            ClassCoordinator.section_id,
+            "section_id",
+            section_id,
+            user_id,
+            lambda r: ClassCoordinatorSummary(
+                tenant_id=r.tenant_id,
+                section_id=r.section_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    def revoke_section_coordinator(
+        self, tenant_id: UUID, section_id: UUID, user_id: UUID
+    ) -> ClassCoordinatorSummary | None:
+        return self._revoke_member_target(
+            ClassCoordinator,
+            tenant_id,
+            ClassCoordinator.section_id,
+            section_id,
+            user_id,
+            lambda r: ClassCoordinatorSummary(
+                tenant_id=r.tenant_id,
+                section_id=r.section_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    def list_offering_teachers(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[OfferingAssignmentSummary]:
+        return self._list_assignments(
+            TeacherAssignment,
+            tenant_id,
+            TeacherAssignment.offering_id,
+            offering_id,
+            lambda r: OfferingAssignmentSummary(
+                tenant_id=r.tenant_id,
+                offering_id=r.offering_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+            active=active,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def assign_offering_teacher(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary:
+        return self._assign_member_target(
+            TeacherAssignment,
+            tenant_id,
+            TeacherAssignment.offering_id,
+            "offering_id",
+            offering_id,
+            user_id,
+            lambda r: OfferingAssignmentSummary(
+                tenant_id=r.tenant_id,
+                offering_id=r.offering_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    def revoke_offering_teacher(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary | None:
+        return self._revoke_member_target(
+            TeacherAssignment,
+            tenant_id,
+            TeacherAssignment.offering_id,
+            offering_id,
+            user_id,
+            lambda r: OfferingAssignmentSummary(
+                tenant_id=r.tenant_id,
+                offering_id=r.offering_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    def list_offering_enrolments(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[OfferingAssignmentSummary]:
+        return self._list_assignments(
+            StudentEnrolment,
+            tenant_id,
+            StudentEnrolment.offering_id,
+            offering_id,
+            lambda r: OfferingAssignmentSummary(
+                tenant_id=r.tenant_id,
+                offering_id=r.offering_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+            active=active,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def enrol_student(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary:
+        return self._assign_member_target(
+            StudentEnrolment,
+            tenant_id,
+            StudentEnrolment.offering_id,
+            "offering_id",
+            offering_id,
+            user_id,
+            lambda r: OfferingAssignmentSummary(
+                tenant_id=r.tenant_id,
+                offering_id=r.offering_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    def withdraw_student(
+        self, tenant_id: UUID, offering_id: UUID, user_id: UUID
+    ) -> OfferingAssignmentSummary | None:
+        return self._revoke_member_target(
+            StudentEnrolment,
+            tenant_id,
+            StudentEnrolment.offering_id,
+            offering_id,
+            user_id,
+            lambda r: OfferingAssignmentSummary(
+                tenant_id=r.tenant_id,
+                offering_id=r.offering_id,
+                user_id=r.user_id,
+                active=r.active,
+            ),
+        )
+
+    @staticmethod
+    def _guardian_dto(row: GuardianLink) -> GuardianLinkSummary:
+        return GuardianLinkSummary(
+            tenant_id=row.tenant_id,
+            guardian_user_id=row.user_id,
+            student_user_id=row.student_id,
+            active=row.active,
+            verified_at=row.verified_at,
+            consent_at=row.consent_at,
+        )
+
+    def list_guardian_links(
+        self,
+        tenant_id: UUID,
+        *,
+        actor_id: UUID | None,
+        active: bool | None,
+        cursor: UUID | None,
+        limit: int,
+    ) -> Page[GuardianLinkSummary]:
+        stmt = select(GuardianLink).where(GuardianLink.tenant_id == tenant_id)
+        if actor_id is not None:
+            stmt = stmt.where(
+                or_(
+                    GuardianLink.user_id == actor_id,
+                    GuardianLink.student_id == actor_id,
+                )
+            )
+        if active is not None:
+            stmt = stmt.where(GuardianLink.active.is_(active))
+        if cursor is not None:
+            stmt = stmt.where(GuardianLink.student_id > cursor)
+        rows = list(
+            self.session.scalars(
+                stmt.order_by(GuardianLink.student_id, GuardianLink.user_id).limit(
+                    limit + 1
+                )
+            )
+        )
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        next_cursor = str(page_rows[-1].student_id) if has_more and page_rows else None
+        return Page[GuardianLinkSummary](
+            items=tuple(self._guardian_dto(r) for r in page_rows),
+            next_cursor=next_cursor,
+        )
+
+    def create_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary:
+        existing = self.session.scalar(
+            select(GuardianLink)
+            .where(
+                GuardianLink.tenant_id == tenant_id,
+                GuardianLink.user_id == guardian_user_id,
+                GuardianLink.student_id == student_user_id,
+            )
+            .with_for_update()
+        )
+        if existing is not None:
+            raise AccessError(
+                409, "duplicate_record", "Guardian link already exists"
+            )
+        row = GuardianLink(
+            tenant_id=tenant_id,
+            user_id=guardian_user_id,
+            student_id=student_user_id,
+            active=False,
+            verified_at=None,
+            consent_at=None,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return self._guardian_dto(row)
+
+    def _get_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLink | None:
+        return self.session.scalar(
+            select(GuardianLink)
+            .where(
+                GuardianLink.tenant_id == tenant_id,
+                GuardianLink.user_id == guardian_user_id,
+                GuardianLink.student_id == student_user_id,
+            )
+            .with_for_update()
+        )
+
+    def verify_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None:
+        row = self._get_guardian_link(tenant_id, guardian_user_id, student_user_id)
+        if row is None:
+            return None
+        row.verified_at = row.verified_at or datetime.now(UTC)
+        self.session.flush()
+        return self._guardian_dto(row)
+
+    def consent_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None:
+        row = self._get_guardian_link(tenant_id, guardian_user_id, student_user_id)
+        if row is None:
+            return None
+        row.consent_at = datetime.now(UTC)
+        self.session.flush()
+        return self._guardian_dto(row)
+
+    def activate_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None:
+        row = self._get_guardian_link(tenant_id, guardian_user_id, student_user_id)
+        if row is None:
+            return None
+        if row.verified_at is None or row.consent_at is None:
+            raise AccessError(
+                409,
+                "verification_and_consent_required",
+                "Guardian link requires both verification and student consent before activation",
+            )
+        row.active = True
+        self.session.flush()
+        return self._guardian_dto(row)
+
+    def revoke_guardian_link(
+        self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
+    ) -> GuardianLinkSummary | None:
+        row = self._get_guardian_link(tenant_id, guardian_user_id, student_user_id)
+        if row is None:
+            return None
+        row.active = False
+        row.consent_at = None
+        self.session.flush()
+        return self._guardian_dto(row)

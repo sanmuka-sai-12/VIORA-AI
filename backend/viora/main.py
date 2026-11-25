@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .authorization.public import AuthorizationService
+from .authorization.public import register_models as register_authorization
 from .config import Settings
 from .contracts import ErrorResponse
 from .db import Database
@@ -21,6 +23,7 @@ def create_app(
     database: Database | None = None,
     access: Access | None = None,
 ) -> FastAPI:
+    register_authorization()
     register_institution()
     register_identity()
     config = settings or Settings.load()
@@ -28,11 +31,15 @@ def create_app(
     if config.environment == "production" and config.auth is None:
         raise ValueError("AUTH_SIGNING_KEY is required in production")
     auth_service = build_auth_service(db, config) if config.auth is not None else None
-    effective_access = access or Access(auth=auth_service)
+    effective_access = access or AuthorizationService(db, auth_service)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         try:
+            if auth_service is not None and isinstance(
+                effective_access, AuthorizationService
+            ):
+                effective_access.validate_database()
             yield
         finally:
             db.close()

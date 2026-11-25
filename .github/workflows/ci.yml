@@ -38,14 +38,14 @@ jobs:
 
       - name: Validate offline Alembic migrations
         env:
-          DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora
+          MIGRATION_DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora
         run: |
           alembic upgrade head --sql
 
       - name: Verify OpenAPI contract drift
         env:
           PYTHONPATH: backend
-          DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora
+          DATABASE_URL: postgresql+psycopg://viora_app:placeholder-ci-password@127.0.0.1:5432/viora
         run: |
           python -m viora.export_contracts
           git diff --exit-code contracts/http/openapi.json
@@ -83,13 +83,36 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt
 
-      - name: Run live migrations and integration tests (including auth locking and replay)
+      - name: Run live migrations with schema-owner credentials
         env:
           PYTHONPATH: backend
-          DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test
-          VIORA_TEST_DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test
+          MIGRATION_DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test
         run: |
           alembic upgrade head
+
+      - name: Provision restricted application role in test database
+        env:
+          PYTHONPATH: backend
+          MIGRATION_DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test
+        run: |
+          python -c "
+          import os
+          from sqlalchemy import create_engine, text
+          from viora.database_roles import grant_application_privileges
+          engine = create_engine(os.environ['MIGRATION_DATABASE_URL'])
+          with engine.begin() as conn:
+              conn.execute(text(\"CREATE ROLE viora_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT\"))
+              conn.execute(text('REVOKE CREATE ON SCHEMA public FROM PUBLIC'))
+              grant_application_privileges(conn, 'viora_app', 'public')
+          engine.dispose()
+          "
+
+      - name: Run integration tests (including auth, authorization and non-owner tenant RLS)
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: postgresql+psycopg://viora_app:ci-app-password@127.0.0.1:5432/viora_test
+          VIORA_TEST_DATABASE_URL: postgresql+psycopg://viora:change-this-local-password@127.0.0.1:5432/viora_test
+        run: |
           pytest -m postgres -v
 
   frontend:

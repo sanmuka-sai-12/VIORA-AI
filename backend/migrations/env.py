@@ -1,16 +1,23 @@
+import os
+
 from alembic import context
 from sqlalchemy import create_engine, pool
+from viora.authorization.public import register_models as register_authorization
 from viora.config import Settings
 from viora.db import Base
 from viora.identity.public import register_models as register_identity
 from viora.institution.public import register_models as register_institution
 from viora.sources.public import registered_table
 
+register_authorization()
 register_identity()
 register_institution()
 metadata = Base.metadata
 assert registered_table.metadata is metadata
-url = Settings.load().database_url.get_secret_value()
+url = (
+    os.environ.get("MIGRATION_DATABASE_URL")
+    or Settings.load().database_url.get_secret_value()
+)
 
 if context.is_offline_mode():
     context.configure(url=url, target_metadata=metadata, literal_binds=True)

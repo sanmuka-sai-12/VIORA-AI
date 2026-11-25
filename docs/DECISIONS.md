@@ -13,7 +13,7 @@ This file records the choices that affect other modules. We keep requirements, d
 |---|---|---|---|
 | DEC-001 | Build an educational content-to-animation platform in phases | Approved | First get one useful lesson through the whole pipeline |
 | DEC-002 | Support student, teacher, head/director and platform admin roles with scoped memberships | Approved | One account can have different responsibilities in different contexts |
-| DEC-003 | Tenant membership, resource ownership, revocation and special access policy | Open | Needs an explicit authorization policy before multi-institution use |
+| DEC-003 | Tenant membership, resource ownership, revocation and special access policy | Core resolved; downstream policies deferred | Step 4.3A central policy, forced RLS and live non-owner tests |
 | DEC-004 | Online-round core before offline-round and institutional extensions | Approved | Matches competition priorities |
 | DEC-005 | Modular monolith with separate long-running workers | Selected for build | Keeps transactions and code ownership understandable |
 | DEC-006 | PostgreSQL for authoritative records; protected media storage; derived indexes rebuildable | Selected for build | Reliable versions, relationships and audit history |
@@ -73,22 +73,44 @@ These designs guide implementation but do not indicate passed tests.
 
 See [TECH-STACK.md](TECH-STACK.md) and the actual installation manifests. Version existence has been checked against public release pages; dependency resolution and cross-platform tests remain pending.
 
-## DEC-003 â€” authorization questions to settle
+## DEC-003 — authorization and tenant isolation
 
-1. Keep cross-institution sharing off until a formal workflow exists.
-2. Resolve role permissions through active membership **and** assigned resources, not role name alone.
-3. Represent creator, current owner, publisher and visibility separately.
-4. Set a documented maximum time for revocation to take effect and recheck at API, worker and publish boundaries.
-5. Define how source revocation affects derived videos, downloads and retention.
-6. Do not provide emergency support access in the first release; design it explicitly if ever needed.
-7. Suppress small-cohort institution analytics to prevent identifying students.
-8. Use application-level access checks from day one; evaluate PostgreSQL RLS as additional protection, not a substitute.
+**Resolved in Phase 1, Step 4.3A.** Authorization is centralized in `viora.authorization.public.AuthorizationService`, which composes the real identity/institution directories through `Access`. Every decision rechecks active global account, active institution, active membership, unrevoked roles and current assignments. Caller-supplied role claims never authorize access. Unknown actions, resource kinds, platform administrators and cross-institution sharing deny by default.
 
-### Phase 1 relational foundation
+| Eligible role | Explicit actions | Required resource scope |
+| --- | --- | --- |
+| Institution owner / administrator | `institution.read`, `institution.update_metadata` | Existing active institution; resource ID equals the membership tenant ID |
+| Department head | `department.read`, `department.update_metadata` | Active head assignment to that department |
+| Class coordinator | `section.read`, `section.update_metadata` | Active coordinator assignment to that section |
+| Subject teacher | `offering.read`, `offering.teach` | Existing offering and active teacher assignment |
+| Student | `offering.read`; `student.summary.read` | Active offering enrolment; own minimal summary respectively |
+| Guardian | `student.summary.read` | Active, verified, consented guardian link to an active student member |
 
-Memberships link a global user to one institution. A role is eligible only in its institution. Department, section, offering and guardian assignments narrow the resource scope. A guardian link starts inactive and requires recorded verification and consent to activate. The eventual policy service owns action-level permission and disclosure decisions.
+Leadership does not imply access to all offerings, students, files or assignments. Student summary permission permits only minimal institutional identification (student ID/display name), not global identifiers, contact details, grades, attendance, health, safeguarding or other sensitive records. A guardian link does not imply access to the student's teaching materials. No source metadata access is granted: existing sources lack creator/current owner/assignment/visibility fields. Those must be separately modeled and policy-tested before enabling `source.read` for any role.
 
-Revision 0002 preserves Phase 0 source tenant IDs as inactive institution records. Activating one requires institutional reconciliation. Tenant-aware foreign keys protect relationship integrity. PostgreSQL row-level read and write policies remain open under DEC-003. Before pilot, validate them with a non-owner application role and transaction-local tenant context, including connection reuse and revocation.
+### Database and transaction boundaries
+
+Revision `0005_tenant_security` enables and **forces** PostgreSQL RLS on every current tenant-bearing table, including institutions, membership/role data, academic definitions, assignments, sources and security audit. `USING` and `WITH CHECK` compare tenant IDs to a transaction-local context; absent/empty context denies. Global users, credentials, verified identifiers, authentication sessions, refresh generations and rate-limit records remain global.
+
+Runtime connections use a separate, non-owner login with no superuser, BYPASSRLS, role/database creation, replication, table ownership, schema CREATE, TRUNCATE or TRIGGER privilege (including inherited privileges). Startup and protected transactions reject unsafe roles. The administrative `grant_application_privileges` helper grants explicit DML without DDL, TRUNCATE, grant options or RLS bypass. Existing auth row locks require UPDATE on one users column; only `display_name` is granted, not account status or identity IDs. Migration credentials are supplied separately through `MIGRATION_DATABASE_URL`; application deployment uses only its runtime credentials.
+
+The authorization service owns a READ COMMITTED transaction. It sets a candidate tenant with `set_config(..., true)` for internal membership checks, verifies membership and resource policy, and only then yields the transaction/session to the protected operation. No security-definer lookup or global membership bypass is used. All protected SQL must use that yielded session; never authorize in one transaction and execute in another. Tenant changes within the session are rejected. Commit, rollback and connection-pool reuse clear the local context. RLS protects tenant boundaries, not resource-level policy: application code must still use the central action decision and constrain SQL to the authorized resource. The database login and its ability to set context are trusted server capabilities, never client credentials or arbitrary-SQL capabilities.
+
+### Revocation and audit
+
+Committed membership status changes, role `revoked_at`, and assignment/enrolment/link `active=false` take effect at the next authorization check, with no role/assignment cache or token-grant lifetime. `AuthorizedTransaction.recheck` refreshes policy inside an existing READ COMMITTED transaction before a subsequent effect. An already authorized in-flight statement is not retroactively cancelled; long-running workers must open a new `reauthorize` scope per effect using their persisted initiating actor. Revoking a student membership/role also removes a guardian's eligibility to that student's summary. Revoking a teacher role disables its assignments even if assignment rows remain active.
+
+Tenant-scoped `security_events` stores actor, action, resource, timestamp, decision/change kind and outcome, without tokens or credentials. Runtime audit privileges are SELECT/INSERT only, and RLS has no UPDATE/DELETE policy. Initial authenticated denials commit before AccessError is raised. Allowed decisions and explicit `scope.audit.change(...)` records commit atomically with protected mutations; failed transactions roll both back. Audit write failures fail closed. Unauthenticated HTTP failures remain in the existing correlation/error mechanism; they have no trusted actor for this audit contract.
+
+### Controlled bootstrap
+
+There is no public tenant creation or membership/role mutation permission yet. An audited administrative provisioning process uses a separate schema-owner connection (without BYPASSRLS), chooses a new tenant UUID, and explicitly sets that local context inside one transaction. It creates an inactive institution, references an already provisioned global user, inserts that user's active membership and initial owner role, appends a bootstrap change audit, and activates the institution only after verification. The forced RLS rules apply throughout; no disabling RLS, wildcard context, security-definer bypass or runtime owner membership is allowed. Only trusted provisioning operators may run it. Existing legacy inactive institutions require reconciliation before activation.
+
+### Deferred policies
+
+Source ownership/visibility/publishing and derived-media revocation/retention; institutional membership/role management actions and transfer of ownership; detailed guardian/student disclosure and consent withdrawal workflows; cross-institution sharing; platform/emergency support access; cohort analytics suppression; worker/retrieval/media/publication implementations. These remain denied until explicitly added to the central permission matrix and tested. No role implies these capabilities.
+
+See `docs/authorization.md` for API composition, database provisioning and verification commands.
 
 ## Remaining technical checks
 

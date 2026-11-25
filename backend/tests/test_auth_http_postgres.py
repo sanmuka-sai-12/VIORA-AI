@@ -1,6 +1,7 @@
 """HTTP authentication integration and security regression tests against live PostgreSQL."""
 
 import os
+import secrets
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,12 +12,14 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from psycopg import sql
 from pydantic import SecretStr
 from sqlalchemy import create_engine, delete, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateSchema, DropSchema
 from viora.config import AuthSettings, Settings
+from viora.database_roles import grant_application_privileges
 from viora.db import Database
 from viora.identity.models import AuthRateLimit, User
 from viora.identity.provision import main as provision_cli
@@ -33,30 +36,49 @@ NEW_PASSWORD = SecretStr("another strong passphrase 99")
 
 
 @pytest.fixture(scope="module")
-def pg_database() -> Iterator[tuple[Database, str]]:
+def pg_database() -> Iterator[tuple[Database, Database, str, str]]:
     raw_url = os.environ.get("VIORA_TEST_DATABASE_URL")
     if not raw_url:
         pytest.skip("Requires dedicated PostgreSQL integration database")
     schema = f"auth_http_{uuid4().hex}"
+    role, password = f"auth_app_{uuid4().hex}", secrets.token_urlsafe(32)
     url = make_url(raw_url)
+    if url.database != "viora_test":
+        pytest.fail("Requires dedicated viora_test database")
     scoped_url = url.update_query_dict({"options": f"-csearch_path={schema}"})
     scoped_str = scoped_url.render_as_string(hide_password=False)
+    app_url = scoped_url.set(username=role, password=password).render_as_string(
+        hide_password=False
+    )
+    app_db = Database(Settings(database_url=SecretStr(app_url)))
     admin = create_engine(url)
     db = Database(Settings(database_url=SecretStr(scoped_str)))
     with admin.begin() as connection:
         connection.execute(CreateSchema(schema))
+        connection.connection.driver_connection.execute(
+            sql.SQL(
+                "CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+            ).format(sql.Identifier(role), sql.Literal(password))
+        )
     try:
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv("DATABASE_URL", scoped_str)
+            mp.setenv("MIGRATION_DATABASE_URL", scoped_str)
             command.upgrade(
                 Config(str(Path(__file__).resolve().parents[2] / "alembic.ini")),
                 "head",
             )
-        yield db, scoped_str
+        with admin.begin() as connection:
+            grant_application_privileges(connection, role, schema)
+        yield db, app_db, scoped_str, app_url
     finally:
         db.close()
+        app_db.close()
         with admin.begin() as connection:
             connection.execute(DropSchema(schema, cascade=True))
+            connection.connection.driver_connection.execute(
+                sql.SQL("DROP ROLE {}").format(sql.Identifier(role))
+            )
         admin.dispose()
 
 
@@ -64,6 +86,8 @@ def pg_database() -> Iterator[tuple[Database, str]]:
 class HttpHarness:
     db: Database
     db_url: str
+    admin_db: Database
+    admin_url: str
     email: str
     user_id: object
 
@@ -89,8 +113,8 @@ class HttpHarness:
 
 
 @pytest.fixture
-def harness(pg_database: tuple[Database, str]) -> HttpHarness:
-    db, db_url = pg_database
+def harness(pg_database: tuple[Database, Database, str, str]) -> HttpHarness:
+    db, app_db, admin_url, app_url = pg_database
     with db.sessions.begin() as session:
         session.execute(delete(AuthRateLimit))
     email = f"user-{uuid4()}@example.test"
@@ -100,7 +124,14 @@ def harness(pg_database: tuple[Database, str]) -> HttpHarness:
         display_name="Test Learner",
         password=PASSWORD,
     )
-    return HttpHarness(db=db, db_url=db_url, email=email, user_id=summary.user_id)
+    return HttpHarness(
+        db=app_db,
+        db_url=app_url,
+        admin_db=db,
+        admin_url=admin_url,
+        email=email,
+        user_id=summary.user_id,
+    )
 
 
 def _auth_headers(token: str | None = None) -> dict[str, str]:
@@ -128,7 +159,10 @@ def test_login_me_refresh_rotation_and_replay_revocation(harness: HttpHarness) -
         unknown = client.post(
             "/api/v1/auth/login",
             headers=_auth_headers(),
-            json={"identifier": "nobody@example.test", "password": "wrong password 123"},
+            json={
+                "identifier": "nobody@example.test",
+                "password": "wrong password 123",
+            },
         )
         assert unknown.status_code == 401
         assert unknown.json()["message"] == bad.json()["message"]
@@ -202,12 +236,17 @@ def test_login_me_refresh_rotation_and_replay_revocation(harness: HttpHarness) -
         replay = client.post("/api/v1/auth/refresh", headers=_auth_headers())
         assert replay.status_code == 401
         assert replay.headers["Cache-Control"] == "no-store"
-        assert f"{PROD_REFRESH_COOKIE}=\"\"" in replay.headers["set-cookie"] or "max-age=0" in replay.headers["set-cookie"].lower()
+        assert (
+            f'{PROD_REFRESH_COOKIE}=""' in replay.headers["set-cookie"]
+            or "max-age=0" in replay.headers["set-cookie"].lower()
+        )
 
         # Even winner cookie_2 and access_2 are now revoked
         client.cookies.clear()
         client.cookies.set(PROD_REFRESH_COOKIE, cookie_2)
-        winner_after_replay = client.post("/api/v1/auth/refresh", headers=_auth_headers())
+        winner_after_replay = client.post(
+            "/api/v1/auth/refresh", headers=_auth_headers()
+        )
         assert winner_after_replay.status_code == 401
         me_after_replay = client.get(
             "/api/v1/auth/me",
@@ -226,7 +265,9 @@ def test_logout_logout_all_and_password_change(harness: HttpHarness) -> None:
             json={"identifier": harness.email, "password": PASSWORD.get_secret_value()},
         ).json()
         # Logout current session
-        out = client.post("/api/v1/auth/logout", headers=_auth_headers(s1["access_token"]))
+        out = client.post(
+            "/api/v1/auth/logout", headers=_auth_headers(s1["access_token"])
+        )
         assert out.status_code == 204
         assert out.headers["Cache-Control"] == "no-store"
         assert "max-age=0" in out.headers["set-cookie"].lower()
@@ -345,7 +386,10 @@ def test_csrf_origin_cors_content_type_and_body_limits(harness: HttpHarness) -> 
             resp = client.post(
                 "/api/v1/auth/login",
                 headers=csrf_headers,
-                json={"identifier": harness.email, "password": PASSWORD.get_secret_value()},
+                json={
+                    "identifier": harness.email,
+                    "password": PASSWORD.get_secret_value(),
+                },
             )
             assert resp.status_code == 403
             assert resp.json()["code"] == "csrf_required"
@@ -359,7 +403,10 @@ def test_csrf_origin_cors_content_type_and_body_limits(harness: HttpHarness) -> 
             resp = client.post(
                 "/api/v1/auth/login",
                 headers=headers,
-                json={"identifier": harness.email, "password": PASSWORD.get_secret_value()},
+                json={
+                    "identifier": harness.email,
+                    "password": PASSWORD.get_secret_value(),
+                },
             )
             assert resp.status_code == 403
             assert resp.json()["code"] == "untrusted_origin"
@@ -381,7 +428,10 @@ def test_csrf_origin_cors_content_type_and_body_limits(harness: HttpHarness) -> 
         # Form-encoded / text content-type rejected with 415
         form_resp = client.post(
             "/api/v1/auth/login",
-            headers={**_auth_headers(), "Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                **_auth_headers(),
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
             content=b"identifier=a&password=b",
         )
         assert form_resp.status_code == 415
@@ -457,7 +507,7 @@ def test_rate_limiting_across_workers_and_disabled_account(
         assert logged.status_code == 200
         token = logged.json()["access_token"]
 
-        with harness.db.sessions.begin() as session:
+        with harness.admin_db.sessions.begin() as session:
             session.execute(
                 update(User)
                 .where(User.user_id == harness.user_id)
@@ -470,7 +520,10 @@ def test_rate_limiting_across_workers_and_disabled_account(
             ).status_code
             == 401
         )
-        assert client.post("/api/v1/auth/refresh", headers=_auth_headers()).status_code == 401
+        assert (
+            client.post("/api/v1/auth/refresh", headers=_auth_headers()).status_code
+            == 401
+        )
         assert (
             client.post(
                 "/api/v1/auth/login",
@@ -526,7 +579,7 @@ def test_cookie_dev_vs_prod_and_provisioning_guard(harness: HttpHarness) -> None
         assert "__Host-" not in resp.headers["set-cookie"]
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("DATABASE_URL", harness.db_url)
+        mp.setenv("DATABASE_URL", harness.admin_url)
         mp.setenv("APP_ENV", "production")
         mp.setenv("VIORA_PROVISION_PASSWORD", PASSWORD.get_secret_value())
         assert (

@@ -82,7 +82,13 @@ def main(argv: list[str] | None = None) -> int:
     if not raw_password:
         raw_password = getpass.getpass("Password (12-1024 chars): ")
 
-    db = Database(settings)
+    admin_url = os.environ.get("MIGRATION_DATABASE_URL")
+    db_settings = (
+        settings.model_copy(update={"database_url": SecretStr(admin_url)})
+        if admin_url
+        else settings
+    )
+    db = Database(db_settings)
     try:
         summary = provision_account(
             db.sessions,

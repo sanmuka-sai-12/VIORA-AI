@@ -44,6 +44,7 @@ def test_invalid_config(changes: dict[str, object]) -> None:
 def test_lifecycle_health_and_errors() -> None:
     db = create_autospec(Database, instance=True)
     db.sessions = Database(settings()).sessions
+    db.engine = db.sessions.kw["bind"]
     app = create_app(settings(), db)
     rid = str(uuid4())
     with TestClient(app) as client:

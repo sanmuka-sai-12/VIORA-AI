@@ -60,6 +60,10 @@ def database() -> Iterator[Database]:
             patch.setenv(
                 "DATABASE_URL", scoped_url.render_as_string(hide_password=False)
             )
+            patch.setenv(
+                "MIGRATION_DATABASE_URL",
+                scoped_url.render_as_string(hide_password=False),
+            )
             command.upgrade(
                 Config(str(Path(__file__).resolve().parents[2] / "alembic.ini")), "head"
             )

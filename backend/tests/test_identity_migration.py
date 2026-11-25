@@ -19,7 +19,11 @@ REVISION = "0002_identity_academics"
 
 def test_identity_revision_follows_sources() -> None:
     history = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert history.get_heads() == ["0004_auth_rate_limits"]
+    assert history.get_heads() == ["0005_tenant_security"]
+    assert (
+        history.get_revision("0005_tenant_security").down_revision
+        == "0004_auth_rate_limits"
+    )
     assert (
         history.get_revision("0004_auth_rate_limits").down_revision
         == "0003_auth_sessions"
@@ -39,6 +43,9 @@ def test_existing_source_survives_migration_round_trip(
     url = make_url(raw_url)
     scoped_url = url.update_query_dict({"options": f"-csearch_path={schema}"})
     monkeypatch.setenv("DATABASE_URL", scoped_url.render_as_string(hide_password=False))
+    monkeypatch.setenv(
+        "MIGRATION_DATABASE_URL", scoped_url.render_as_string(hide_password=False)
+    )
     admin = create_engine(url)
     scoped = create_engine(scoped_url)
     config = Config(str(ROOT / "alembic.ini"))

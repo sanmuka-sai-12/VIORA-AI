@@ -26,6 +26,14 @@ class Audit(Protocol):
     ) -> None: ...
 
 
+class ChangeAudit(Audit, Protocol):
+    def change(
+        self, context: TenantContext, action: str, resource: ResourceRef
+    ) -> None:
+        """Append a security change in the same transaction as the mutation."""
+        ...
+
+
 class WorkerAuthorization(Protocol):
     def reauthorize(self, job_id: UUID, action: str, resource: ResourceRef) -> bool:
         """Reload the initiating actor, membership and assignment before each protected effect."""

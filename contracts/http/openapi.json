@@ -452,6 +452,587 @@
         "title": "ClassCoordinatorSummary",
         "type": "object"
       },
+      "ConceptCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "ambiguity_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambiguity Note"
+          },
+          "canonical_summary": {
+            "maxLength": 800,
+            "minLength": 1,
+            "title": "Canonical Summary",
+            "type": "string"
+          },
+          "chunk_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Chunk Ids",
+            "type": "array"
+          },
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "definitions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptDefinition"
+            },
+            "title": "Definitions",
+            "type": "array"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "examples": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptExample"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "learning_objectives": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LearningObjectiveCandidate"
+            },
+            "title": "Learning Objectives",
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "normalized_name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Normalized Name",
+            "type": "string"
+          },
+          "prerequisites": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PrerequisiteCandidate"
+            },
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "sense_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sense Label"
+          }
+        },
+        "required": [
+          "concept_id",
+          "name",
+          "normalized_name",
+          "canonical_summary",
+          "grounding"
+        ],
+        "title": "ConceptCandidate",
+        "type": "object"
+      },
+      "ConceptDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Definition",
+            "type": "string"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition",
+          "grounding"
+        ],
+        "title": "ConceptDefinition",
+        "type": "object"
+      },
+      "ConceptEvidenceBinding": {
+        "additionalProperties": false,
+        "description": "Verified link tying an extracted claim back to exact document evidence.",
+        "properties": {
+          "block_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Id"
+          },
+          "evidence_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "excerpt": {
+            "maxLength": 1000,
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "extraction_id": {
+            "format": "uuid",
+            "title": "Extraction Id",
+            "type": "string"
+          },
+          "page_number": {
+            "minimum": 1.0,
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "section_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Id"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "verified": {
+            "default": true,
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "source_id",
+          "version_id",
+          "source_sha256",
+          "extraction_id",
+          "page_number",
+          "excerpt"
+        ],
+        "title": "ConceptEvidenceBinding",
+        "type": "object"
+      },
+      "ConceptExample": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "grounding"
+        ],
+        "title": "ConceptExample",
+        "type": "object"
+      },
+      "ConceptExtractionRecord": {
+        "additionalProperties": false,
+        "description": "Persisted educational concept extraction artifact with provenance and cost telemetry.",
+        "properties": {
+          "cache_hit": {
+            "default": false,
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "chunk_algorithm_version": {
+            "title": "Chunk Algorithm Version",
+            "type": "string"
+          },
+          "chunking_ms": {
+            "minimum": 0.0,
+            "title": "Chunking Ms",
+            "type": "number"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "concept_version": {
+            "minimum": 1.0,
+            "title": "Concept Version",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "extraction_version": {
+            "minimum": 1.0,
+            "title": "Extraction Version",
+            "type": "integer"
+          },
+          "inference_ms": {
+            "minimum": 0.0,
+            "title": "Inference Ms",
+            "type": "number"
+          },
+          "inference_requests": {
+            "minimum": 0.0,
+            "title": "Inference Requests",
+            "type": "integer"
+          },
+          "input_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Input Fingerprint",
+            "type": "string"
+          },
+          "input_tokens": {
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "knowledge": {
+            "$ref": "#/components/schemas/ExtractedKnowledgeGraph"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output_tokens": {
+            "minimum": 0.0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "published_to_students": {
+            "default": false,
+            "title": "Published To Students",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "total_tokens": {
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "validation_ms": {
+            "minimum": 0.0,
+            "title": "Validation Ms",
+            "type": "number"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "concept_extraction_id",
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "extraction_version",
+          "concept_version",
+          "provider",
+          "model",
+          "prompt_version",
+          "schema_version",
+          "chunk_algorithm_version",
+          "input_fingerprint",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens",
+          "inference_requests",
+          "chunking_ms",
+          "inference_ms",
+          "validation_ms",
+          "knowledge",
+          "created_at"
+        ],
+        "title": "ConceptExtractionRecord",
+        "type": "object"
+      },
+      "ConceptExtractionTriggerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "title": "ConceptExtractionTriggerRequest",
+        "type": "object"
+      },
+      "ConceptExtractionTriggerResult": {
+        "additionalProperties": false,
+        "properties": {
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "idempotent_replay": {
+            "default": false,
+            "title": "Idempotent Replay",
+            "type": "boolean"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_state": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_state",
+          "derived_extraction_id"
+        ],
+        "title": "ConceptExtractionTriggerResult",
+        "type": "object"
+      },
+      "ConceptRelationshipCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "relation_type": {
+            "enum": [
+              "prerequisite_of",
+              "part_of",
+              "defines",
+              "contrasts_with",
+              "applies_to",
+              "example_of"
+            ],
+            "title": "Relation Type",
+            "type": "string"
+          },
+          "relationship_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Relationship Id",
+            "type": "string"
+          },
+          "source_concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Concept Id",
+            "type": "string"
+          },
+          "source_concept_name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Source Concept Name",
+            "type": "string"
+          },
+          "target_concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Target Concept Id",
+            "type": "string"
+          },
+          "target_concept_name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Target Concept Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relationship_id",
+          "source_concept_id",
+          "source_concept_name",
+          "relation_type",
+          "target_concept_id",
+          "target_concept_name",
+          "grounding"
+        ],
+        "title": "ConceptRelationshipCandidate",
+        "type": "object"
+      },
       "DepartmentCreate": {
         "additionalProperties": false,
         "properties": {
@@ -1105,6 +1686,103 @@
           "created_at"
         ],
         "title": "ExtractedDocument",
+        "type": "object"
+      },
+      "ExtractedKnowledgeGraph": {
+        "additionalProperties": false,
+        "properties": {
+          "concepts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptCandidate"
+            },
+            "title": "Concepts",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "extraction_mode": {
+            "enum": [
+              "single_pass",
+              "hierarchical"
+            ],
+            "title": "Extraction Mode",
+            "type": "string"
+          },
+          "input_format": {
+            "enum": [
+              "plain_text",
+              "typed_notes",
+              "topic_description",
+              "digital_pdf",
+              "scanned_pdf",
+              "png",
+              "jpeg"
+            ],
+            "title": "Input Format",
+            "type": "string"
+          },
+          "published_to_students": {
+            "default": false,
+            "title": "Published To Students",
+            "type": "boolean"
+          },
+          "relationships": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptRelationshipCandidate"
+            },
+            "title": "Relationships",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/KnowledgeValidationReport"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "source_sha256",
+          "input_format",
+          "title",
+          "extraction_mode",
+          "validation",
+          "created_at"
+        ],
+        "title": "ExtractedKnowledgeGraph",
         "type": "object"
       },
       "ExtractionProvenance": {
@@ -1839,6 +2517,661 @@
         "title": "JobStatus",
         "type": "object"
       },
+      "KnowledgePublicationState": {
+        "additionalProperties": false,
+        "properties": {
+          "all_evidence_verified": {
+            "default": false,
+            "title": "All Evidence Verified",
+            "type": "boolean"
+          },
+          "approved_review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved Review Id"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "concept_version": {
+            "minimum": 1.0,
+            "title": "Concept Version",
+            "type": "integer"
+          },
+          "latest_review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Review Id"
+          },
+          "learning_request_only": {
+            "default": false,
+            "title": "Learning Request Only",
+            "type": "boolean"
+          },
+          "outline": {
+            "$ref": "#/components/schemas/StructuredLessonOutline"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "published_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published By User Id"
+          },
+          "published_to_students": {
+            "default": false,
+            "title": "Published To Students",
+            "type": "boolean"
+          },
+          "review_status": {
+            "enum": [
+              "pending_review",
+              "approved",
+              "changes_requested",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "teacher_approved": {
+            "default": false,
+            "title": "Teacher Approved",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "concept_extraction_id",
+          "concept_version",
+          "source_sha256",
+          "review_status",
+          "updated_at",
+          "outline"
+        ],
+        "title": "KnowledgePublicationState",
+        "type": "object"
+      },
+      "KnowledgePublishRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "publish": {
+            "default": true,
+            "title": "Publish",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "concept_extraction_id"
+        ],
+        "title": "KnowledgePublishRequest",
+        "type": "object"
+      },
+      "KnowledgeReviewRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Approved Concept Ids",
+            "type": "array"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "changes_requested",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "rejected_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Concept Ids",
+            "type": "array"
+          },
+          "review_id": {
+            "format": "uuid",
+            "title": "Review Id",
+            "type": "string"
+          },
+          "review_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notes"
+          },
+          "review_version": {
+            "minimum": 1.0,
+            "title": "Review Version",
+            "type": "integer"
+          },
+          "reviewed_by_user_id": {
+            "format": "uuid",
+            "title": "Reviewed By User Id",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_id",
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "concept_extraction_id",
+          "review_version",
+          "decision",
+          "reviewed_by_user_id",
+          "created_at"
+        ],
+        "title": "KnowledgeReviewRecord",
+        "type": "object"
+      },
+      "KnowledgeReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledge_learning_request": {
+            "default": false,
+            "title": "Acknowledge Learning Request",
+            "type": "boolean"
+          },
+          "approved_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Approved Concept Ids",
+            "type": "array"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "changes_requested",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "rejected_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Concept Ids",
+            "type": "array"
+          },
+          "review_notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notes"
+          }
+        },
+        "required": [
+          "concept_extraction_id",
+          "decision"
+        ],
+        "title": "KnowledgeReviewRequest",
+        "type": "object"
+      },
+      "KnowledgeValidationReport": {
+        "additionalProperties": false,
+        "description": "Explicit grounding and validation telemetry; schema match does not prove factual truth.",
+        "properties": {
+          "ambiguous_senses_retained": {
+            "minimum": 0.0,
+            "title": "Ambiguous Senses Retained",
+            "type": "integer"
+          },
+          "chunk_algorithm_version": {
+            "default": "struct_chunk:1.0",
+            "title": "Chunk Algorithm Version",
+            "type": "string"
+          },
+          "duplicate_merges_count": {
+            "minimum": 0.0,
+            "title": "Duplicate Merges Count",
+            "type": "integer"
+          },
+          "inferred_count": {
+            "minimum": 0.0,
+            "title": "Inferred Count",
+            "type": "integer"
+          },
+          "invalid_evidence_refs_rejected": {
+            "minimum": 0.0,
+            "title": "Invalid Evidence Refs Rejected",
+            "type": "integer"
+          },
+          "learning_request_count": {
+            "minimum": 0.0,
+            "title": "Learning Request Count",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "default": "concept_prompt:1.0",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "requires_teacher_review": {
+            "default": true,
+            "title": "Requires Teacher Review",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_supported_count": {
+            "minimum": 0.0,
+            "title": "Source Supported Count",
+            "type": "integer"
+          },
+          "source_synthesized_count": {
+            "minimum": 0.0,
+            "title": "Source Synthesized Count",
+            "type": "integer"
+          },
+          "total_concepts": {
+            "minimum": 0.0,
+            "title": "Total Concepts",
+            "type": "integer"
+          },
+          "uncertain_count": {
+            "minimum": 0.0,
+            "title": "Uncertain Count",
+            "type": "integer"
+          },
+          "unsupported_count": {
+            "minimum": 0.0,
+            "title": "Unsupported Count",
+            "type": "integer"
+          },
+          "validation_notes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Validation Notes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "total_concepts",
+          "source_supported_count",
+          "source_synthesized_count",
+          "learning_request_count",
+          "inferred_count",
+          "uncertain_count",
+          "unsupported_count",
+          "invalid_evidence_refs_rejected",
+          "duplicate_merges_count",
+          "ambiguous_senses_retained"
+        ],
+        "title": "KnowledgeValidationReport",
+        "type": "object"
+      },
+      "LearningObjectiveCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "bloom_level": {
+            "enum": [
+              "remember",
+              "understand",
+              "apply",
+              "analyze"
+            ],
+            "title": "Bloom Level",
+            "type": "string"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "objective_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Objective Id",
+            "type": "string"
+          },
+          "statement": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "objective_id",
+          "statement",
+          "bloom_level",
+          "grounding"
+        ],
+        "title": "LearningObjectiveCandidate",
+        "type": "object"
+      },
+      "LessonModule": {
+        "additionalProperties": false,
+        "description": "Cohesive teaching module grouped by prerequisite depth.",
+        "properties": {
+          "depth_level": {
+            "minimum": 0.0,
+            "title": "Depth Level",
+            "type": "integer"
+          },
+          "estimated_minutes": {
+            "minimum": 1.0,
+            "title": "Estimated Minutes",
+            "type": "integer"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "learning_objectives": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Learning Objectives",
+            "type": "array"
+          },
+          "module_grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Module Grounding",
+            "type": "string"
+          },
+          "module_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Module Id",
+            "type": "string"
+          },
+          "sequence_index": {
+            "minimum": 1.0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LessonOutlineStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "module_id",
+          "sequence_index",
+          "depth_level",
+          "title",
+          "module_grounding",
+          "estimated_minutes"
+        ],
+        "title": "LessonModule",
+        "type": "object"
+      },
+      "LessonOutlineStep": {
+        "additionalProperties": false,
+        "description": "Evidence-linked lesson step aligned to prerequisite teaching order.",
+        "properties": {
+          "canonical_summary": {
+            "title": "Canonical Summary",
+            "type": "string"
+          },
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "concept_name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Concept Name",
+            "type": "string"
+          },
+          "definitions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptDefinition"
+            },
+            "title": "Definitions",
+            "type": "array"
+          },
+          "depth_level": {
+            "minimum": 0.0,
+            "title": "Depth Level",
+            "type": "integer"
+          },
+          "estimated_minutes": {
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Estimated Minutes",
+            "type": "integer"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "examples": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptExample"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "learning_objectives": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LearningObjectiveCandidate"
+            },
+            "title": "Learning Objectives",
+            "type": "array"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "prerequisite_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisite Concept Ids",
+            "type": "array"
+          },
+          "sense_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sense Label"
+          },
+          "step_index": {
+            "minimum": 1.0,
+            "title": "Step Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step_index",
+          "depth_level",
+          "concept_id",
+          "concept_name",
+          "canonical_summary",
+          "grounding",
+          "estimated_minutes"
+        ],
+        "title": "LessonOutlineStep",
+        "type": "object"
+      },
       "LifecycleUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -2148,6 +3481,34 @@
         "title": "Page[ClassCoordinatorSummary]",
         "type": "object"
       },
+      "Page_ConceptExtractionRecord_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptExtractionRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[ConceptExtractionRecord]",
+        "type": "object"
+      },
       "Page_DepartmentHeadSummary_": {
         "additionalProperties": false,
         "properties": {
@@ -2258,6 +3619,34 @@
           "items"
         ],
         "title": "Page[GuardianLinkSummary]",
+        "type": "object"
+      },
+      "Page_KnowledgeReviewRecord_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeReviewRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[KnowledgeReviewRecord]",
         "type": "object"
       },
       "Page_MemberSummary_": {
@@ -2540,6 +3929,150 @@
         "title": "Page[WorkflowJobSummary]",
         "type": "object"
       },
+      "PrerequisiteAnalysis": {
+        "additionalProperties": false,
+        "description": "Deterministic prerequisite DAG analysis, cycle report, and teaching order.",
+        "properties": {
+          "algorithm_version": {
+            "default": "curriculum_dag:1.0",
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "cycles": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PrerequisiteCycle"
+            },
+            "title": "Cycles",
+            "type": "array"
+          },
+          "has_cycles": {
+            "default": false,
+            "title": "Has Cycles",
+            "type": "boolean"
+          },
+          "root_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Root Concept Ids",
+            "type": "array"
+          },
+          "teaching_order": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TeachingOrderStep"
+            },
+            "title": "Teaching Order",
+            "type": "array"
+          },
+          "total_concepts": {
+            "minimum": 0.0,
+            "title": "Total Concepts",
+            "type": "integer"
+          },
+          "total_prerequisite_edges": {
+            "minimum": 0.0,
+            "title": "Total Prerequisite Edges",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_concepts",
+          "total_prerequisite_edges"
+        ],
+        "title": "PrerequisiteAnalysis",
+        "type": "object"
+      },
+      "PrerequisiteCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "prerequisite_name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Prerequisite Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prerequisite_name",
+          "grounding"
+        ],
+        "title": "PrerequisiteCandidate",
+        "type": "object"
+      },
+      "PrerequisiteCycle": {
+        "additionalProperties": false,
+        "description": "Detected cyclic prerequisite dependency and deterministic resolution edge.",
+        "properties": {
+          "broken_edge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broken Edge Id"
+          },
+          "concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Concept Ids",
+            "type": "array"
+          },
+          "concept_names": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Concept Names",
+            "type": "array"
+          },
+          "cycle_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Cycle Id",
+            "type": "string"
+          },
+          "resolution_note": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Resolution Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cycle_id",
+          "resolution_note"
+        ],
+        "title": "PrerequisiteCycle",
+        "type": "object"
+      },
       "ProgrammeCreate": {
         "additionalProperties": false,
         "properties": {
@@ -2642,6 +4175,117 @@
           }
         },
         "title": "ProgrammeUpdate",
+        "type": "object"
+      },
+      "PublishedLessonPackage": {
+        "additionalProperties": false,
+        "description": "Student-accessible educational knowledge and lesson outline after approval and publication.",
+        "properties": {
+          "all_evidence_verified": {
+            "default": false,
+            "title": "All Evidence Verified",
+            "type": "boolean"
+          },
+          "approved_review_id": {
+            "format": "uuid",
+            "title": "Approved Review Id",
+            "type": "string"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "concept_version": {
+            "minimum": 1.0,
+            "title": "Concept Version",
+            "type": "integer"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "input_format": {
+            "enum": [
+              "plain_text",
+              "typed_notes",
+              "topic_description",
+              "digital_pdf",
+              "scanned_pdf",
+              "png",
+              "jpeg"
+            ],
+            "title": "Input Format",
+            "type": "string"
+          },
+          "knowledge": {
+            "$ref": "#/components/schemas/ExtractedKnowledgeGraph"
+          },
+          "learning_request_only": {
+            "default": false,
+            "title": "Learning Request Only",
+            "type": "boolean"
+          },
+          "outline": {
+            "$ref": "#/components/schemas/StructuredLessonOutline"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "published_to_students": {
+            "default": true,
+            "title": "Published To Students",
+            "type": "boolean"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "teacher_approved": {
+            "default": true,
+            "title": "Teacher Approved",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "concept_extraction_id",
+          "concept_version",
+          "approved_review_id",
+          "source_sha256",
+          "input_format",
+          "title",
+          "published_at",
+          "knowledge",
+          "outline"
+        ],
+        "title": "PublishedLessonPackage",
         "type": "object"
       },
       "RoleGrantCreate": {
@@ -3936,6 +5580,122 @@
         "title": "SourceVersionTextRequest",
         "type": "object"
       },
+      "StructuredLessonOutline": {
+        "additionalProperties": false,
+        "description": "Versioned, evidence-grounded lesson outline awaiting teacher review.",
+        "properties": {
+          "all_evidence_verified": {
+            "default": false,
+            "title": "All Evidence Verified",
+            "type": "boolean"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "estimated_total_minutes": {
+            "minimum": 0.0,
+            "title": "Estimated Total Minutes",
+            "type": "integer"
+          },
+          "has_prerequisite_cycles": {
+            "default": false,
+            "title": "Has Prerequisite Cycles",
+            "type": "boolean"
+          },
+          "input_format": {
+            "enum": [
+              "plain_text",
+              "typed_notes",
+              "topic_description",
+              "digital_pdf",
+              "scanned_pdf",
+              "png",
+              "jpeg"
+            ],
+            "title": "Input Format",
+            "type": "string"
+          },
+          "learning_request_only": {
+            "default": false,
+            "title": "Learning Request Only",
+            "type": "boolean"
+          },
+          "modules": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LessonModule"
+            },
+            "title": "Modules",
+            "type": "array"
+          },
+          "notes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "outline_version": {
+            "default": "curriculum_dag:1.0",
+            "title": "Outline Version",
+            "type": "string"
+          },
+          "prerequisite_analysis": {
+            "$ref": "#/components/schemas/PrerequisiteAnalysis"
+          },
+          "requires_teacher_review": {
+            "default": true,
+            "title": "Requires Teacher Review",
+            "type": "boolean"
+          },
+          "review_required_steps_count": {
+            "minimum": 0.0,
+            "title": "Review Required Steps Count",
+            "type": "integer"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "supported_steps_count": {
+            "minimum": 0.0,
+            "title": "Supported Steps Count",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "source_sha256",
+          "input_format",
+          "title",
+          "prerequisite_analysis",
+          "estimated_total_minutes",
+          "supported_steps_count",
+          "review_required_steps_count"
+        ],
+        "title": "StructuredLessonOutline",
+        "type": "object"
+      },
       "StudentSummary": {
         "additionalProperties": false,
         "properties": {
@@ -4293,6 +6053,81 @@
         "title": "TableBlock",
         "type": "object"
       },
+      "TeachingOrderStep": {
+        "additionalProperties": false,
+        "description": "One deterministically sequenced concept in prerequisite teaching order.",
+        "properties": {
+          "blocked_by_cycle": {
+            "default": false,
+            "title": "Blocked By Cycle",
+            "type": "boolean"
+          },
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "concept_name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Concept Name",
+            "type": "string"
+          },
+          "depth_level": {
+            "minimum": 0.0,
+            "title": "Depth Level",
+            "type": "integer"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "order_index": {
+            "minimum": 1.0,
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "prerequisite_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisite Concept Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "order_index",
+          "depth_level",
+          "concept_id",
+          "concept_name",
+          "grounding"
+        ],
+        "title": "TeachingOrderStep",
+        "type": "object"
+      },
       "TenantContext": {
         "additionalProperties": false,
         "properties": {
@@ -4602,7 +6437,10 @@
             "title": "Offering Id"
           },
           "operation_kind": {
-            "const": "source_extract",
+            "enum": [
+              "source_extract",
+              "concept_extract"
+            ],
             "title": "Operation Kind",
             "type": "string"
           },
@@ -4803,7 +6641,10 @@
             "title": "Offering Id"
           },
           "operation_kind": {
-            "const": "source_extract",
+            "enum": [
+              "source_extract",
+              "concept_extract"
+            ],
             "title": "Operation Kind",
             "type": "string"
           },
@@ -15885,6 +17726,1107 @@
         "summary": "Read Source Version",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts": {
+      "get": {
+        "operationId": "get_latest_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConceptExtractionRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Latest Concepts",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/extract": {
+      "post": {
+        "operationId": "trigger_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_extract_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ConceptExtractionTriggerRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConceptExtractionTriggerResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Concepts",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/outline": {
+      "get": {
+        "operationId": "get_lesson_outline_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_outline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePublicationState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Lesson Outline",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/publish": {
+      "post": {
+        "operationId": "publish_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgePublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePublicationState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Publish Concepts",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/published": {
+      "get": {
+        "operationId": "get_published_lesson_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_published_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedLessonPackage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Published Lesson",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/review": {
+      "post": {
+        "operationId": "review_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePublicationState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Review Concepts",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/reviews": {
+      "get": {
+        "operationId": "list_reviews_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_reviews_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_KnowledgeReviewRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Reviews",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/versions": {
+      "get": {
+        "operationId": "list_concept_versions_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ConceptExtractionRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Concept Versions",
+        "tags": [
+          "knowledge"
         ]
       }
     },

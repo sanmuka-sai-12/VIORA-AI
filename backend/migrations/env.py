@@ -7,12 +7,14 @@ from viora.config import Settings
 from viora.db import Base
 from viora.identity.public import register_models as register_identity
 from viora.institution.public import register_models as register_institution
+from viora.knowledge.public import register_models as register_knowledge
 from viora.sources.public import registered_table
 from viora.workflow.public import register_models as register_workflow
 
 register_authorization()
 register_identity()
 register_institution()
+register_knowledge()
 register_workflow()
 metadata = Base.metadata
 assert registered_table.metadata is metadata

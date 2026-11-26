@@ -4,7 +4,7 @@ import random
 from collections.abc import Callable, Iterable, Sequence
 from threading import BoundedSemaphore
 from time import monotonic, sleep
-from typing import Any, Self, TypeVar
+from typing import Any, Literal, Self, TypeVar
 from urllib.parse import urlparse
 
 import httpx
@@ -19,6 +19,7 @@ from .schemas import (
     AIConfigurationError,
     AIContentFilterError,
     AIError,
+    AIQuotaExhaustedError,
     AIRateLimitError,
     AIRequestConfig,
     AIResourceLimits,
@@ -73,6 +74,34 @@ def _extract_model_name(response: Any, fallback: str) -> str:
     return raw.strip() if isinstance(raw, str) and raw.strip() else fallback
 
 
+_QUOTA_EXHAUSTED_MARKERS = (
+    "daily free allocation",
+    "insufficient_quota",
+    "ai_quota_exceeded",
+    "ai_quota_exhausted",
+    "neurons",
+    "3036",
+    "4006",
+    "quota exceeded",
+)
+
+
+def _is_quota_exhausted_error(exc: Exception) -> bool:
+    parts = [str(exc), str(getattr(exc, "code", "") or ""), str(getattr(exc, "body", "") or "")]
+    combined = " ".join(parts).lower()
+    return any(marker in combined for marker in _QUOTA_EXHAUSTED_MARKERS)
+
+
+def _strip_json_code_fence(raw_content: str) -> str:
+    """Unwrap an outer markdown ```json ... ``` fence without altering inner payloads."""
+    trimmed = raw_content.strip()
+    if trimmed.startswith("```"):
+        lines = trimmed.splitlines()
+        if len(lines) >= 3 and lines[-1].strip() == "```":
+            return "\n".join(lines[1:-1]).strip()
+    return trimmed
+
+
 class OpenAIAdapter(AIGateway):
     """OpenAI-compatible AI gateway adapter (Cloudflare Workers AI / OpenAI / local).
 
@@ -101,6 +130,7 @@ class OpenAIAdapter(AIGateway):
         max_concurrency: int = 8,
         max_connections: int = 16,
         max_keepalive_connections: int = 8,
+        structured_output_mode: Literal["json_object", "json_schema"] = "json_object",
         clock: Callable[[], float] = monotonic,
         sleep_fn: Callable[[float], None] = sleep,
         jitter_fn: Callable[[float], float] = _default_jitter,
@@ -120,6 +150,7 @@ class OpenAIAdapter(AIGateway):
         self.default_model = default_model
         self.default_embedding_model = default_embedding_model
         self.provider_name = provider_name
+        self.structured_output_mode = structured_output_mode
         self.hard_limits = resource_limits or AIResourceLimits()
         self._base_url = validated_url
         self._semaphore = BoundedSemaphore(max_concurrency)
@@ -262,7 +293,23 @@ class OpenAIAdapter(AIGateway):
                     raise AIConfigurationError(
                         "Invalid or missing AI credentials"
                     ) from None
-                except openai.RateLimitError:
+                except openai.RateLimitError as exc:
+                    if _is_quota_exhausted_error(exc):
+                        elapsed_ms = (self._clock() - start) * 1000.0
+                        self._log_event(
+                            logging.WARNING,
+                            event="ai_request_failed",
+                            context=context,
+                            operation=operation_name,
+                            model=model,
+                            retry_count=retries,
+                            latency_ms=elapsed_ms,
+                            input_chars=input_chars,
+                            error_code="ai_quota_exhausted",
+                        )
+                        raise AIQuotaExhaustedError(
+                            "AI provider daily or account quota exhausted; stopping without retries"
+                        ) from None
                     err_cls: type[AITransientError] = AIRateLimitError
                     err_msg = "AI provider rate limit exceeded"
                 except (openai.APITimeoutError, TimeoutError):
@@ -473,9 +520,10 @@ class OpenAIAdapter(AIGateway):
             {"role": m.role.value, "content": m.content} for m in messages
         ]
 
+        schema_json = response_model.model_json_schema()
         schema_prompt = (
             "\nStrict response requirement: respond in valid JSON conforming to the following schema:\n"
-            f"{json.dumps(response_model.model_json_schema())}"
+            f"{json.dumps(schema_json)}"
         )
         if formatted_messages and formatted_messages[0]["role"] == "system":
             formatted_messages[0]["content"] += schema_prompt
@@ -484,10 +532,18 @@ class OpenAIAdapter(AIGateway):
                 0, {"role": "system", "content": schema_prompt.strip()}
             )
 
+        if self.structured_output_mode == "json_schema":
+            response_format: dict[str, Any] = {
+                "type": "json_schema",
+                "json_schema": schema_json,
+            }
+        else:
+            response_format = {"type": "json_object"}
+
         base_kwargs: dict[str, Any] = {
             "model": self.default_model,
             "messages": formatted_messages,
-            "response_format": {"type": "json_object"},
+            "response_format": response_format,
         }
         if cfg.max_tokens is not None:
             base_kwargs["max_tokens"] = cfg.max_tokens
@@ -506,8 +562,9 @@ class OpenAIAdapter(AIGateway):
         )
 
         raw_content = self._validate_completion_content(response)
+        cleaned_json = _strip_json_code_fence(raw_content)
         try:
-            parsed = response_model.model_validate_json(raw_content)
+            parsed = response_model.model_validate_json(cleaned_json)
         except (ValidationError, json.JSONDecodeError):
             self._log_event(
                 logging.ERROR,

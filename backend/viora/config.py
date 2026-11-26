@@ -48,10 +48,18 @@ class Settings(BaseModel):
     media_storage_dir: str = Field(default="./storage", min_length=1)
     openai_api_key: SecretStr | None = None
     openai_base_url: str | None = None
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: SecretStr | None = None
+    cloudflare_ai_model: str = "@cf/meta/llama-3.1-8b-instruct-fast"
+    cloudflare_ai_gateway_slug: str | None = None
+    cloudflare_worker_url: str | None = None
+    cloudflare_worker_secret: SecretStr | None = None
+    ai_provider: Literal["none", "cloudflare", "cloudflare_worker", "openai"] = "none"
     trusted_ai_hosts: tuple[str, ...] = (
         "api.openai.com",
         "api.cloudflare.com",
         "gateway.ai.cloudflare.com",
+        "viora-ai.reddyanvesh2008.workers.dev",
     )
     allow_local_ai_endpoint: bool = False
     default_ai_model: str = "gpt-4o-mini"
@@ -153,11 +161,20 @@ class Settings(BaseModel):
                 "media_storage_dir": values.get("MEDIA_STORAGE_DIR", "./storage"),
                 "openai_api_key": values.get("OPENAI_API_KEY"),
                 "openai_base_url": values.get("OPENAI_BASE_URL"),
+                "cloudflare_account_id": values.get("CLOUDFLARE_ACCOUNT_ID"),
+                "cloudflare_api_token": values.get("CLOUDFLARE_API_TOKEN"),
+                "cloudflare_ai_model": values.get(
+                    "CLOUDFLARE_AI_MODEL", "@cf/meta/llama-3.1-8b-instruct-fast"
+                ),
+                "cloudflare_ai_gateway_slug": values.get("CLOUDFLARE_AI_GATEWAY_SLUG"),
+                "cloudflare_worker_url": values.get("CLOUDFLARE_WORKER_URL"),
+                "cloudflare_worker_secret": values.get("CLOUDFLARE_WORKER_SECRET"),
+                "ai_provider": values.get("AI_PROVIDER", "none"),
                 "trusted_ai_hosts": tuple(
                     x.strip().lower()
                     for x in (
                         values.get("TRUSTED_AI_HOSTS")
-                        or "api.openai.com,api.cloudflare.com,gateway.ai.cloudflare.com"
+                        or "api.openai.com,api.cloudflare.com,gateway.ai.cloudflare.com,viora-ai.reddyanvesh2008.workers.dev"
                     ).split(",")
                     if x.strip()
                 ),

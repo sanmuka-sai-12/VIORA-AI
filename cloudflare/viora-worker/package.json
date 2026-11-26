@@ -1,0 +1,13 @@
+{
+  "name": "viora-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check index.js && node --check index.test.js",
+    "test": "node --test index.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "4.168.0"
+  }
+}

@@ -25,9 +25,16 @@ TENANT_TABLES = (
     "workflow_jobs",
     "extraction_cache",
     "page_ocr_cache",
+    "concept_extraction_cache",
+    "knowledge_publications",
 )
 
-APPEND_ONLY_TENANT_TABLES = ("source_versions", "derived_extractions")
+APPEND_ONLY_TENANT_TABLES = (
+    "source_versions",
+    "derived_extractions",
+    "concept_extractions",
+    "knowledge_reviews",
+)
 
 
 def grant_application_privileges(

@@ -336,6 +336,7 @@ class Policy:
                     "source.read",
                     "source.version.read",
                     "source.job.read",
+                    "source.concepts.read",
                     "source.update",
                     "source.lifecycle",
                     "source.version.create",
@@ -350,7 +351,13 @@ class Policy:
                 ):
                     return True
                 if (
-                    action == "source.process"
+                    action
+                    in {
+                        "source.process",
+                        "source.concepts.review",
+                        "source.concepts.publish",
+                        "source.published_knowledge.read",
+                    }
                     and info.lifecycle_state == "active"
                     and self.institutions.teacher_assignment(
                         tenant, actor, info.offering_id
@@ -359,7 +366,13 @@ class Policy:
                 ):
                     return True
                 return (
-                    action in {"source.read", "source.version.read", "source.job.read"}
+                    action
+                    in {
+                        "source.read",
+                        "source.version.read",
+                        "source.job.read",
+                        "source.published_knowledge.read",
+                    }
                     and info.visibility == "offering_published"
                     and info.lifecycle_state == "active"
                     and self.institutions.student_enrolment(
@@ -380,6 +393,7 @@ class Policy:
                         "source.read",
                         "source.version.read",
                         "source.job.read",
+                        "source.concepts.read",
                         "source.lifecycle",
                         "source.job.cancel",
                     }:
@@ -401,7 +415,13 @@ class Policy:
                             tenant, info.offering_id
                         ).student_submissions_enabled
                 if (
-                    action in {"source.read", "source.version.read", "source.job.read"}
+                    action
+                    in {
+                        "source.read",
+                        "source.version.read",
+                        "source.job.read",
+                        "source.concepts.read",
+                    }
                     and info.visibility == "teacher_review"
                     and info.lifecycle_state == "active"
                     and self.institutions.teacher_assignment(

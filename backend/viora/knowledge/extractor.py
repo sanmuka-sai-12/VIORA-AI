@@ -1,0 +1,554 @@
+"""AI-assisted educational concept extractor with strict evidence & grounding verification."""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from ..ai.public import AIGateway, AIRequestConfig, AIResourceLimitError
+from ..contracts import TenantContext
+from ..sources.public import DerivedExtractionRecord, EvidenceReference
+from .chunking import chunk_extracted_document
+from .prompts import build_concept_extraction_messages
+from .schemas import (
+    CONCEPT_SCHEMA_VERSION,
+    PROMPT_VERSION,
+    AdaptiveChunkPlan,
+    ChunkingConfig,
+    ChunkingMode,
+    ConceptCandidate,
+    ConceptDefinition,
+    ConceptEvidenceBinding,
+    ConceptExample,
+    ConceptRelationshipCandidate,
+    ExtractedKnowledgeGraph,
+    GroundingClassification,
+    KnowledgeValidationReport,
+    LearningObjectiveCandidate,
+    PrerequisiteCandidate,
+    RawConceptCandidate,
+    RawConceptExtractionBatch,
+    RawGroundingLabel,
+)
+
+_WHITESPACE_RE = re.compile(r"\s+")
+_PUNCT_RE = re.compile(r"[^a-z0-9\s]")
+
+
+def normalize_concept_name(name: str) -> str:
+    lowered = _PUNCT_RE.sub(" ", name.lower())
+    return _WHITESPACE_RE.sub(" ", lowered).strip()
+
+
+def _map_grounding(
+    raw_label: RawGroundingLabel,
+    *,
+    is_topic_request: bool,
+    verified_ev_count: int,
+    had_unverified_claim: bool,
+) -> GroundingClassification:
+    if is_topic_request:
+        return "learning_request"
+    if raw_label == "source_explicit":
+        return "source_supported" if verified_ev_count > 0 else "unsupported"
+    if raw_label == "source_synthesized":
+        return "source_synthesized" if verified_ev_count > 0 else "inferred"
+    if raw_label == "inferred":
+        return "inferred"
+    if had_unverified_claim and verified_ev_count == 0:
+        return "unsupported"
+    return "uncertain"
+
+
+@dataclass(frozen=True)
+class ConceptExtractionExecutionResult:
+    knowledge: ExtractedKnowledgeGraph
+    chunk_plan: AdaptiveChunkPlan
+    provider: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    inference_requests: int
+    chunking_ms: float
+    inference_ms: float
+    validation_ms: float
+
+
+class ConceptExtractor:
+    """Structure-aware educational concept extraction pipeline using AIGateway."""
+
+    def __init__(
+        self,
+        gateway: AIGateway,
+        *,
+        chunk_config: ChunkingConfig | None = None,
+        request_config: AIRequestConfig | None = None,
+        max_inference_requests: int = 8,
+    ) -> None:
+        self.gateway = gateway
+        self.chunk_config = chunk_config or ChunkingConfig()
+        self.max_inference_requests = max(1, max_inference_requests)
+        self.request_config = request_config or AIRequestConfig(
+            max_tokens=1400,
+            temperature=0.0,
+            timeout_seconds=20.0,
+            total_deadline_seconds=45.0,
+            max_retries=1,
+        )
+
+    def extract_concepts(
+        self,
+        *,
+        context: TenantContext,
+        derived: DerivedExtractionRecord,
+        force_mode: ChunkingMode | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> ConceptExtractionExecutionResult:
+        doc = derived.document
+        chunk_plan = chunk_extracted_document(
+            doc, config=self.chunk_config, force_mode=force_mode
+        )
+        if len(chunk_plan.chunks) > self.max_inference_requests:
+            raise AIResourceLimitError(
+                f"Chunk count {len(chunk_plan.chunks)} exceeds max_inference_requests={self.max_inference_requests}"
+            )
+        evidence_by_id: dict[str, EvidenceReference] = {
+            ev.evidence_id: ev for ev in doc.evidence_references
+        }
+        is_topic = doc.input_format == "topic_description"
+        schema_overhead_chars = len(
+            json.dumps(RawConceptExtractionBatch.model_json_schema())
+        )
+        max_total_chars = self.request_config.resource_limits.max_input_chars
+
+        t_inf0 = time.monotonic_ns()
+        raw_batches: list[tuple[str, RawConceptExtractionBatch]] = []
+        known_names: list[str] = []
+        provider_name = "unknown"
+        model_name = "unknown"
+        in_tok = 0
+        out_tok = 0
+        tot_tok = 0
+
+        for chunk in chunk_plan.chunks:
+            if cancel_check is not None and cancel_check():
+                raise InterruptedError("Concept extraction cancelled cooperatively")
+            messages = build_concept_extraction_messages(
+                chunk,
+                document_title=doc.title,
+                input_format=doc.input_format,
+                known_concept_names=tuple(known_names),
+            )
+            total_msg_chars = sum(len(m.content) for m in messages) + schema_overhead_chars
+            if total_msg_chars > max_total_chars:
+                raise AIResourceLimitError(
+                    f"Prompt + schema size {total_msg_chars} chars exceeds limit {max_total_chars}"
+                )
+            res = self.gateway.complete_structured(
+                context,
+                messages,
+                RawConceptExtractionBatch,
+                config=self.request_config,
+            )
+            provider_name = res.metadata.provider
+            model_name = res.model
+            in_tok += res.usage.input_tokens
+            out_tok += res.usage.output_tokens
+            tot_tok += res.usage.total_tokens
+            raw_batches.append((chunk.chunk_id, res.parsed))
+            for c in res.parsed.concepts:
+                if c.name not in known_names:
+                    known_names.append(c.name)
+
+        inference_ms = round((time.monotonic_ns() - t_inf0) / 1_000_000.0, 3)
+
+        t_val0 = time.monotonic_ns()
+        knowledge = self._consolidate_and_validate(
+            derived=derived,
+            chunk_plan=chunk_plan,
+            evidence_by_id=evidence_by_id,
+            is_topic=is_topic,
+            raw_batches=raw_batches,
+        )
+        validation_ms = round((time.monotonic_ns() - t_val0) / 1_000_000.0, 3)
+
+        return ConceptExtractionExecutionResult(
+            knowledge=knowledge,
+            chunk_plan=chunk_plan,
+            provider=provider_name,
+            model=model_name,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            total_tokens=tot_tok,
+            inference_requests=len(raw_batches),
+            chunking_ms=chunk_plan.chunking_ms,
+            inference_ms=inference_ms,
+            validation_ms=validation_ms,
+        )
+
+    def _consolidate_and_validate(
+        self,
+        *,
+        derived: DerivedExtractionRecord,
+        chunk_plan: AdaptiveChunkPlan,
+        evidence_by_id: dict[str, EvidenceReference],
+        is_topic: bool,
+        raw_batches: list[tuple[str, RawConceptExtractionBatch]],
+    ) -> ExtractedKnowledgeGraph:
+        doc = derived.document
+        rejected_refs = 0
+        duplicate_merges = 0
+        ambiguous_retained = 0
+        notes: list[str] = []
+
+        # Keyed conservatively by (normalized_name, sense_key).
+        # If ambiguity_note differs or raw candidate declares distinct sense, retain separate entry.
+        buckets: list[dict[str, object]] = []
+        id_by_name_sense: dict[tuple[str, str], dict[str, object]] = {}
+        name_to_concept_ids: dict[str, list[str]] = {}
+        obj_seq = 0
+
+        def _verify_ev(raw_ids: list[str]) -> tuple[list[ConceptEvidenceBinding], int]:
+            bad = 0
+            valid: list[ConceptEvidenceBinding] = []
+            seen: set[str] = set()
+            for eid in raw_ids:
+                clean = eid.strip()
+                if not clean or clean in seen:
+                    continue
+                ev = evidence_by_id.get(clean)
+                if (
+                    ev is None
+                    or ev.source_id != doc.source_id
+                    or ev.version_id != doc.version_id
+                    or ev.source_sha256 != doc.source_sha256
+                ):
+                    bad += 1
+                    continue
+                seen.add(clean)
+                valid.append(
+                    ConceptEvidenceBinding(
+                        evidence_id=ev.evidence_id,
+                        source_id=doc.source_id,
+                        version_id=doc.version_id,
+                        source_sha256=doc.source_sha256,
+                        extraction_id=derived.extraction_id,
+                        page_number=ev.page_number,
+                        section_id=ev.section_id,
+                        block_id=ev.block_id,
+                        verified=True,
+                        excerpt=ev.excerpt[:1000],
+                    )
+                )
+            return valid, bad
+
+        for chunk_id, batch in raw_batches:
+            for w in batch.warnings:
+                clean_w = w.strip()
+                if clean_w and clean_w not in notes:
+                    notes.append(clean_w[:200])
+
+            for raw_c in batch.concepts:
+                norm = normalize_concept_name(raw_c.name)
+                if not norm:
+                    continue
+                bindings, bad_cnt = _verify_ev(raw_c.evidence_ids)
+                rejected_refs += bad_cnt
+                verified_ids = tuple(b.evidence_id for b in bindings)
+                grounding = _map_grounding(
+                    raw_c.grounding,
+                    is_topic_request=is_topic,
+                    verified_ev_count=len(verified_ids),
+                    had_unverified_claim=bad_cnt > 0 or raw_c.grounding == "source_explicit",
+                )
+                sense_key = (
+                    normalize_concept_name(raw_c.ambiguity_note)
+                    if raw_c.ambiguity_note
+                    else ""
+                )
+                existing_bucket = id_by_name_sense.get((norm, sense_key))
+
+                # If normalized_name already exists without ambiguity_note and new one HAS ambiguity_note (or different sense), retain separate sense!
+                if existing_bucket is None and not sense_key and norm in name_to_concept_ids:
+                    # Only merge unconditionally when neither carries conflicting ambiguity notes and grounding matches or refines
+                    candidates = [b for b in buckets if b["norm"] == norm and not b["sense_key"]]
+                    if candidates:
+                        existing_bucket = candidates[0]
+
+                if existing_bucket is None:
+                    cid = f"con-{len(buckets) + 1}"
+                    if norm in name_to_concept_ids:
+                        ambiguous_retained += 1
+                    bucket: dict[str, object] = {
+                        "concept_id": cid,
+                        "name": raw_c.name.strip(),
+                        "norm": norm,
+                        "sense_key": sense_key,
+                        "sense_label": raw_c.ambiguity_note.strip()
+                        if raw_c.ambiguity_note
+                        else None,
+                        "ambiguity_note": raw_c.ambiguity_note.strip()
+                        if raw_c.ambiguity_note
+                        else None,
+                        "canonical_summary": raw_c.canonical_summary.strip(),
+                        "definitions": [],
+                        "examples": [],
+                        "objectives": [],
+                        "prerequisites": [],
+                        "grounding": grounding,
+                        "bindings": list(bindings),
+                        "chunk_ids": [chunk_id],
+                    }
+                    buckets.append(bucket)
+                    id_by_name_sense[(norm, sense_key)] = bucket
+                    name_to_concept_ids.setdefault(norm, []).append(cid)
+                    target_bucket = bucket
+                else:
+                    duplicate_merges += 1
+                    target_bucket = existing_bucket
+                    chunk_ids = target_bucket["chunk_ids"]
+                    assert isinstance(chunk_ids, list)
+                    if chunk_id not in chunk_ids:
+                        chunk_ids.append(chunk_id)
+                    existing_bindings = target_bucket["bindings"]
+                    assert isinstance(existing_bindings, list)
+                    have_eids = {b.evidence_id for b in existing_bindings}
+                    for b in bindings:
+                        if b.evidence_id not in have_eids:
+                            existing_bindings.append(b)
+                            have_eids.add(b.evidence_id)
+                    if target_bucket["grounding"] != "source_supported" and grounding == "source_supported":
+                        target_bucket["grounding"] = "source_supported"
+
+                self._append_candidate_details(
+                    target_bucket=target_bucket,
+                    raw_c=raw_c,
+                    grounding=grounding,
+                    verified_ids=verified_ids,
+                    obj_seq_start=obj_seq,
+                )
+                obj_seq += len(raw_c.learning_objectives)
+
+        concepts = tuple(
+            self._finalize_bucket(b, is_topic=is_topic) for b in buckets
+        )
+
+        # Relationships: resolve exact endpoints conservatively; retain uncertain/unverified for review
+        relationships: list[ConceptRelationshipCandidate] = []
+        rel_seen: set[tuple[str, str, str]] = set()
+        for _, batch in raw_batches:
+            for rel in batch.relationships:
+                s_norm = normalize_concept_name(rel.source_concept)
+                t_norm = normalize_concept_name(rel.target_concept)
+                s_ids = name_to_concept_ids.get(s_norm, [])
+                t_ids = name_to_concept_ids.get(t_norm, [])
+                if not s_ids or not t_ids or s_ids[0] == t_ids[0]:
+                    continue
+                bindings, bad_cnt = _verify_ev(rel.evidence_ids)
+                rejected_refs += bad_cnt
+                rel_grounding = _map_grounding(
+                    rel.grounding,
+                    is_topic_request=is_topic,
+                    verified_ev_count=len(bindings),
+                    had_unverified_claim=bad_cnt > 0 or rel.grounding == "source_explicit",
+                )
+                dedupe_key = (s_ids[0], rel.relation_type, t_ids[0])
+                if dedupe_key in rel_seen:
+                    duplicate_merges += 1
+                    continue
+                rel_seen.add(dedupe_key)
+                relationships.append(
+                    ConceptRelationshipCandidate(
+                        relationship_id=f"rel-{len(relationships) + 1}",
+                        source_concept_id=s_ids[0],
+                        source_concept_name=rel.source_concept.strip(),
+                        relation_type=rel.relation_type,
+                        target_concept_id=t_ids[0],
+                        target_concept_name=rel.target_concept.strip(),
+                        grounding=rel_grounding,
+                        evidence_bindings=tuple(bindings),
+                        needs_review=(
+                            is_topic
+                            or rel_grounding != "source_supported"
+                            or len(bindings) == 0
+                        ),
+                    )
+                )
+
+        # Deterministically link concept.prerequisites strings to unambiguous extracted concepts
+        by_cid = {c.concept_id: c for c in concepts}
+        for c in concepts:
+            for prereq in c.prerequisites:
+                p_ids = name_to_concept_ids.get(
+                    normalize_concept_name(prereq.prerequisite_name), []
+                )
+                if len(p_ids) != 1 or p_ids[0] == c.concept_id:
+                    continue
+                dedupe_key = (p_ids[0], "prerequisite_of", c.concept_id)
+                if dedupe_key in rel_seen:
+                    continue
+                rel_seen.add(dedupe_key)
+                p_bindings = tuple(
+                    b for b in c.evidence_bindings if b.evidence_id in prereq.evidence_ids
+                )
+                relationships.append(
+                    ConceptRelationshipCandidate(
+                        relationship_id=f"rel-{len(relationships) + 1}",
+                        source_concept_id=p_ids[0],
+                        source_concept_name=by_cid[p_ids[0]].name,
+                        relation_type="prerequisite_of",
+                        target_concept_id=c.concept_id,
+                        target_concept_name=c.name,
+                        grounding=prereq.grounding,
+                        evidence_bindings=p_bindings,
+                        needs_review=(
+                            is_topic
+                            or prereq.grounding != "source_supported"
+                            or len(p_bindings) == 0
+                        ),
+                    )
+                )
+
+        if is_topic:
+            notes.append(
+                "Source input_format is topic_description: concepts represent a learning request, not factual source evidence."
+            )
+        if rejected_refs > 0:
+            notes.append(
+                f"Rejected {rejected_refs} ungrounded or version-mismatched evidence reference(s)."
+            )
+
+        validation = KnowledgeValidationReport(
+            schema_version=CONCEPT_SCHEMA_VERSION,
+            prompt_version=PROMPT_VERSION,
+            chunk_algorithm_version=chunk_plan.chunking_version,
+            total_concepts=len(concepts),
+            source_supported_count=sum(
+                1 for c in concepts if c.grounding == "source_supported"
+            ),
+            source_synthesized_count=sum(
+                1 for c in concepts if c.grounding == "source_synthesized"
+            ),
+            learning_request_count=sum(
+                1 for c in concepts if c.grounding == "learning_request"
+            ),
+            inferred_count=sum(1 for c in concepts if c.grounding == "inferred"),
+            uncertain_count=sum(1 for c in concepts if c.grounding == "uncertain"),
+            unsupported_count=sum(1 for c in concepts if c.grounding == "unsupported"),
+            invalid_evidence_refs_rejected=rejected_refs,
+            duplicate_merges_count=duplicate_merges,
+            ambiguous_senses_retained=ambiguous_retained,
+            requires_teacher_review=True,
+            validation_notes=tuple(notes),
+        )
+        return ExtractedKnowledgeGraph(
+            schema_version=CONCEPT_SCHEMA_VERSION,
+            source_id=doc.source_id,
+            version_id=doc.version_id,
+            derived_extraction_id=derived.extraction_id,
+            source_sha256=doc.source_sha256,
+            input_format=doc.input_format,
+            title=doc.title,
+            extraction_mode=chunk_plan.mode,
+            published_to_students=False,
+            concepts=concepts,
+            relationships=tuple(relationships),
+            validation=validation,
+            created_at=datetime.now(UTC),
+        )
+
+    @staticmethod
+    def _append_candidate_details(
+        *,
+        target_bucket: dict[str, object],
+        raw_c: RawConceptCandidate,
+        grounding: GroundingClassification,
+        verified_ids: tuple[str, ...],
+        obj_seq_start: int,
+    ) -> None:
+        defs = target_bucket["definitions"]
+        exs = target_bucket["examples"]
+        objs = target_bucket["objectives"]
+        prereqs = target_bucket["prerequisites"]
+        assert (
+            isinstance(defs, list)
+            and isinstance(exs, list)
+            and isinstance(objs, list)
+            and isinstance(prereqs, list)
+        )
+        if raw_c.definition:
+            d_txt = raw_c.definition.strip()
+            if d_txt and not any(d.definition == d_txt for d in defs):
+                defs.append(
+                    ConceptDefinition(
+                        definition=d_txt,
+                        grounding=grounding,
+                        evidence_ids=verified_ids,
+                    )
+                )
+        for ex_txt in raw_c.examples:
+            clean = ex_txt.strip()
+            if clean and not any(e.text == clean for e in exs):
+                exs.append(
+                    ConceptExample(
+                        text=clean,
+                        grounding=grounding,
+                        evidence_ids=verified_ids,
+                    )
+                )
+        for offset, lo_txt in enumerate(raw_c.learning_objectives):
+            clean = lo_txt.strip()
+            if clean and not any(o.statement == clean for o in objs):
+                objs.append(
+                    LearningObjectiveCandidate(
+                        objective_id=f"obj-{obj_seq_start + offset + 1}",
+                        statement=clean,
+                        bloom_level=raw_c.bloom_level,
+                        grounding="learning_request" if grounding == "learning_request" else grounding,
+                        evidence_ids=verified_ids,
+                    )
+                )
+        for p_txt in raw_c.prerequisites:
+            clean = p_txt.strip()
+            if clean and not any(p.prerequisite_name == clean for p in prereqs):
+                prereqs.append(
+                    PrerequisiteCandidate(
+                        prerequisite_name=clean,
+                        grounding=grounding,
+                        evidence_ids=verified_ids,
+                    )
+                )
+
+    @staticmethod
+    def _finalize_bucket(
+        bucket: dict[str, object], *, is_topic: bool
+    ) -> ConceptCandidate:
+        bindings = tuple(bucket["bindings"])  # type: ignore[arg-type]
+        grounding: GroundingClassification = bucket["grounding"]  # type: ignore[assignment]
+        needs_review = (
+            is_topic
+            or grounding in {"inferred", "uncertain", "unsupported", "learning_request"}
+            or len(bindings) == 0
+            or bucket["ambiguity_note"] is not None
+        )
+        return ConceptCandidate(
+            concept_id=str(bucket["concept_id"]),
+            name=str(bucket["name"]),
+            normalized_name=str(bucket["norm"]),
+            sense_label=bucket["sense_label"],  # type: ignore[arg-type]
+            ambiguity_note=bucket["ambiguity_note"],  # type: ignore[arg-type]
+            canonical_summary=str(bucket["canonical_summary"]),
+            definitions=tuple(bucket["definitions"]),  # type: ignore[arg-type]
+            examples=tuple(bucket["examples"]),  # type: ignore[arg-type]
+            learning_objectives=tuple(bucket["objectives"]),  # type: ignore[arg-type]
+            prerequisites=tuple(bucket["prerequisites"]),  # type: ignore[arg-type]
+            grounding=grounding,
+            evidence_bindings=bindings,
+            needs_review=needs_review,
+            chunk_ids=tuple(bucket["chunk_ids"]),  # type: ignore[arg-type]
+        )

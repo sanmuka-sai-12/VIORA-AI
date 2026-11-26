@@ -8,7 +8,7 @@ from pydantic import Field
 
 from ..contracts import ArtifactVersionRef, Contract, JobState
 
-WorkflowOperationKind = Literal["source_extract"]
+WorkflowOperationKind = Literal["source_extract", "concept_extract"]
 
 
 class WorkflowJobSubmit(Contract):

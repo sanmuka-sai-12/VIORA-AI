@@ -1052,6 +1052,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Latest Concepts */
+        get: operations["get_latest_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trigger Concepts */
+        post: operations["trigger_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/outline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lesson Outline */
+        get: operations["get_lesson_outline_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_outline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Concepts */
+        post: operations["publish_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/published": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Published Lesson */
+        get: operations["get_published_lesson_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_published_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Concepts */
+        post: operations["review_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reviews */
+        get: operations["list_reviews_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Concept Versions */
+        get: operations["list_concept_versions_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extract": {
         parameters: {
             query?: never;
@@ -1351,6 +1487,267 @@ export interface components {
              */
             user_id: string;
         };
+        /** ConceptCandidate */
+        ConceptCandidate: {
+            /** Ambiguity Note */
+            ambiguity_note?: string | null;
+            /** Canonical Summary */
+            canonical_summary: string;
+            /**
+             * Chunk Ids
+             * @default []
+             */
+            chunk_ids: string[];
+            /** Concept Id */
+            concept_id: string;
+            /**
+             * Definitions
+             * @default []
+             */
+            definitions: components["schemas"]["ConceptDefinition"][];
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /**
+             * Examples
+             * @default []
+             */
+            examples: components["schemas"]["ConceptExample"][];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Learning Objectives
+             * @default []
+             */
+            learning_objectives: components["schemas"]["LearningObjectiveCandidate"][];
+            /** Name */
+            name: string;
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /** Normalized Name */
+            normalized_name: string;
+            /**
+             * Prerequisites
+             * @default []
+             */
+            prerequisites: components["schemas"]["PrerequisiteCandidate"][];
+            /** Sense Label */
+            sense_label?: string | null;
+        };
+        /** ConceptDefinition */
+        ConceptDefinition: {
+            /** Definition */
+            definition: string;
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+        };
+        /**
+         * ConceptEvidenceBinding
+         * @description Verified link tying an extracted claim back to exact document evidence.
+         */
+        ConceptEvidenceBinding: {
+            /** Block Id */
+            block_id?: string | null;
+            /** Evidence Id */
+            evidence_id: string;
+            /** Excerpt */
+            excerpt: string;
+            /**
+             * Extraction Id
+             * Format: uuid
+             */
+            extraction_id: string;
+            /** Page Number */
+            page_number: number;
+            /** Section Id */
+            section_id?: string | null;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /**
+             * Verified
+             * @default true
+             */
+            verified: boolean;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** ConceptExample */
+        ConceptExample: {
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /** Text */
+            text: string;
+        };
+        /**
+         * ConceptExtractionRecord
+         * @description Persisted educational concept extraction artifact with provenance and cost telemetry.
+         */
+        ConceptExtractionRecord: {
+            /**
+             * Cache Hit
+             * @default false
+             */
+            cache_hit: boolean;
+            /** Chunk Algorithm Version */
+            chunk_algorithm_version: string;
+            /** Chunking Ms */
+            chunking_ms: number;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /** Concept Version */
+            concept_version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /** Extraction Version */
+            extraction_version: number;
+            /** Inference Ms */
+            inference_ms: number;
+            /** Inference Requests */
+            inference_requests: number;
+            /** Input Fingerprint */
+            input_fingerprint: string;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Job Id */
+            job_id?: string | null;
+            knowledge: components["schemas"]["ExtractedKnowledgeGraph"];
+            /** Model */
+            model: string;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Published To Students
+             * @default false
+             */
+            published_to_students: boolean;
+            /** Schema Version */
+            schema_version: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Validation Ms */
+            validation_ms: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** ConceptExtractionTriggerRequest */
+        ConceptExtractionTriggerRequest: {
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
+        /** ConceptExtractionTriggerResult */
+        ConceptExtractionTriggerResult: {
+            /** Concept Extraction Id */
+            concept_extraction_id?: string | null;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /**
+             * Idempotent Replay
+             * @default false
+             */
+            idempotent_replay: boolean;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            job_state: components["schemas"]["JobState"];
+        };
+        /** ConceptRelationshipCandidate */
+        ConceptRelationshipCandidate: {
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /**
+             * Relation Type
+             * @enum {string}
+             */
+            relation_type: "prerequisite_of" | "part_of" | "defines" | "contrasts_with" | "applies_to" | "example_of";
+            /** Relationship Id */
+            relationship_id: string;
+            /** Source Concept Id */
+            source_concept_id: string;
+            /** Source Concept Name */
+            source_concept_name: string;
+            /** Target Concept Id */
+            target_concept_id: string;
+            /** Target Concept Name */
+            target_concept_name: string;
+        };
         /** DepartmentCreate */
         DepartmentCreate: {
             /** Campus Id */
@@ -1645,6 +2042,64 @@ export interface components {
              */
             warnings: components["schemas"]["ExtractionWarning"][];
         };
+        /** ExtractedKnowledgeGraph */
+        ExtractedKnowledgeGraph: {
+            /**
+             * Concepts
+             * @default []
+             */
+            concepts: components["schemas"]["ConceptCandidate"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /**
+             * Extraction Mode
+             * @enum {string}
+             */
+            extraction_mode: "single_pass" | "hierarchical";
+            /**
+             * Input Format
+             * @enum {string}
+             */
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg";
+            /**
+             * Published To Students
+             * @default false
+             */
+            published_to_students: boolean;
+            /**
+             * Relationships
+             * @default []
+             */
+            relationships: components["schemas"]["ConceptRelationshipCandidate"][];
+            /**
+             * Schema Version
+             * @default 1.0
+             */
+            schema_version: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Title */
+            title: string;
+            validation: components["schemas"]["KnowledgeValidationReport"];
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
         /** ExtractionProvenance */
         ExtractionProvenance: {
             /** Confidence */
@@ -1897,6 +2352,336 @@ export interface components {
             job_id: string;
             state: components["schemas"]["JobState"];
         };
+        /** KnowledgePublicationState */
+        KnowledgePublicationState: {
+            /**
+             * All Evidence Verified
+             * @default false
+             */
+            all_evidence_verified: boolean;
+            /** Approved Review Id */
+            approved_review_id?: string | null;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /** Concept Version */
+            concept_version: number;
+            /** Latest Review Id */
+            latest_review_id?: string | null;
+            /**
+             * Learning Request Only
+             * @default false
+             */
+            learning_request_only: boolean;
+            outline: components["schemas"]["StructuredLessonOutline"];
+            /** Published At */
+            published_at?: string | null;
+            /** Published By User Id */
+            published_by_user_id?: string | null;
+            /**
+             * Published To Students
+             * @default false
+             */
+            published_to_students: boolean;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "pending_review" | "approved" | "changes_requested" | "rejected";
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /**
+             * Teacher Approved
+             * @default false
+             */
+            teacher_approved: boolean;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** KnowledgePublishRequest */
+        KnowledgePublishRequest: {
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Publish
+             * @default true
+             */
+            publish: boolean;
+        };
+        /** KnowledgeReviewRecord */
+        KnowledgeReviewRecord: {
+            /**
+             * Approved Concept Ids
+             * @default []
+             */
+            approved_concept_ids: string[];
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "changes_requested" | "rejected";
+            /**
+             * Rejected Concept Ids
+             * @default []
+             */
+            rejected_concept_ids: string[];
+            /**
+             * Review Id
+             * Format: uuid
+             */
+            review_id: string;
+            /** Review Notes */
+            review_notes?: string | null;
+            /** Review Version */
+            review_version: number;
+            /**
+             * Reviewed By User Id
+             * Format: uuid
+             */
+            reviewed_by_user_id: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** KnowledgeReviewRequest */
+        KnowledgeReviewRequest: {
+            /**
+             * Acknowledge Learning Request
+             * @default false
+             */
+            acknowledge_learning_request: boolean;
+            /**
+             * Approved Concept Ids
+             * @default []
+             */
+            approved_concept_ids: string[];
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "changes_requested" | "rejected";
+            /**
+             * Rejected Concept Ids
+             * @default []
+             */
+            rejected_concept_ids: string[];
+            /** Review Notes */
+            review_notes?: string | null;
+        };
+        /**
+         * KnowledgeValidationReport
+         * @description Explicit grounding and validation telemetry; schema match does not prove factual truth.
+         */
+        KnowledgeValidationReport: {
+            /** Ambiguous Senses Retained */
+            ambiguous_senses_retained: number;
+            /**
+             * Chunk Algorithm Version
+             * @default struct_chunk:1.0
+             */
+            chunk_algorithm_version: string;
+            /** Duplicate Merges Count */
+            duplicate_merges_count: number;
+            /** Inferred Count */
+            inferred_count: number;
+            /** Invalid Evidence Refs Rejected */
+            invalid_evidence_refs_rejected: number;
+            /** Learning Request Count */
+            learning_request_count: number;
+            /**
+             * Prompt Version
+             * @default concept_prompt:1.0
+             */
+            prompt_version: string;
+            /**
+             * Requires Teacher Review
+             * @default true
+             */
+            requires_teacher_review: boolean;
+            /**
+             * Schema Version
+             * @default 1.0
+             */
+            schema_version: string;
+            /** Source Supported Count */
+            source_supported_count: number;
+            /** Source Synthesized Count */
+            source_synthesized_count: number;
+            /** Total Concepts */
+            total_concepts: number;
+            /** Uncertain Count */
+            uncertain_count: number;
+            /** Unsupported Count */
+            unsupported_count: number;
+            /**
+             * Validation Notes
+             * @default []
+             */
+            validation_notes: string[];
+        };
+        /** LearningObjectiveCandidate */
+        LearningObjectiveCandidate: {
+            /**
+             * Bloom Level
+             * @enum {string}
+             */
+            bloom_level: "remember" | "understand" | "apply" | "analyze";
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /** Objective Id */
+            objective_id: string;
+            /** Statement */
+            statement: string;
+        };
+        /**
+         * LessonModule
+         * @description Cohesive teaching module grouped by prerequisite depth.
+         */
+        LessonModule: {
+            /** Depth Level */
+            depth_level: number;
+            /** Estimated Minutes */
+            estimated_minutes: number;
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /**
+             * Learning Objectives
+             * @default []
+             */
+            learning_objectives: string[];
+            /**
+             * Module Grounding
+             * @enum {string}
+             */
+            module_grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /** Module Id */
+            module_id: string;
+            /** Sequence Index */
+            sequence_index: number;
+            /**
+             * Steps
+             * @default []
+             */
+            steps: components["schemas"]["LessonOutlineStep"][];
+            /** Title */
+            title: string;
+        };
+        /**
+         * LessonOutlineStep
+         * @description Evidence-linked lesson step aligned to prerequisite teaching order.
+         */
+        LessonOutlineStep: {
+            /** Canonical Summary */
+            canonical_summary: string;
+            /** Concept Id */
+            concept_id: string;
+            /** Concept Name */
+            concept_name: string;
+            /**
+             * Definitions
+             * @default []
+             */
+            definitions: components["schemas"]["ConceptDefinition"][];
+            /** Depth Level */
+            depth_level: number;
+            /** Estimated Minutes */
+            estimated_minutes: number;
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /**
+             * Examples
+             * @default []
+             */
+            examples: components["schemas"]["ConceptExample"][];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Learning Objectives
+             * @default []
+             */
+            learning_objectives: components["schemas"]["LearningObjectiveCandidate"][];
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /**
+             * Prerequisite Concept Ids
+             * @default []
+             */
+            prerequisite_concept_ids: string[];
+            /** Sense Label */
+            sense_label?: string | null;
+            /** Step Index */
+            step_index: number;
+        };
         /** LifecycleUpdate */
         LifecycleUpdate: {
             /** Active */
@@ -2023,6 +2808,13 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[ConceptExtractionRecord] */
+        Page_ConceptExtractionRecord_: {
+            /** Items */
+            items: components["schemas"]["ConceptExtractionRecord"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[DepartmentHeadSummary] */
         Page_DepartmentHeadSummary_: {
             /** Items */
@@ -2048,6 +2840,13 @@ export interface components {
         Page_GuardianLinkSummary_: {
             /** Items */
             items: components["schemas"]["GuardianLinkSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[KnowledgeReviewRecord] */
+        Page_KnowledgeReviewRecord_: {
+            /** Items */
+            items: components["schemas"]["KnowledgeReviewRecord"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -2121,6 +2920,78 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /**
+         * PrerequisiteAnalysis
+         * @description Deterministic prerequisite DAG analysis, cycle report, and teaching order.
+         */
+        PrerequisiteAnalysis: {
+            /**
+             * Algorithm Version
+             * @default curriculum_dag:1.0
+             */
+            algorithm_version: string;
+            /**
+             * Cycles
+             * @default []
+             */
+            cycles: components["schemas"]["PrerequisiteCycle"][];
+            /**
+             * Has Cycles
+             * @default false
+             */
+            has_cycles: boolean;
+            /**
+             * Root Concept Ids
+             * @default []
+             */
+            root_concept_ids: string[];
+            /**
+             * Teaching Order
+             * @default []
+             */
+            teaching_order: components["schemas"]["TeachingOrderStep"][];
+            /** Total Concepts */
+            total_concepts: number;
+            /** Total Prerequisite Edges */
+            total_prerequisite_edges: number;
+        };
+        /** PrerequisiteCandidate */
+        PrerequisiteCandidate: {
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /** Prerequisite Name */
+            prerequisite_name: string;
+        };
+        /**
+         * PrerequisiteCycle
+         * @description Detected cyclic prerequisite dependency and deterministic resolution edge.
+         */
+        PrerequisiteCycle: {
+            /** Broken Edge Id */
+            broken_edge_id?: string | null;
+            /**
+             * Concept Ids
+             * @default []
+             */
+            concept_ids: string[];
+            /**
+             * Concept Names
+             * @default []
+             */
+            concept_names: string[];
+            /** Cycle Id */
+            cycle_id: string;
+            /** Resolution Note */
+            resolution_note: string;
+        };
         /** ProgrammeCreate */
         ProgrammeCreate: {
             /** Department Id */
@@ -2153,6 +3024,80 @@ export interface components {
             department_id?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * PublishedLessonPackage
+         * @description Student-accessible educational knowledge and lesson outline after approval and publication.
+         */
+        PublishedLessonPackage: {
+            /**
+             * All Evidence Verified
+             * @default false
+             */
+            all_evidence_verified: boolean;
+            /**
+             * Approved Review Id
+             * Format: uuid
+             */
+            approved_review_id: string;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /** Concept Version */
+            concept_version: number;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /**
+             * Input Format
+             * @enum {string}
+             */
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg";
+            knowledge: components["schemas"]["ExtractedKnowledgeGraph"];
+            /**
+             * Learning Request Only
+             * @default false
+             */
+            learning_request_only: boolean;
+            outline: components["schemas"]["StructuredLessonOutline"];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /**
+             * Published To Students
+             * @default true
+             */
+            published_to_students: boolean;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /**
+             * Teacher Approved
+             * @default true
+             */
+            teacher_approved: boolean;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
         };
         /** RoleGrantCreate */
         RoleGrantCreate: {
@@ -2580,6 +3525,78 @@ export interface components {
             /** Original Filename */
             original_filename?: string | null;
         };
+        /**
+         * StructuredLessonOutline
+         * @description Versioned, evidence-grounded lesson outline awaiting teacher review.
+         */
+        StructuredLessonOutline: {
+            /**
+             * All Evidence Verified
+             * @default false
+             */
+            all_evidence_verified: boolean;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /** Estimated Total Minutes */
+            estimated_total_minutes: number;
+            /**
+             * Has Prerequisite Cycles
+             * @default false
+             */
+            has_prerequisite_cycles: boolean;
+            /**
+             * Input Format
+             * @enum {string}
+             */
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg";
+            /**
+             * Learning Request Only
+             * @default false
+             */
+            learning_request_only: boolean;
+            /**
+             * Modules
+             * @default []
+             */
+            modules: components["schemas"]["LessonModule"][];
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
+            /**
+             * Outline Version
+             * @default curriculum_dag:1.0
+             */
+            outline_version: string;
+            prerequisite_analysis: components["schemas"]["PrerequisiteAnalysis"];
+            /**
+             * Requires Teacher Review
+             * @default true
+             */
+            requires_teacher_review: boolean;
+            /** Review Required Steps Count */
+            review_required_steps_count: number;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Supported Steps Count */
+            supported_steps_count: number;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
         /** StudentSummary */
         StudentSummary: {
             /** Display Name */
@@ -2712,6 +3729,45 @@ export interface components {
             /** Table Id */
             table_id: string;
         };
+        /**
+         * TeachingOrderStep
+         * @description One deterministically sequenced concept in prerequisite teaching order.
+         */
+        TeachingOrderStep: {
+            /**
+             * Blocked By Cycle
+             * @default false
+             */
+            blocked_by_cycle: boolean;
+            /** Concept Id */
+            concept_id: string;
+            /** Concept Name */
+            concept_name: string;
+            /** Depth Level */
+            depth_level: number;
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /** Order Index */
+            order_index: number;
+            /**
+             * Prerequisite Concept Ids
+             * @default []
+             */
+            prerequisite_concept_ids: string[];
+        };
         /** TenantContext */
         TenantContext: {
             /**
@@ -2830,9 +3886,9 @@ export interface components {
             offering_id?: string | null;
             /**
              * Operation Kind
-             * @constant
+             * @enum {string}
              */
-            operation_kind: "source_extract";
+            operation_kind: "source_extract" | "concept_extract";
             /** Progress Metadata */
             progress_metadata?: {
                 [key: string]: string | number | boolean;
@@ -2910,9 +3966,9 @@ export interface components {
             offering_id?: string | null;
             /**
              * Operation Kind
-             * @constant
+             * @enum {string}
              */
-            operation_kind: "source_extract";
+            operation_kind: "source_extract" | "concept_extract";
             /** Progress Metadata */
             progress_metadata?: {
                 [key: string]: string | number | boolean;
@@ -10442,6 +11498,720 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceVersionDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_latest_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConceptExtractionRecord"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    trigger_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_extract_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConceptExtractionTriggerRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConceptExtractionTriggerResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_lesson_outline_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_outline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgePublicationState"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    publish_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgePublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgePublicationState"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_published_lesson_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_published_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedLessonPackage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    review_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgePublicationState"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_reviews_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_reviews_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_KnowledgeReviewRecord_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_concept_versions_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_versions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ConceptExtractionRecord_"];
                 };
             };
             /** @description Unauthorized */

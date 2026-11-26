@@ -15,6 +15,7 @@ from .identity.public import auth_router, build_auth_service, membership_router
 from .identity.public import register_models as register_identity
 from .institution.public import register_models as register_institution
 from .institution.public import router as institution_router
+from .knowledge import public as knowledge
 from .security import Access
 from .sources import public as sources
 from .workflow.public import register_models as register_workflow
@@ -28,6 +29,7 @@ def create_app(
     register_authorization()
     register_institution()
     register_identity()
+    knowledge.register_models()
     register_workflow()
     config = settings or Settings.load()
     db = database or Database(config)
@@ -88,5 +90,6 @@ def create_app(
         api.include_router(membership_router(effective_access))
         api.include_router(institution_router(effective_access))
     api.include_router(sources.router(db, effective_access, settings=config))
+    api.include_router(knowledge.router(effective_access, db))
     app.include_router(api)
     return app

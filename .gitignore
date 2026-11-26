@@ -8,6 +8,11 @@ __pycache__/
 .ruff_cache/
 web/node_modules/
 web/dist/
+cloudflare/**/node_modules/
+cloudflare/**/.wrangler/
+.wrangler/
+.dev.vars
+.dev.vars.*
 /storage/
 *.log
 *.tsbuildinfo

@@ -15,6 +15,12 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from ..ai.public import (
+    AIError,
+    AIGateway,
+    AITransientError,
+    build_ai_gateway_from_settings,
+)
 from ..authorization.public import (
     AuthorizationService,
     bind_tenant,
@@ -26,6 +32,8 @@ from ..contracts import Actor, ResourceRef, TenantContext
 from ..db import Database
 from ..identity.public import register_models as register_identity
 from ..institution.public import register_models as register_institution
+from ..knowledge.public import ConceptExtractionWorkerHandler
+from ..knowledge.public import register_models as register_knowledge
 from ..security import AccessError
 from ..sources.public import (
     RAPIDOCR_EXTRACTOR_ID,
@@ -436,6 +444,7 @@ class WorkflowWorkerRunner:
         *,
         db: Database,
         handler: ExtractionWorkerHandler,
+        concept_handler: ConceptExtractionWorkerHandler | None = None,
         worker_id: str | None = None,
         concurrency: int = 2,
         lease_seconds: int = 30,
@@ -444,6 +453,7 @@ class WorkflowWorkerRunner:
     ) -> None:
         self.db = db
         self.handler = handler
+        self.concept_handler = concept_handler
         self.worker_id = worker_id or f"viora-worker-{uuid4().hex[:12]}"
         self.concurrency = max(1, concurrency)
         self.lease_seconds = max(5, lease_seconds)
@@ -451,10 +461,14 @@ class WorkflowWorkerRunner:
         self.retry_base_seconds = max(0.1, retry_base_seconds)
 
     def close(self) -> None:
-        """Release worker page-pool processes owned by the extractor."""
+        """Release worker page-pool processes and AI HTTP connections owned by runner."""
         close_fn = getattr(self.handler.extractor, "close", None)
         if callable(close_fn):
             close_fn()
+        if self.concept_handler is not None and self.concept_handler.gateway is not None:
+            gw_close = getattr(self.concept_handler.gateway, "close", None)
+            if callable(gw_close):
+                gw_close()
 
     def reconcile_orphans(self, *, min_age_seconds: int = 3600) -> dict[str, int]:
         """Reconcile stale temp files and unreferenced committed blob artifacts."""
@@ -479,7 +493,16 @@ class WorkflowWorkerRunner:
             db=self.db, job=job, lease_seconds=self.lease_seconds
         )
         try:
-            self.handler.execute(job, heartbeat=controller)
+            if job.operation_kind == "concept_extract":
+                if self.concept_handler is None:
+                    raise AccessError(
+                        503,
+                        "concept_handler_unavailable",
+                        "No concept extraction handler registered in worker",
+                    )
+                self.concept_handler.execute(job, heartbeat=controller)
+            else:
+                self.handler.execute(job, heartbeat=controller)
             return "succeeded"
         except StaleWorkerFenceError:
             logger.warning(
@@ -502,6 +525,27 @@ class WorkflowWorkerRunner:
                     now=datetime.now(UTC),
                 )
             return "cancelled"
+        except AIError as exc:
+            retryable = isinstance(exc, AITransientError)
+            backoff = self.retry_base_seconds * (2 ** max(0, job.attempt_count - 1))
+            try:
+                with self.db.sessions.begin() as s:
+                    require_application_role(s)
+                    bind_tenant(s, job.tenant_id)
+                    return SqlWorkflowWorkerStore.finalize_failure_or_retry(
+                        s,
+                        tenant_id=job.tenant_id,
+                        job_id=job.job_id,
+                        worker_id=job.lease_owner,
+                        fencing_token=job.fencing_token,
+                        error_code=exc.code,
+                        error_message=exc.message,
+                        retryable=retryable,
+                        backoff_seconds=backoff,
+                        now=datetime.now(UTC),
+                    )
+            except StaleWorkerFenceError:
+                return "fenced"
         except AccessError as exc:
             # Authorization revocation or permanent validation failure: do not retry.
             retryable = exc.status >= 500
@@ -650,6 +694,7 @@ def build_worker_runner(
     db: Database | None = None,
     artifact_store: ArtifactStore | None = None,
     ocr_backend: OcrBackend | None = None,
+    ai_gateway: AIGateway | None = None,
     worker_id: str | None = None,
 ) -> WorkflowWorkerRunner:
     """Construct a fully configured worker runner from application Settings."""
@@ -657,6 +702,7 @@ def build_worker_runner(
     register_institution()
     register_identity()
     register_sources()
+    register_knowledge()
     from .public import register_models as register_workflow
 
     register_workflow()
@@ -705,9 +751,22 @@ def build_worker_runner(
         cache_ttl_seconds=settings.extraction_cache_ttl_seconds,
         heartbeat_seconds=settings.worker_heartbeat_seconds,
     )
+    effective_gateway = (
+        ai_gateway
+        if ai_gateway is not None
+        else build_ai_gateway_from_settings(settings)
+    )
+    concept_handler = ConceptExtractionWorkerHandler(
+        db=database,
+        access=access,
+        gateway=effective_gateway,
+        cache_ttl_seconds=settings.extraction_cache_ttl_seconds,
+        heartbeat_seconds=settings.worker_heartbeat_seconds,
+    )
     return WorkflowWorkerRunner(
         db=database,
         handler=handler,
+        concept_handler=concept_handler,
         worker_id=worker_id,
         concurrency=effective_concurrency,
         lease_seconds=settings.worker_lease_seconds,

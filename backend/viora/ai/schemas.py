@@ -120,6 +120,15 @@ class AIRateLimitError(AITransientError):
         super().__init__(message, code="ai_rate_limit_error")
 
 
+class AIQuotaExhaustedError(AIError):
+    """Non-retryable error raised when free-tier or account neuron/token quota is exhausted."""
+
+    def __init__(
+        self, message: str = "AI provider daily/account quota exhausted"
+    ) -> None:
+        super().__init__("ai_quota_exhausted", message)
+
+
 class AITimeoutError(AITransientError):
     def __init__(self, message: str = "AI service request timed out") -> None:
         super().__init__(message, code="ai_timeout_error")
@@ -142,6 +151,7 @@ DEFAULT_TRUSTED_AI_HOSTS: frozenset[str] = frozenset(
         "api.openai.com",
         "api.cloudflare.com",
         "gateway.ai.cloudflare.com",
+        "viora-ai.reddyanvesh2008.workers.dev",
     }
 )
 

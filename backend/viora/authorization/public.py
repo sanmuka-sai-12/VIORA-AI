@@ -16,6 +16,7 @@ from ..institution.public import (
     institution_status,
 )
 from ..security import Access, AccessError, Authentication, ChangeAudit
+from ..sources.public import source_directory
 from .audit import SqlAudit
 from .policy import Policy
 from .tenant import bind_actor, bind_tenant, require_application_role
@@ -93,7 +94,11 @@ class AuthorizationService:
             require_application_role(session)
             bind_tenant(session, resource.tenant_id)
             identities = identity_directory(session, institution_status(session))
-            policy = Policy(identities, institution_directory(session, identities))
+            policy = Policy(
+                identities,
+                institution_directory(session, identities),
+                source_directory(session),
+            )
             audit = SqlAudit(session)
             access = Access(_VerifiedActor(actor), identities, policy)
             try:

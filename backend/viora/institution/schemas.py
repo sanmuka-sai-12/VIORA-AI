@@ -240,3 +240,12 @@ class StudentSummary(Contract):
     tenant_id: UUID
     user_id: UUID
     display_name: str
+
+
+class OfferingActorAccess(Contract):
+    tenant_id: UUID
+    offering_id: UUID
+    user_id: UUID
+    academic_active: bool
+    is_assigned_teacher: bool
+    is_enrolled_student: bool

@@ -10,7 +10,7 @@ from .config import Settings
 from .contracts import ErrorResponse
 from .db import Database
 from .health import health_router
-from .http import Correlation, configure_errors
+from .http import Correlation, MultipartLimitMiddleware, configure_errors
 from .identity.public import auth_router, build_auth_service, membership_router
 from .identity.public import register_models as register_identity
 from .institution.public import register_models as register_institution
@@ -47,13 +47,29 @@ def create_app(
 
     app = FastAPI(title="VIORA-AI", version="1.0.0", lifespan=lifespan)
     configure_errors(app)
+    limits = sources.clamp_source_limits(
+        max_bytes=config.source_max_bytes,
+        max_pdf_pages=config.source_max_pdf_pages,
+        max_text_chars=config.source_max_text_chars,
+        min_text_chars=config.source_min_text_chars,
+    )
+    app.add_middleware(
+        MultipartLimitMiddleware,
+        max_multipart_bytes=limits.max_bytes + 256 * 1024,
+    )
     app.add_middleware(Correlation)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(config.cors_origins),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Viora-CSRF"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Request-ID",
+            "X-Viora-CSRF",
+        ],
         expose_headers=["X-Request-ID"],
     )
     api = APIRouter(
@@ -69,6 +85,6 @@ def create_app(
     if isinstance(effective_access, AuthorizationService):
         api.include_router(membership_router(effective_access))
         api.include_router(institution_router(effective_access))
-    api.include_router(sources.router(db, effective_access))
+    api.include_router(sources.router(db, effective_access, settings=config))
     app.include_router(api)
     return app

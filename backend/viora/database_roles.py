@@ -20,7 +20,11 @@ TENANT_TABLES = (
     "class_coordinators",
     "guardian_links",
     "sources",
+    "offering_source_policies",
+    "source_idempotency",
 )
+
+APPEND_ONLY_TENANT_TABLES = ("source_versions",)
 
 
 def grant_application_privileges(
@@ -54,7 +58,7 @@ def grant_application_privileges(
             "refresh_tokens",
             "auth_rate_limits",
         ),
-        "SELECT, INSERT": ("security_events",),
+        "SELECT, INSERT": (*APPEND_ONLY_TENANT_TABLES, "security_events"),
     }
     for permissions, tables in grants.items():
         for table in tables:

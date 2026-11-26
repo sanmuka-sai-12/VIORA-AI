@@ -420,3 +420,33 @@ class LocalFilesystemArtifactStore(ArtifactStore):
         blob_path, _ = self._existing_blob_path(artifact)
         _reject_symlink(blob_path)
         return blob_path.is_file()
+
+    def delete_uncommitted(
+        self, context: TenantContext, artifact: ArtifactVersionRef
+    ) -> bool:
+        """Best-effort compensating removal ONLY for a newly written uncommitted version directory."""
+        self._require_tenant_match(context, artifact)
+        blob_path, meta_path = self._existing_blob_path(artifact)
+        version_dir = blob_path.parent
+        _reject_symlink(version_dir)
+        if not version_dir.exists():
+            return False
+        _reject_symlink(blob_path)
+        _reject_symlink(meta_path)
+        if meta_path.exists():
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+            if payload.get("sha256") != artifact.sha256:
+                raise ArtifactCorruptedError(
+                    "Refusing compensating delete for mismatched artifact digest"
+                )
+        removed = False
+        for entry in version_dir.iterdir():
+            _reject_symlink(entry)
+            if entry.is_file():
+                entry.unlink()
+                removed = True
+        try:
+            version_dir.rmdir()
+        except OSError:
+            pass
+        return removed

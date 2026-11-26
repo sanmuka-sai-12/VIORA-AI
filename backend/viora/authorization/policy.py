@@ -3,6 +3,7 @@
 from ..contracts import Actor, ResourceRef, TenantContext
 from ..identity.public import IdentityDirectory, InstitutionRole
 from ..institution.public import InstitutionDirectory
+from ..sources.public import SourceDirectory
 
 ADMIN_ROLES = frozenset({"institution_owner", "institution_admin"})
 
@@ -109,10 +110,14 @@ ACTIVE_PARENT_REQUIRED_ACTIONS = frozenset(
 
 class Policy:
     def __init__(
-        self, identities: IdentityDirectory, institutions: InstitutionDirectory
+        self,
+        identities: IdentityDirectory,
+        institutions: InstitutionDirectory,
+        sources: SourceDirectory | None = None,
     ) -> None:
         self.identities = identities
         self.institutions = institutions
+        self.sources = sources
 
     def permits(
         self, context: TenantContext, action: str, resource: ResourceRef
@@ -253,10 +258,111 @@ class Policy:
                 )
             return False
 
+        if resource.kind == "offering" and action in {
+            "source.policy.read",
+            "source.policy.update",
+        }:
+            if self.institutions.academic_context(tenant, target) is None:
+                return False
+            return is_admin or (
+                self.institutions.teacher_assignment(tenant, actor, target) is not None
+            )
+
+        if resource.kind == "offering" and action in {
+            "source.teacher.create",
+            "source.student.submit",
+            "source.offering.list",
+        }:
+            if self.institutions.academic_context(tenant, target) is None:
+                return False
+            if action == "source.teacher.create":
+                return (
+                    self.institutions.teacher_assignment(tenant, actor, target)
+                    is not None
+                )
+            if action == "source.student.submit":
+                return (
+                    self.sources is not None
+                    and self.institutions.student_enrolment(tenant, actor, target)
+                    is not None
+                    and self.sources.offering_source_policy(
+                        tenant, target
+                    ).student_submissions_enabled
+                )
+            return (
+                self.institutions.teacher_assignment(tenant, actor, target) is not None
+                or self.institutions.student_enrolment(tenant, actor, target)
+                is not None
+            )
+
         if resource.kind == "student_summary" and action == "student.summary.read":
             return (
                 actor == target and "student" in roles
             ) or self.institutions.guardian_link(tenant, actor, target)
 
-        # Sources have no ownership/assignment/visibility scope yet. Unknown actions deny.
+        if resource.kind == "source":
+            if self.sources is None:
+                return False
+            info = self.sources.source_access_info(tenant, target)
+            if (
+                info is None
+                or info.offering_id is None
+                or info.origin_kind == "unscoped"
+            ):
+                return False
+            if self.institutions.academic_context(tenant, info.offering_id) is None:
+                return False
+            if info.origin_kind == "teacher_resource":
+                if action in {
+                    "source.read",
+                    "source.version.read",
+                    "source.update",
+                    "source.lifecycle",
+                    "source.version.create",
+                } and (
+                    self.institutions.teacher_assignment(
+                        tenant, actor, info.offering_id
+                    )
+                    is not None
+                ):
+                    return True
+                return (
+                    action in {"source.read", "source.version.read"}
+                    and info.visibility == "offering_published"
+                    and info.lifecycle_state == "active"
+                    and self.institutions.student_enrolment(
+                        tenant, actor, info.offering_id
+                    )
+                    is not None
+                )
+            if info.origin_kind == "student_submission":
+                is_owner_student = (
+                    actor == info.owner_user_id
+                    and self.institutions.student_enrolment(
+                        tenant, actor, info.offering_id
+                    )
+                    is not None
+                )
+                if is_owner_student:
+                    if action in {"source.read", "source.version.read", "source.lifecycle"}:
+                        return True
+                    if action in {"source.update", "source.version.create"}:
+                        return self.sources.offering_source_policy(
+                            tenant, info.offering_id
+                        ).student_submissions_enabled
+                if (
+                    action in {"source.read", "source.version.read"}
+                    and info.visibility == "teacher_review"
+                    and info.lifecycle_state == "active"
+                    and self.institutions.teacher_assignment(
+                        tenant, actor, info.offering_id
+                    )
+                    is not None
+                ):
+                    return self.sources.offering_source_policy(
+                        tenant, info.offering_id
+                    ).teachers_can_view_student_submissions
+                return False
+            return False
+
         return False

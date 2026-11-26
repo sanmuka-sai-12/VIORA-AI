@@ -30,6 +30,79 @@ def failure(request: Request, status: int, code: str, message: str) -> JSONRespo
     )
 
 
+class _MultipartLimitExceeded(Exception):
+    pass
+
+
+class MultipartLimitMiddleware:
+    """Reject oversized multipart requests before Starlette buffers parts to memory/disk."""
+
+    def __init__(self, app: ASGIApp, *, max_multipart_bytes: int) -> None:
+        self.app = app
+        self.max_multipart_bytes = max_multipart_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = Headers(scope=scope)
+        content_type = headers.get("content-type", "").lower()
+        if not content_type.startswith("multipart/form-data"):
+            await self.app(scope, receive, send)
+            return
+
+        content_length_raw = headers.get("content-length")
+        if content_length_raw is not None:
+            try:
+                content_length = int(content_length_raw)
+            except ValueError:
+                await failure(
+                    Request(scope),
+                    400,
+                    "invalid_content_length",
+                    "Invalid Content-Length header",
+                )(scope, receive, send)
+                return
+            if content_length < 0 or content_length > self.max_multipart_bytes:
+                await failure(
+                    Request(scope),
+                    413,
+                    "payload_too_large",
+                    f"Multipart request exceeds maximum byte limit of {self.max_multipart_bytes}",
+                )(scope, receive, send)
+                return
+
+        received = 0
+        response_started = False
+
+        async def bounded_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_multipart_bytes:
+                    raise _MultipartLimitExceeded()
+            return message
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, bounded_receive, guarded_send)
+        except _MultipartLimitExceeded:
+            if response_started:
+                raise
+            await failure(
+                Request(scope),
+                413,
+                "payload_too_large",
+                f"Multipart request exceeds maximum byte limit of {self.max_multipart_bytes}",
+            )(scope, receive, send)
+
+
 class Correlation:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app

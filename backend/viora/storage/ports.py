@@ -48,6 +48,12 @@ class ArtifactStore(Protocol):
         """Yield artifact chunks; SHA-256 verification completes at EOF."""
         ...
 
+    def delete_uncommitted(
+        self, context: TenantContext, artifact: ArtifactVersionRef
+    ) -> bool:
+        """Compensating cleanup ONLY for uncommitted artifacts whose DB transaction failed."""
+        ...
+
     def inspect(
         self, context: TenantContext, artifact: ArtifactVersionRef
     ) -> ArtifactMetadata: ...

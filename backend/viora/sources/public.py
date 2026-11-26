@@ -1,54 +1,106 @@
+"""Public source domain interface, unified document contracts, and router composition."""
+
 from collections.abc import Iterator
-from typing import Annotated
-from uuid import UUID
 
-from fastapi import APIRouter, Security
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter
+from sqlalchemy.orm import Session
 
-from ..authorization.public import AuthorizationService
-from ..contracts import ResourceRef
+from ..config import Settings
 from ..db import Database
-from ..security import Access, AccessError
+from ..security import Access, TransactionalAccess
+from ..storage.public import ArtifactStore
 from . import models
-from .repository import SourceRepository
-from .router import build_router
-from .schemas import SourceSummary
+from .document_contracts import (
+    BoundingBox,
+    DocumentPage,
+    EvidenceReference,
+    ExtractedDocument,
+    ExtractionProvenance,
+    ExtractionQualityReport,
+    ExtractionWarning,
+    FigureReference,
+    FormulaReference,
+    SourcePositionSpan,
+    SourceSection,
+    TableBlock,
+    TextBlock,
+)
+from .extraction import AdaptiveDocumentExtractor
+from .ports import DocumentExtractor, SourceDirectory
+from .repository import SqlSourceDirectory, SqlSourceRepository
+from .router import build_protected_router, build_router
+from .schemas import (
+    OfferingSourcePolicyInfo,
+    SourceAccessInfo,
+    SourceIngestionLimits,
+    SourceRegistrationResult,
+    SourceSummary,
+    SourceVersionDetail,
+    SourceVersionSummary,
+    clamp_source_limits,
+)
+from .service import SourceIngestionService
 
-__all__ = ["SourceSummary", "registered_table", "router"]
+__all__ = [
+    "AdaptiveDocumentExtractor",
+    "BoundingBox",
+    "DocumentExtractor",
+    "DocumentPage",
+    "EvidenceReference",
+    "ExtractedDocument",
+    "ExtractionProvenance",
+    "ExtractionQualityReport",
+    "ExtractionWarning",
+    "FigureReference",
+    "FormulaReference",
+    "OfferingSourcePolicyInfo",
+    "SourceAccessInfo",
+    "SourceDirectory",
+    "SourceIngestionLimits",
+    "SourceIngestionService",
+    "SourcePositionSpan",
+    "SourceRegistrationResult",
+    "SourceSection",
+    "SourceSummary",
+    "SourceVersionDetail",
+    "SourceVersionSummary",
+    "TableBlock",
+    "TextBlock",
+    "clamp_source_limits",
+    "register_models",
+    "registered_table",
+    "router",
+    "source_directory",
+]
 
 registered_table = models.Source.__table__
 
 
-def router(db: Database, access: Access | AuthorizationService) -> APIRouter:
-    if isinstance(access, AuthorizationService):
-        protected = APIRouter(tags=["sources"])
+def register_models() -> None:
+    """Load SQLAlchemy models for sources, versions, policies, and idempotency."""
+    from . import models as _models  # noqa: F401
 
-        @protected.get(
-            "/tenants/{tenant_id}/sources/{source_id}", operation_id="readSource"
+
+def source_directory(session: Session) -> SourceDirectory:
+    return SqlSourceDirectory(session)
+
+
+def router(
+    db: Database,
+    access: Access | TransactionalAccess,
+    *,
+    settings: Settings | None = None,
+    artifact_store: ArtifactStore | None = None,
+) -> APIRouter:
+    if hasattr(access, "transaction"):
+        return build_protected_router(
+            access,  # type: ignore[arg-type]
+            settings=settings,
+            artifact_store=artifact_store,
         )
-        def get_source(
-            tenant_id: UUID,
-            source_id: UUID,
-            bearer: Annotated[
-                HTTPAuthorizationCredentials | None,
-                Security(HTTPBearer(auto_error=False)),
-            ],
-        ) -> SourceSummary:
-            resource = ResourceRef(
-                tenant_id=tenant_id, kind="source", resource_id=source_id
-            )
-            with access.transaction(
-                bearer.credentials if bearer else None, "source.read", resource
-            ) as scope:
-                result = SourceRepository(scope.session).find(tenant_id, source_id)
-                if result is None:
-                    raise AccessError(404, "source_missing", "Source unavailable")
-                return result
 
-        return protected
-
-    def repository() -> Iterator[SourceRepository]:
+    def repository() -> Iterator[SqlSourceRepository]:
         with db.sessions.begin() as session:
-            yield SourceRepository(session)
+            yield SqlSourceRepository(session)
 
-    return build_router(access, repository)
+    return build_router(access, repository)  # type: ignore[arg-type]

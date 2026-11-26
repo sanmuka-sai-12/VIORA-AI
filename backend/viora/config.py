@@ -56,6 +56,12 @@ class Settings(BaseModel):
     allow_local_ai_endpoint: bool = False
     default_ai_model: str = "gpt-4o-mini"
     default_embedding_model: str = "text-embedding-3-small"
+    source_max_bytes: int = Field(
+        default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024
+    )
+    source_max_pdf_pages: int = Field(default=100, ge=1, le=500)
+    source_max_text_chars: int = Field(default=200_000, ge=10, le=1_000_000)
+    source_min_text_chars: int = Field(default=3, ge=1, le=100)
 
     @model_validator(mode="after")
     def validate_connections(self) -> Self:
@@ -153,5 +159,9 @@ class Settings(BaseModel):
                 "default_embedding_model": values.get(
                     "DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"
                 ),
+                "source_max_bytes": values.get("SOURCE_MAX_BYTES", 10 * 1024 * 1024),
+                "source_max_pdf_pages": values.get("SOURCE_MAX_PDF_PAGES", 100),
+                "source_max_text_chars": values.get("SOURCE_MAX_TEXT_CHARS", 200_000),
+                "source_min_text_chars": values.get("SOURCE_MIN_TEXT_CHARS", 3),
             }
         )

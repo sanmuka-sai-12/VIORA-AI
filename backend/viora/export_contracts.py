@@ -10,12 +10,10 @@ from .contracts import (
     IdempotentRequest,
     JobAcceptance,
     JobStatus,
-    Page,
     SourceEvidence,
     TenantContext,
 )
 from .main import create_app
-from .sources.public import SourceSummary
 
 
 def export(destination: Path) -> None:
@@ -28,7 +26,6 @@ def export(destination: Path) -> None:
                 JobAcceptance,
                 JobStatus,
                 IdempotentRequest,
-                Page[SourceSummary],
                 SourceEvidence,
                 TenantContext,
             )

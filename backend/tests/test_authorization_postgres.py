@@ -372,17 +372,16 @@ def test_enrolment_and_guardian_revocation(
 
 
 def test_non_owner_role_and_forced_rls(secured_database: SecurityDatabase) -> None:
+    from viora.database_roles import APPEND_ONLY_TENANT_TABLES, TENANT_TABLES
+
     with secured_database.app.sessions.begin() as s:
         require_application_role(s)
         assert s.scalar(text("SELECT current_user")) == secured_database.role
-        assert (
-            s.scalar(
-                text(
-                    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relrowsecurity AND c.relforcerowsecurity"
-                )
+        assert s.scalar(
+            text(
+                "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relrowsecurity AND c.relforcerowsecurity"
             )
-            == 18
-        )
+        ) == len(TENANT_TABLES) + len(APPEND_ONLY_TENANT_TABLES) + 1
     with (
         Session(secured_database.admin) as s,
         pytest.raises(RuntimeError, match="non-owner"),
@@ -562,10 +561,10 @@ def test_role_cannot_bypass_rls_or_modify_global_identity(
 def test_all_tenant_tables_deny_without_context(
     secured_database: SecurityDatabase,
 ) -> None:
-    from viora.database_roles import TENANT_TABLES
+    from viora.database_roles import APPEND_ONLY_TENANT_TABLES, TENANT_TABLES
 
     with secured_database.app.sessions.begin() as s:
-        for table in (*TENANT_TABLES, "security_events"):
+        for table in (*TENANT_TABLES, *APPEND_ONLY_TENANT_TABLES, "security_events"):
             assert s.scalar(text(f"SELECT count(*) FROM {table}")) == 0
 
 

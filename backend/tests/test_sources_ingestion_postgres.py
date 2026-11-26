@@ -778,14 +778,17 @@ def test_http_invalid_spoofed_encrypted_and_oversized_uploads_leave_no_artifacts
         assert r2.status_code == 422
         assert r2.json()["code"] == "encrypted_pdf"
 
-        # 3. Pure scanned / zero-text PDF -> 422 ocr_required
+        # 3. Scanned / zero-text PDF -> 201 accepted promptly with queued background job
         r3 = client.post(
             f"/api/v1/tenants/{a.tenant}/offerings/{a.offering}/sources/files",
             headers=_hdr(a.teacher_token),
             data={"title": "Blank Scan"},
             files={"file": ("scan.pdf", corpus.notext_pdf, "application/pdf")},
         )
-        assert r3.status_code == 422
+        assert r3.status_code == 201
+        assert r3.json()["job_id"] is not None
+        assert r3.json()["job_state"] == "queued"
+        assert r3.json()["version"]["processing_status"] == "pending"
 
         # 4. Oversized byte payload -> 413 payload_too_large
         r4 = client.post(
@@ -811,19 +814,19 @@ def test_http_invalid_spoofed_encrypted_and_oversized_uploads_leave_no_artifacts
         assert r5.status_code == 413
         assert r5.json()["code"] == "page_limit_exceeded"
 
-        # Confirm zero persisted sources or disk artifacts
+        # Confirm only the valid scanned PDF (r3) persisted; rejected uploads left zero artifacts
         lst = client.get(
             f"/api/v1/tenants/{a.tenant}/offerings/{a.offering}/sources",
             headers=_hdr(a.teacher_token),
         )
         assert lst.status_code == 200
-        assert lst.json()["items"] == []
+        assert [item["title"] for item in lst.json()["items"]] == ["Blank Scan"]
         files_on_disk = (
             list(env.storage_dir.rglob("*.blob"))
             if env.storage_dir.exists()
             else []
         )
-        assert files_on_disk == []
+        assert len(files_on_disk) == 1
 
 
 def test_partial_failure_db_rollback_and_orphan_artifact_cleanup(

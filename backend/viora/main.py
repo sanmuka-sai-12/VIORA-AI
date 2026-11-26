@@ -17,6 +17,7 @@ from .institution.public import register_models as register_institution
 from .institution.public import router as institution_router
 from .security import Access
 from .sources import public as sources
+from .workflow.public import register_models as register_workflow
 
 
 def create_app(
@@ -27,6 +28,7 @@ def create_app(
     register_authorization()
     register_institution()
     register_identity()
+    register_workflow()
     config = settings or Settings.load()
     db = database or Database(config)
     if config.environment == "production" and config.auth is None:

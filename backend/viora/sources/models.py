@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -158,7 +159,7 @@ class SourceVersion(Base):
     __table_args__ = (
         CheckConstraint("version_number >= 1", name="ck_source_versions_number"),
         CheckConstraint(
-            "input_format IN ('plain_text', 'typed_notes', 'topic_description', 'digital_pdf')",
+            "input_format IN ('plain_text', 'typed_notes', 'topic_description', 'digital_pdf', 'scanned_pdf', 'png', 'jpeg')",
             name="ck_source_versions_format",
         ),
         CheckConstraint(
@@ -171,7 +172,7 @@ class SourceVersion(Base):
             name="ck_source_versions_storage_sha",
         ),
         CheckConstraint(
-            "processing_status IN ('extracted', 'partial_extraction')",
+            "processing_status IN ('pending', 'extracted', 'partial_extraction', 'ocr_required', 'unreadable', 'failed', 'cancelled')",
             name="ck_source_versions_status",
         ),
         CheckConstraint("extraction_ms >= 0", name="ck_source_versions_ms"),
@@ -233,7 +234,9 @@ class SourceVersion(Base):
     page_count: Mapped[int] = mapped_column(Integer)
     warning_count: Mapped[int] = mapped_column(Integer)
     processing_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    extracted_document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    extracted_document: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -291,6 +294,193 @@ class SourceIdempotencyRecord(Base):
     request_digest: Mapped[str] = mapped_column(Text)
     source_id: Mapped[UUID]
     version_id: Mapped[UUID]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DerivedExtraction(Base):
+    """Append-only derived extraction output separated from immutable source_versions."""
+
+    __tablename__ = "derived_extractions"
+    __table_args__ = (
+        CheckConstraint(
+            "source_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_derived_extractions_sha256",
+        ),
+        CheckConstraint(
+            "extraction_version >= 1",
+            name="ck_derived_extractions_ver",
+        ),
+        CheckConstraint(
+            "processing_status IN ('extracted', 'partial_extraction', 'ocr_required', 'unreadable')",
+            name="ck_derived_extractions_status",
+        ),
+        CheckConstraint("extraction_ms >= 0", name="ck_derived_extractions_ms"),
+        CheckConstraint("char_count >= 0", name="ck_derived_extractions_chars"),
+        CheckConstraint("page_count >= 1", name="ck_derived_extractions_pages"),
+        CheckConstraint("warning_count >= 0", name="ck_derived_extractions_warnings"),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_id"],
+            ["sources.tenant_id", "sources.source_id"],
+            name="fk_derived_extractions_source",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "version_id"],
+            ["source_versions.tenant_id", "source_versions.version_id"],
+            name="fk_derived_extractions_version",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "version_id",
+            "extraction_version",
+            name="uq_derived_extractions_ver_num",
+        ),
+        Index(
+            "ix_derived_extractions_ver",
+            "tenant_id",
+            "version_id",
+            "extraction_version",
+        ),
+        Index(
+            "uq_derived_extractions_job",
+            "tenant_id",
+            "job_id",
+            unique=True,
+            postgresql_where=text("job_id IS NOT NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    extraction_id: Mapped[UUID] = mapped_column(primary_key=True)
+    source_id: Mapped[UUID]
+    version_id: Mapped[UUID]
+    source_sha256: Mapped[str] = mapped_column(Text)
+    extraction_version: Mapped[int] = mapped_column(Integer)
+    supersedes_extraction_id: Mapped[UUID | None] = mapped_column(default=None)
+    job_id: Mapped[UUID | None] = mapped_column(default=None)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    cache_key: Mapped[str | None] = mapped_column(Text, default=None)
+    processing_status: Mapped[str] = mapped_column(Text)
+    extractor_id: Mapped[str] = mapped_column(Text)
+    extractor_version: Mapped[str] = mapped_column(Text)
+    contract_version: Mapped[str] = mapped_column(Text)
+    extraction_ms: Mapped[float] = mapped_column(Float)
+    char_count: Mapped[int] = mapped_column(Integer)
+    page_count: Mapped[int] = mapped_column(Integer)
+    warning_count: Mapped[int] = mapped_column(Integer)
+    processing_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ExtractionCacheEntry(Base):
+    """Tenant- and scope-isolated version-aware extraction cache."""
+
+    __tablename__ = "extraction_cache"
+    __table_args__ = (
+        CheckConstraint(
+            "cache_key ~ '^[0-9a-f]{64}$'",
+            name="ck_extraction_cache_key",
+        ),
+        CheckConstraint(
+            "content_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_extraction_cache_sha256",
+        ),
+        CheckConstraint("hit_count >= 0", name="ck_extraction_cache_hits"),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_id"],
+            ["sources.tenant_id", "sources.source_id"],
+            name="fk_extraction_cache_source",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "version_id"],
+            ["source_versions.tenant_id", "source_versions.version_id"],
+            name="fk_extraction_cache_version",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "derived_extraction_id"],
+            ["derived_extractions.tenant_id", "derived_extractions.extraction_id"],
+            name="fk_extraction_cache_extraction",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_extraction_cache_source",
+            "tenant_id",
+            "source_id",
+            "version_id",
+        ),
+        Index(
+            "ix_extraction_cache_expiry",
+            "tenant_id",
+            "invalidated_at",
+            "expires_at",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    cache_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    scope_key: Mapped[str] = mapped_column(Text)
+    content_sha256: Mapped[str] = mapped_column(Text)
+    algorithm_version: Mapped[str] = mapped_column(Text)
+    config_digest: Mapped[str] = mapped_column(Text)
+    preprocessing_version: Mapped[str] = mapped_column(Text)
+    input_format: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[UUID]
+    version_id: Mapped[UUID]
+    derived_extraction_id: Mapped[UUID]
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    hit_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    last_hit_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    invalidated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class PageOcrCacheEntry(Base):
+    """Scoped per-page OCR recognition cache preserving cross-page assembly correctness."""
+
+    __tablename__ = "page_ocr_cache"
+    __table_args__ = (
+        CheckConstraint(
+            "page_cache_key ~ '^[0-9a-f]{64}$'",
+            name="ck_page_ocr_cache_key",
+        ),
+        CheckConstraint(
+            "page_image_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_page_ocr_cache_sha256",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    page_cache_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    scope_key: Mapped[str] = mapped_column(Text)
+    page_image_sha256: Mapped[str] = mapped_column(Text)
+    ocr_engine_id: Mapped[str] = mapped_column(Text)
+    ocr_engine_version: Mapped[str] = mapped_column(Text)
+    ocr_result: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    invalidated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

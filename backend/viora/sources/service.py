@@ -8,10 +8,16 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from ..contracts import ArtifactVersionRef, ResourceRef, TenantContext
+from ..contracts import ArtifactVersionRef, JobState, ResourceRef, TenantContext
 from ..perf.public import OperationTracker
 from ..security import Access, AccessError, TransactionalAccess
 from ..storage.public import ArtifactStore, StorageError
+from ..workflow.public import (
+    ConcurrentJobConflict,
+    SqlWorkflowRepository,
+    WorkflowJobDetail,
+    WorkflowJobSubmit,
+)
 from .document_contracts import ExtractedDocument
 from .extraction import (
     AdaptiveDocumentExtractor,
@@ -63,6 +69,16 @@ def build_active_dedupe_key(
 def _canonical_request_digest(**fields: object) -> str:
     encoded = json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _content_type_for_format(fmt: SourceInputFormat) -> str:
+    if fmt in {"digital_pdf", "scanned_pdf"}:
+        return "application/pdf"
+    if fmt == "png":
+        return "image/png"
+    if fmt == "jpeg":
+        return "image/jpeg"
+    return "text/plain; charset=utf-8"
 
 
 def _resolve_initial_visibility(
@@ -265,6 +281,7 @@ class SourceIngestionService:
             visibility=resolved_visibility,
             idempotency_key=idempotency_key,
             prepare_payload=prepare,
+            async_extraction=False,
             before_db_persist_hook=before_db_persist_hook,
             after_db_commit_hook=after_db_commit_hook,
         )
@@ -321,6 +338,7 @@ class SourceIngestionService:
             visibility=resolved_visibility,
             idempotency_key=idempotency_key,
             prepare_payload=prepare,
+            async_extraction=True,
             before_db_persist_hook=before_db_persist_hook,
             after_db_commit_hook=after_db_commit_hook,
         )
@@ -340,6 +358,7 @@ class SourceIngestionService:
         visibility: SourceVisibility,
         idempotency_key: str | None,
         prepare_payload: Callable[[], tuple[SourceInputFormat, bytes, str, str | None]],
+        async_extraction: bool,
         before_db_persist_hook: Callable[[], None] | None,
         after_db_commit_hook: Callable[[], None] | None,
     ) -> SourceRegistrationResult:
@@ -406,26 +425,41 @@ class SourceIngestionService:
                 source_id = uuid4()
                 version_id = uuid4()
                 attempted_version_id = version_id
-                extracted_doc, proc_status, extract_ms, proc_meta = (
-                    _extract_and_validate_document(
-                        extractor=self.extractor,
-                        tenant_id=tenant_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_version=1,
-                        source_sha256=content_sha256,
-                        input_format=resolved_format,
-                        title=title,
-                        raw_bytes=raw_bytes,
-                        limits=self.limits,
+                extracted_doc: ExtractedDocument | None = None
+                if async_extraction:
+                    proc_status: SourceProcessingStatus = "pending"
+                    extract_ms = 0.0
+                    proc_meta: dict[str, str | int | float | bool] = {
+                        "queued_for_worker": True,
+                        "input_format": resolved_format,
+                    }
+                    extractor_id_val = "pending"
+                    contract_version_val = "extracted_document.v1"
+                    char_count_val = 0
+                    page_count_val = 1
+                    warning_count_val = 0
+                else:
+                    extracted_doc, proc_status, extract_ms, proc_meta = (
+                        _extract_and_validate_document(
+                            extractor=self.extractor,
+                            tenant_id=tenant_id,
+                            source_id=source_id,
+                            version_id=version_id,
+                            source_version=1,
+                            source_sha256=content_sha256,
+                            input_format=resolved_format,
+                            title=title,
+                            raw_bytes=raw_bytes,
+                            limits=self.limits,
+                        )
                     )
-                )
+                    extractor_id_val = extracted_doc.provenance.extractor_id
+                    contract_version_val = extracted_doc.schema_version
+                    char_count_val = len(extracted_doc.normalized_text)
+                    page_count_val = max(1, extracted_doc.quality.total_pages)
+                    warning_count_val = extracted_doc.quality.warning_count
 
-                content_type = (
-                    "application/pdf"
-                    if resolved_format == "digital_pdf"
-                    else "text/plain; charset=utf-8"
-                )
+                content_type = _content_type_for_format(resolved_format)
                 with tracker.stage("artifact_store_put", input_bytes=len(raw_bytes)) as st_put:
                     try:
                         stored = self.artifact_store.put_bytes(
@@ -459,7 +493,7 @@ class SourceIngestionService:
                 with tracker.stage("db_persist"):
                     scope.recheck(action, offering_ref)
                     persist_attempted = True
-                    src_summary, ver_summary = repo.create_source_and_version(
+                    src_summary, ver_summary, job_id = repo.create_source_and_version(
                         tenant_id=tenant_id,
                         source_id=source_id,
                         version_id=version_id,
@@ -475,17 +509,18 @@ class SourceIngestionService:
                         active_dedupe_key=dedupe_key,
                         storage_ref=stored.metadata.ref,
                         processing_status=proc_status,
-                        extractor_id=extracted_doc.provenance.extractor_id,
-                        contract_version=extracted_doc.schema_version,
+                        extractor_id=extractor_id_val,
+                        contract_version=contract_version_val,
                         extraction_ms=extract_ms,
-                        char_count=len(extracted_doc.normalized_text),
-                        page_count=max(1, extracted_doc.quality.total_pages),
-                        warning_count=extracted_doc.quality.warning_count,
+                        char_count=char_count_val,
+                        page_count=page_count_val,
+                        warning_count=warning_count_val,
                         processing_metadata=proc_meta,
                         extracted_document=extracted_doc,
                         now=now,
                         idempotency_key=idempotency_key,
                         request_digest=req_digest if idempotency_key else None,
+                        enqueue_extraction_job=async_extraction,
                     )
                     scope.audit.change(
                         scope.context,
@@ -563,7 +598,9 @@ class SourceIngestionService:
         return SourceRegistrationResult(
             source=src_summary,
             version=ver_summary,
-            quality=extracted_doc.quality,
+            quality=extracted_doc.quality if extracted_doc is not None else None,
+            job_id=job_id,
+            job_state=JobState.queued if job_id is not None else None,
             idempotent_replay=False,
             orphans_cleaned=orphans_cleaned,
             registration_ms=op_metrics.total_duration_ms,
@@ -600,6 +637,7 @@ class SourceIngestionService:
             source_id=source_id,
             idempotency_key=idempotency_key,
             prepare_payload=prepare,
+            async_extraction=False,
             before_db_persist_hook=before_db_persist_hook,
             after_db_commit_hook=after_db_commit_hook,
         )
@@ -638,6 +676,7 @@ class SourceIngestionService:
             source_id=source_id,
             idempotency_key=idempotency_key,
             prepare_payload=prepare,
+            async_extraction=True,
             before_db_persist_hook=before_db_persist_hook,
             after_db_commit_hook=after_db_commit_hook,
         )
@@ -652,6 +691,7 @@ class SourceIngestionService:
         source_id: UUID,
         idempotency_key: str | None,
         prepare_payload: Callable[[], tuple[SourceInputFormat, bytes, str, str | None]],
+        async_extraction: bool,
         before_db_persist_hook: Callable[[], None] | None,
         after_db_commit_hook: Callable[[], None] | None,
     ) -> SourceRegistrationResult:
@@ -741,26 +781,41 @@ class SourceIngestionService:
                 version_id = uuid4()
                 attempted_version_id = version_id
                 next_ver_num = source_summary.latest_version_number + 1
-                extracted_doc, proc_status, extract_ms, proc_meta = (
-                    _extract_and_validate_document(
-                        extractor=self.extractor,
-                        tenant_id=tenant_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_version=next_ver_num,
-                        source_sha256=content_sha256,
-                        input_format=resolved_format,
-                        title=source_summary.title,
-                        raw_bytes=raw_bytes,
-                        limits=self.limits,
+                extracted_doc: ExtractedDocument | None = None
+                if async_extraction:
+                    proc_status: SourceProcessingStatus = "pending"
+                    extract_ms = 0.0
+                    proc_meta: dict[str, str | int | float | bool] = {
+                        "queued_for_worker": True,
+                        "input_format": resolved_format,
+                    }
+                    extractor_id_val = "pending"
+                    contract_version_val = "extracted_document.v1"
+                    char_count_val = 0
+                    page_count_val = 1
+                    warning_count_val = 0
+                else:
+                    extracted_doc, proc_status, extract_ms, proc_meta = (
+                        _extract_and_validate_document(
+                            extractor=self.extractor,
+                            tenant_id=tenant_id,
+                            source_id=source_id,
+                            version_id=version_id,
+                            source_version=next_ver_num,
+                            source_sha256=content_sha256,
+                            input_format=resolved_format,
+                            title=source_summary.title,
+                            raw_bytes=raw_bytes,
+                            limits=self.limits,
+                        )
                     )
-                )
+                    extractor_id_val = extracted_doc.provenance.extractor_id
+                    contract_version_val = extracted_doc.schema_version
+                    char_count_val = len(extracted_doc.normalized_text)
+                    page_count_val = max(1, extracted_doc.quality.total_pages)
+                    warning_count_val = extracted_doc.quality.warning_count
 
-                content_type = (
-                    "application/pdf"
-                    if resolved_format == "digital_pdf"
-                    else "text/plain; charset=utf-8"
-                )
+                content_type = _content_type_for_format(resolved_format)
                 with tracker.stage("artifact_store_put", input_bytes=len(raw_bytes)) as st_put:
                     try:
                         stored = self.artifact_store.put_bytes(
@@ -794,7 +849,7 @@ class SourceIngestionService:
                 with tracker.stage("db_persist"):
                     scope.recheck("source.version.create", source_ref)
                     persist_attempted = True
-                    src_summary, ver_summary = repo.append_version(
+                    src_summary, ver_summary, job_id = repo.append_version(
                         tenant_id=tenant_id,
                         source_id=source_id,
                         version_id=version_id,
@@ -807,17 +862,18 @@ class SourceIngestionService:
                         active_dedupe_key=next_dedupe_key,
                         storage_ref=stored.metadata.ref,
                         processing_status=proc_status,
-                        extractor_id=extracted_doc.provenance.extractor_id,
-                        contract_version=extracted_doc.schema_version,
+                        extractor_id=extractor_id_val,
+                        contract_version=contract_version_val,
                         extraction_ms=extract_ms,
-                        char_count=len(extracted_doc.normalized_text),
-                        page_count=max(1, extracted_doc.quality.total_pages),
-                        warning_count=extracted_doc.quality.warning_count,
+                        char_count=char_count_val,
+                        page_count=page_count_val,
+                        warning_count=warning_count_val,
                         processing_metadata=proc_meta,
                         extracted_document=extracted_doc,
                         now=now,
                         idempotency_key=idempotency_key,
                         request_digest=req_digest if idempotency_key else None,
+                        enqueue_extraction_job=async_extraction,
                     )
                     scope.audit.change(
                         scope.context,
@@ -853,8 +909,97 @@ class SourceIngestionService:
         return SourceRegistrationResult(
             source=src_summary,
             version=ver_summary,
-            quality=extracted_doc.quality,
+            quality=extracted_doc.quality if extracted_doc is not None else None,
+            job_id=job_id,
+            job_state=JobState.queued if job_id is not None else None,
             idempotent_replay=False,
             orphans_cleaned=orphans_cleaned,
             registration_ms=op_metrics.total_duration_ms,
         )
+
+    @staticmethod
+    def trigger_extraction(
+        *,
+        access: TransactionalAccess,
+        repo_factory: Callable[[Any], SourceIngestionRepository],
+        bearer: str | None,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        idempotency_key: str | None,
+    ) -> WorkflowJobDetail:
+        source_ref = ResourceRef(
+            tenant_id=tenant_id, kind="source", resource_id=source_id
+        )
+        now = datetime.now(UTC)
+        try:
+            with access.transaction(bearer, "source.extract", source_ref) as scope:
+                repo = repo_factory(scope.session)
+                src_info = repo.get_source_access(tenant_id, source_id, lock=False)
+                if src_info is None:
+                    raise AccessError(404, "source_missing", "Source unavailable")
+                if src_info.lifecycle_state != "active":
+                    raise AccessError(
+                        409,
+                        "source_archived",
+                        "Cannot trigger extraction on an archived source",
+                    )
+                ver = repo.get_version(tenant_id, source_id, version_id)
+                if ver is None:
+                    raise AccessError(
+                        404, "version_missing", "Source version unavailable"
+                    )
+                req_digest = _canonical_request_digest(
+                    operation="source_extract",
+                    source_id=str(source_id),
+                    version_id=str(version_id),
+                    sha256=ver.content_sha256,
+                )
+                detail, is_replay = SqlWorkflowRepository(scope.session).enqueue(
+                    WorkflowJobSubmit(
+                        tenant_id=tenant_id,
+                        offering_id=src_info.offering_id,
+                        source_id=source_id,
+                        version_id=version_id,
+                        submitted_by_user_id=scope.context.actor_id,
+                        operation_kind="source_extract",
+                        idempotency_key=idempotency_key,
+                        request_digest=req_digest,
+                        input_artifact=ver.storage_ref,
+                    ),
+                    now=now,
+                )
+                if not is_replay:
+                    scope.audit.change(
+                        scope.context,
+                        "workflow.job.queued",
+                        ResourceRef(
+                            tenant_id=tenant_id,
+                            kind="workflow_job",
+                            resource_id=detail.job_id,
+                        ),
+                    )
+                return detail
+        except ConcurrentJobConflict:
+            with access.transaction(bearer, "source.extract", source_ref) as scope:
+                wf_repo = SqlWorkflowRepository(scope.session)
+                if idempotency_key is not None:
+                    found = wf_repo.lookup_idempotency(
+                        tenant_id=tenant_id,
+                        actor_id=scope.context.actor_id,
+                        operation_kind="source_extract",
+                        idempotency_key=idempotency_key,
+                        request_digest=None,
+                    )
+                    if found is not None:
+                        return found
+                active = wf_repo.find_active_for_version(
+                    tenant_id=tenant_id,
+                    version_id=version_id,
+                    operation_kind="source_extract",
+                )
+                if active is not None:
+                    return active
+                raise AccessError(
+                    409, "job_conflict", "Concurrent extraction job conflict"
+                ) from None

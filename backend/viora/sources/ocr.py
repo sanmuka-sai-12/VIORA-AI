@@ -9,7 +9,9 @@ RapidOCR (Apache-2.0) + ONNX Runtime (MIT) is an optional runtime/worker depende
 
 from __future__ import annotations
 
+import hashlib
 import io
+import os
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -17,6 +19,9 @@ from PIL import Image, ImageEnhance, ImageOps
 
 RAPIDOCR_EXTRACTOR_ID = "viora.sources.rapidocr_onnx"
 RAPIDOCR_EXTRACTOR_VERSION = "3.10"
+OCR_CONFIDENCE_PREPROCESS_THRESHOLD = 0.78
+OCR_LOW_CONFIDENCE_THRESHOLD = 0.70
+OCR_UNSUPPORTED_OR_HANDWRITING_THRESHOLD = 0.50
 
 
 class OcrUnavailableError(RuntimeError):
@@ -41,6 +46,7 @@ class OcrPageResult:
     engine_id: str
     engine_version: str
     mean_confidence: float
+    preprocess_applied: bool = False
 
 
 class OcrBackend(Protocol):
@@ -122,6 +128,15 @@ def decode_bounded_image(
         Image.MAX_IMAGE_PIXELS = prev_max
 
 
+def hash_pil_image(image: Image.Image) -> str:
+    """Compute a deterministic SHA-256 digest of normalized RGB pixel dimensions and bytes."""
+    rgb = image.convert("RGB")
+    h = hashlib.sha256()
+    h.update(f"{rgb.width}x{rgb.height}:".encode("ascii"))
+    h.update(rgb.tobytes())
+    return h.hexdigest()
+
+
 class RapidOcrBackend:
     """Optional RapidOCR + ONNX Runtime CPU adapter (Apache-2.0 / MIT)."""
 
@@ -159,6 +174,13 @@ class RapidOcrBackend:
 
             self._engine = RapidOCR()
         return self._engine
+
+    def warm_up(self) -> bool:
+        """Initialize the OCR engine once per worker process if available."""
+        if not self.is_available():
+            return False
+        self._get_engine()
+        return True
 
     def recognize_image(
         self,
@@ -207,4 +229,45 @@ class RapidOcrBackend:
             engine_id=self.engine_id,
             engine_version=self.engine_version,
             mean_confidence=round(mean_conf, 4),
+            preprocess_applied=preprocess,
         )
+
+    def recognize_image_adaptive(
+        self,
+        image: Image.Image,
+        *,
+        force_preprocess: bool = False,
+    ) -> OcrPageResult:
+        """Run raw OCR first and apply Pillow preprocessing selectively when confidence is low."""
+        if force_preprocess:
+            return self.recognize_image(image, preprocess=True)
+        raw_res = self.recognize_image(image, preprocess=False)
+        if raw_res.lines and raw_res.mean_confidence >= OCR_CONFIDENCE_PREPROCESS_THRESHOLD:
+            return raw_res
+        enhanced_res = self.recognize_image(image, preprocess=True)
+        raw_chars = sum(len(ln.text) for ln in raw_res.lines)
+        enh_chars = sum(len(ln.text) for ln in enhanced_res.lines)
+        if not raw_res.lines and enhanced_res.lines:
+            return enhanced_res
+        if enh_chars >= int(raw_chars * 0.85) and (
+            enhanced_res.mean_confidence > raw_res.mean_confidence + 0.02
+            or (enh_chars > raw_chars and enhanced_res.mean_confidence >= raw_res.mean_confidence)
+        ):
+            return enhanced_res
+        return raw_res
+
+
+_PROCESS_OCR_BACKEND: RapidOcrBackend | None = None
+_PROCESS_OCR_PID: int | None = None
+
+
+def get_process_ocr_backend(*, warm_up: bool = False) -> RapidOcrBackend:
+    """Return a process-scoped RapidOcrBackend singleton so models load once per worker process."""
+    global _PROCESS_OCR_BACKEND, _PROCESS_OCR_PID
+    pid = os.getpid()
+    if _PROCESS_OCR_BACKEND is None or _PROCESS_OCR_PID != pid:
+        _PROCESS_OCR_BACKEND = RapidOcrBackend()
+        _PROCESS_OCR_PID = pid
+    if warm_up:
+        _PROCESS_OCR_BACKEND.warm_up()
+    return _PROCESS_OCR_BACKEND

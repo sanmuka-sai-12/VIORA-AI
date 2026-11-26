@@ -22,9 +22,12 @@ TENANT_TABLES = (
     "sources",
     "offering_source_policies",
     "source_idempotency",
+    "workflow_jobs",
+    "extraction_cache",
+    "page_ocr_cache",
 )
 
-APPEND_ONLY_TENANT_TABLES = ("source_versions",)
+APPEND_ONLY_TENANT_TABLES = ("source_versions", "derived_extractions")
 
 
 def grant_application_privileges(

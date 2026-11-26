@@ -73,7 +73,7 @@ OCR runtime packages are **optional** for API/CI environments and deployed separ
 
 | Component | Package / Version | License | Provenance / Notes |
 |---|---|---|---|
-| `rapidocr` | `3.10.0` (optional worker dep) | Apache-2.0 | Wraps ONNX Runtime inference for printed text detection/orientation/recognition; default PP-OCRv4/v5 ONNX mobile weights fetched at runtime from upstream RapidOCR release mirrors (never committed to git). |
+| `rapidocr` | `3.10.0` (optional worker dep) | Apache-2.0 | Wraps ONNX Runtime inference for printed text detection/orientation/recognition; RapidOCR 3.10 default ONNX weights (`PP-OCRv6_det_small.onnx`, `ch_ppocr_mobile_v2.0_cls_mobile.onnx`, `PP-OCRv6_rec_small.onnx`) fetched/verified on first worker warm-up from upstream RapidOCR release mirrors (never committed to git). |
 | `onnxruntime` | `1.32.0` (optional worker dep) | MIT | CPU execution provider for ONNX OCR models. |
 | `pypdfium2` | `5.15.2` (via `pdfplumber`) | BSD-3-Clause / Apache-2.0 | Bounded PDF page rasterization (`dpi <= 300`, `max_pixels=16_000_000`). |
 | `pillow` | `13.0.0` (via `pdfplumber`) | MIT-CMU | Bounded image decoding (`Image.MAX_IMAGE_PIXELS`) and deterministic grayscale/autocontrast/sharpen preprocessing. |

@@ -17,6 +17,7 @@ from ..institution.public import (
 )
 from ..security import Access, AccessError, Authentication, ChangeAudit
 from ..sources.public import source_directory
+from ..workflow.public import workflow_directory
 from .audit import SqlAudit
 from .policy import Policy
 from .tenant import bind_actor, bind_tenant, require_application_role
@@ -27,6 +28,7 @@ __all__ = [
     "bind_tenant",
     "change_audit",
     "register_models",
+    "require_application_role",
 ]
 
 
@@ -98,6 +100,7 @@ class AuthorizationService:
                 identities,
                 institution_directory(session, identities),
                 source_directory(session),
+                workflow_directory(session),
             )
             audit = SqlAudit(session)
             access = Access(_VerifiedActor(actor), identities, policy)

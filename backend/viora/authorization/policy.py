@@ -1,9 +1,14 @@
 """Explicit permissions; roles are eligibility, never unrestricted access."""
 
+from typing import TYPE_CHECKING
+
 from ..contracts import Actor, ResourceRef, TenantContext
 from ..identity.public import IdentityDirectory, InstitutionRole
 from ..institution.public import InstitutionDirectory
 from ..sources.public import SourceDirectory
+
+if TYPE_CHECKING:
+    from ..workflow.public import SqlWorkflowDirectory
 
 ADMIN_ROLES = frozenset({"institution_owner", "institution_admin"})
 
@@ -114,10 +119,12 @@ class Policy:
         identities: IdentityDirectory,
         institutions: InstitutionDirectory,
         sources: SourceDirectory | None = None,
+        workflows: "SqlWorkflowDirectory | None" = None,
     ) -> None:
         self.identities = identities
         self.institutions = institutions
         self.sources = sources
+        self.workflows = workflows
 
     def permits(
         self, context: TenantContext, action: str, resource: ResourceRef
@@ -300,6 +307,18 @@ class Policy:
                 actor == target and "student" in roles
             ) or self.institutions.guardian_link(tenant, actor, target)
 
+        if resource.kind == "workflow_job":
+            if self.workflows is None:
+                return False
+            job_source = self.workflows.job_source_id(tenant, target)
+            if job_source is None:
+                return False
+            return self.permits(
+                context,
+                action,
+                ResourceRef(tenant_id=tenant, kind="source", resource_id=job_source),
+            )
+
         if resource.kind == "source":
             if self.sources is None:
                 return False
@@ -316,9 +335,13 @@ class Policy:
                 if action in {
                     "source.read",
                     "source.version.read",
+                    "source.job.read",
                     "source.update",
                     "source.lifecycle",
                     "source.version.create",
+                    "source.extract",
+                    "source.job.cancel",
+                    "source.job.retry",
                 } and (
                     self.institutions.teacher_assignment(
                         tenant, actor, info.offering_id
@@ -326,8 +349,17 @@ class Policy:
                     is not None
                 ):
                     return True
+                if (
+                    action == "source.process"
+                    and info.lifecycle_state == "active"
+                    and self.institutions.teacher_assignment(
+                        tenant, actor, info.offering_id
+                    )
+                    is not None
+                ):
+                    return True
                 return (
-                    action in {"source.read", "source.version.read"}
+                    action in {"source.read", "source.version.read", "source.job.read"}
                     and info.visibility == "offering_published"
                     and info.lifecycle_state == "active"
                     and self.institutions.student_enrolment(
@@ -344,14 +376,32 @@ class Policy:
                     is not None
                 )
                 if is_owner_student:
-                    if action in {"source.read", "source.version.read", "source.lifecycle"}:
+                    if action in {
+                        "source.read",
+                        "source.version.read",
+                        "source.job.read",
+                        "source.lifecycle",
+                        "source.job.cancel",
+                    }:
                         return True
-                    if action in {"source.update", "source.version.create"}:
+                    if action == "source.process":
+                        return (
+                            info.lifecycle_state == "active"
+                            and self.sources.offering_source_policy(
+                                tenant, info.offering_id
+                            ).student_submissions_enabled
+                        )
+                    if action in {
+                        "source.update",
+                        "source.version.create",
+                        "source.extract",
+                        "source.job.retry",
+                    }:
                         return self.sources.offering_source_policy(
                             tenant, info.offering_id
                         ).student_submissions_enabled
                 if (
-                    action in {"source.read", "source.version.read"}
+                    action in {"source.read", "source.version.read", "source.job.read"}
                     and info.visibility == "teacher_review"
                     and info.lifecycle_state == "active"
                     and self.institutions.teacher_assignment(

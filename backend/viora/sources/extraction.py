@@ -3,10 +3,15 @@
 import contextlib
 import hashlib
 import io
+import multiprocessing as mp
+import os
 import re
+import threading
 import time
+import weakref
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -44,9 +49,14 @@ from .document_contracts import (
     TextBlock,
 )
 from .ocr import (
+    OCR_LOW_CONFIDENCE_THRESHOLD,
+    OCR_UNSUPPORTED_OR_HANDWRITING_THRESHOLD,
     OcrBackend,
     OcrPageResult,
+    RapidOcrBackend,
     decode_bounded_image,
+    get_process_ocr_backend,
+    hash_pil_image,
     render_pdf_page_to_rgb,
 )
 from .schemas import SourceIngestionLimits, SourceInputFormat, TextInputFormat
@@ -86,9 +96,6 @@ _UNSUPPORTED_DOC_OR_MEDIA_EXTENSIONS = frozenset(
         ".xlsx",
         ".ppt",
         ".pptx",
-        ".png",
-        ".jpg",
-        ".jpeg",
         ".gif",
         ".webp",
         ".bmp",
@@ -376,6 +383,42 @@ def validate_and_sniff_text_input(
     return input_format, raw_bytes, digest, sanitized_name
 
 
+def _validate_image_bytes(
+    raw_bytes: bytes,
+    *,
+    expected_format: str,
+    limits: SourceIngestionLimits,
+) -> None:
+    if not raw_bytes:
+        raise AccessError(422, "empty_input", "Uploaded image is empty")
+    if len(raw_bytes) > limits.max_bytes:
+        raise AccessError(
+            413,
+            "payload_too_large",
+            f"Image exceeds configured byte limit of {limits.max_bytes} bytes",
+        )
+    if expected_format == "png" and not raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise AccessError(
+            415,
+            "unsupported_media_type",
+            "Claimed PNG input does not match valid PNG header signature",
+        )
+    if expected_format == "jpeg" and not raw_bytes.startswith(b"\xff\xd8\xff"):
+        raise AccessError(
+            415,
+            "unsupported_media_type",
+            "Claimed JPEG input does not match valid JPEG header signature",
+        )
+    try:
+        decode_bounded_image(raw_bytes)
+    except (OSError, ValueError) as exc:
+        raise AccessError(
+            422,
+            "malformed_image",
+            f"Could not decode image payload safely: {exc}",
+        ) from None
+
+
 def validate_and_sniff_upload(
     *,
     raw_bytes: bytes,
@@ -384,7 +427,7 @@ def validate_and_sniff_upload(
     claimed_content_type: str | None,
     limits: SourceIngestionLimits,
 ) -> tuple[SourceInputFormat, bytes, str, str | None]:
-    """Inspect uploaded bytes directly; reject spoofed extensions, MIME mismatches, and bad PDFs."""
+    """Inspect uploaded bytes directly; reject spoofed extensions, MIME mismatches, and bad PDFs/images."""
     sanitized_name = sanitize_original_filename(original_filename)
     if not raw_bytes:
         raise AccessError(422, "empty_input", "Uploaded file is empty")
@@ -398,8 +441,14 @@ def validate_and_sniff_upload(
     ext = PurePosixPath(sanitized_name).suffix.lower() if sanitized_name else ""
     mime = (claimed_content_type or "").split(";", 1)[0].strip().lower()
     is_pdf_bytes = b"%PDF-" in raw_bytes[:1024]
+    is_png_bytes = raw_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    is_jpeg_bytes = raw_bytes.startswith(b"\xff\xd8\xff")
 
-    if declared_format == "digital_pdf" or ext == ".pdf" or mime == "application/pdf":
+    if (
+        declared_format in {"digital_pdf", "scanned_pdf"}
+        or ext == ".pdf"
+        or mime == "application/pdf"
+    ):
         if not is_pdf_bytes:
             raise AccessError(
                 415,
@@ -407,8 +456,35 @@ def validate_and_sniff_upload(
                 "Claimed PDF input does not contain valid PDF content",
             )
         _validate_pdf_bytes(raw_bytes, limits)
+        resolved_pdf_fmt: SourceInputFormat = (
+            "scanned_pdf" if declared_format == "scanned_pdf" else "digital_pdf"
+        )
         return (
-            "digital_pdf",
+            resolved_pdf_fmt,
+            raw_bytes,
+            hashlib.sha256(raw_bytes).hexdigest(),
+            sanitized_name,
+        )
+
+    if declared_format == "png" or ext == ".png" or mime == "image/png":
+        if declared_format in {"jpeg"} or ext in {".jpg", ".jpeg"} or mime == "image/jpeg":
+            raise AccessError(
+                415,
+                "unsupported_media_type",
+                "Conflicting PNG and JPEG file extension/format claims",
+            )
+        _validate_image_bytes(raw_bytes, expected_format="png", limits=limits)
+        return (
+            "png",
+            raw_bytes,
+            hashlib.sha256(raw_bytes).hexdigest(),
+            sanitized_name,
+        )
+
+    if declared_format == "jpeg" or ext in {".jpg", ".jpeg"} or mime == "image/jpeg":
+        _validate_image_bytes(raw_bytes, expected_format="jpeg", limits=limits)
+        return (
+            "jpeg",
             raw_bytes,
             hashlib.sha256(raw_bytes).hexdigest(),
             sanitized_name,
@@ -418,6 +494,24 @@ def validate_and_sniff_upload(
         _validate_pdf_bytes(raw_bytes, limits)
         return (
             "digital_pdf",
+            raw_bytes,
+            hashlib.sha256(raw_bytes).hexdigest(),
+            sanitized_name,
+        )
+
+    if declared_format is None and is_png_bytes:
+        _validate_image_bytes(raw_bytes, expected_format="png", limits=limits)
+        return (
+            "png",
+            raw_bytes,
+            hashlib.sha256(raw_bytes).hexdigest(),
+            sanitized_name,
+        )
+
+    if declared_format is None and is_jpeg_bytes:
+        _validate_image_bytes(raw_bytes, expected_format="jpeg", limits=limits)
+        return (
+            "jpeg",
             raw_bytes,
             hashlib.sha256(raw_bytes).hexdigest(),
             sanitized_name,
@@ -659,6 +753,215 @@ class _PdfAssemblyState:
         return start, self.norm_cursor
 
 
+class ExtractionCancelledError(RuntimeError):
+    """Raised when cooperative cancellation is observed during document extraction."""
+
+
+def _pool_worker_init(warm_ocr: bool, intra_threads: int = 1) -> None:
+    """Initialize bounded threading and optional OCR model once per worker process."""
+    t = str(max(1, intra_threads))
+    os.environ["OMP_NUM_THREADS"] = t
+    os.environ["OPENBLAS_NUM_THREADS"] = t
+    os.environ["MKL_NUM_THREADS"] = t
+    os.environ["NUMEXPR_NUM_THREADS"] = t
+    if warm_ocr:
+        get_process_ocr_backend(warm_up=True)
+
+
+def _pool_run_spatial_page(
+    args: tuple[bytes, int, frozenset[str], frozenset[str], bool, bool],
+) -> tuple[int, SpatialPageResult, bool]:
+    raw_bytes, idx, rep_headers, rep_footers, extract_tables, allow_borderless = args
+    with pdfplumber.open(io.BytesIO(raw_bytes)) as plumber_pdf:
+        res = analyze_page_spatial(
+            plumber_pdf.pages[idx],
+            repeated_header_templates=rep_headers,
+            repeated_footer_templates=rep_footers,
+            extract_tables=extract_tables,
+            allow_borderless_tables=allow_borderless,
+        )
+    route_to_ocr = (
+        not res.blocks
+        and not res.tables
+        and any(f.kind == "raster_image" for f in res.figures)
+    )
+    return idx, res, route_to_ocr
+
+
+def _pool_run_ocr_page(
+    args: tuple[bytes, int, int, bool, bool],
+) -> tuple[int, OcrPageResult]:
+    raw_bytes, idx, ocr_dpi, force_preprocess, adaptive_preprocess = args
+    backend = get_process_ocr_backend(warm_up=True)
+    img = render_pdf_page_to_rgb(raw_bytes, idx, dpi=ocr_dpi)
+    if adaptive_preprocess:
+        res = backend.recognize_image_adaptive(img, force_preprocess=force_preprocess)
+    else:
+        res = backend.recognize_image(img, preprocess=force_preprocess)
+    return idx, res
+
+
+def _pool_run_pdf_triage(
+    args: tuple[bytes, SourceIngestionLimits],
+) -> tuple[int, list[_TriagePage], int, frozenset[str], frozenset[str]]:
+    raw_bytes, limits = args
+    started_at = time.monotonic()
+    with _bounded_pypdf_config():
+        reader, page_count = _validate_pdf_bytes(raw_bytes, limits)
+        helper = AdaptiveDocumentExtractor(page_workers=1, isolate_untrusted_parse=False)
+        triage_pages, total_raw_chars, repeated_headers, repeated_footers = (
+            helper._triage_pdf_pages(
+                reader=reader,
+                page_count=page_count,
+                started_at=started_at,
+                limits=limits,
+            )
+        )
+    return page_count, triage_pages, total_raw_chars, repeated_headers, repeated_footers
+
+
+def _pool_run_isolated_binary_extract(
+    args: tuple[
+        UUID,
+        UUID,
+        UUID,
+        int,
+        str,
+        SourceDocumentFormat,
+        str,
+        bytes,
+        SourceIngestionLimits,
+        bool,
+        int,
+        bool,
+        bool,
+        bool,
+        int,
+        int,
+        float,
+        bool,
+    ],
+) -> tuple[ExtractedDocument, list[tuple[str, OcrPageResult]]]:
+    (
+        tenant_id,
+        source_id,
+        version_id,
+        source_version,
+        source_sha256,
+        input_format,
+        title,
+        raw_bytes,
+        limits,
+        ocr_enabled,
+        ocr_dpi,
+        preprocess_for_ocr,
+        enable_layout_fallback,
+        enable_table_extraction,
+        max_fallback_pages,
+        max_ocr_pages,
+        task_timeout_seconds,
+        enable_adaptive_ocr_preprocess,
+    ) = args
+    backend: OcrBackend | None = (
+        get_process_ocr_backend(warm_up=True) if ocr_enabled else None
+    )
+    captured_ocr: list[tuple[str, OcrPageResult]] = []
+    extractor = AdaptiveDocumentExtractor(
+        ocr_backend=backend,
+        enable_layout_fallback=enable_layout_fallback,
+        enable_table_extraction=enable_table_extraction,
+        max_fallback_pages=max_fallback_pages,
+        max_ocr_pages=max_ocr_pages,
+        ocr_dpi=ocr_dpi,
+        preprocess_for_ocr=preprocess_for_ocr,
+        page_workers=1,
+        task_timeout_seconds=task_timeout_seconds,
+        enable_adaptive_ocr_preprocess=enable_adaptive_ocr_preprocess,
+        isolate_untrusted_parse=False,
+    )
+    doc = extractor.extract(
+        tenant_id=tenant_id,
+        source_id=source_id,
+        version_id=version_id,
+        source_version=source_version,
+        source_sha256=source_sha256,
+        input_format=input_format,
+        title=title,
+        raw_bytes=raw_bytes,
+        limits=limits,
+        page_ocr_cache_store=lambda sha, res: captured_ocr.append((sha, res)),
+    )
+    return doc, captured_ocr
+
+
+def _terminate_pool_processes(executor: ProcessPoolExecutor) -> None:
+    procs = getattr(executor, "_processes", None)
+    if isinstance(procs, dict):
+        for proc in list(procs.values()):
+            with contextlib.suppress(Exception):
+                if proc.is_alive():
+                    proc.kill()
+    executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _shutdown_pool_holder(holder: dict[str, Any]) -> None:
+    pool = holder.get("pool")
+    holder["pool"] = None
+    holder["workers"] = 0
+    holder["warm_ocr"] = False
+    if pool is not None:
+        with contextlib.suppress(Exception):
+            _terminate_pool_processes(pool)
+
+
+def _run_bounded_process_tasks(
+    *,
+    fn: Any,
+    tasks: list[Any],
+    executor: ProcessPoolExecutor,
+    timeout_seconds: float,
+    cancel_check: Callable[[], bool] | None,
+    on_abort: Callable[[], None] | None = None,
+) -> list[Any]:
+    """Execute independent page tasks in a killable bounded ProcessPoolExecutor."""
+    deadline = time.monotonic() + max(0.5, timeout_seconds)
+    results: list[Any] = []
+    try:
+        pending = {executor.submit(fn, item) for item in tasks}
+        while pending:
+            if cancel_check is not None and cancel_check():
+                if on_abort is not None:
+                    on_abort()
+                else:
+                    _terminate_pool_processes(executor)
+                raise ExtractionCancelledError("Extraction cancelled cooperatively")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if on_abort is not None:
+                    on_abort()
+                else:
+                    _terminate_pool_processes(executor)
+                raise AccessError(
+                    422,
+                    "extraction_timeout",
+                    "Parallel PDF extraction exceeded worker execution timeout",
+                )
+            done, pending = wait(
+                pending,
+                timeout=min(0.5, remaining),
+                return_when=FIRST_COMPLETED,
+            )
+            for fut in done:
+                results.append(fut.result())
+        return results
+    except Exception:
+        if on_abort is not None:
+            on_abort()
+        else:
+            _terminate_pool_processes(executor)
+        raise
+
+
 class AdaptiveDocumentExtractor:
     """Quality-aware adaptive extractor: native text, pypdf fast path, pdfplumber spatial, and optional OCR."""
 
@@ -672,6 +975,11 @@ class AdaptiveDocumentExtractor:
         max_ocr_pages: int = 10,
         ocr_dpi: int = 150,
         preprocess_for_ocr: bool = False,
+        page_workers: int = 1,
+        task_timeout_seconds: float = 30.0,
+        enable_adaptive_ocr_preprocess: bool = True,
+        isolate_untrusted_parse: bool = False,
+        intra_op_thread_budget: int | None = None,
     ) -> None:
         self.ocr_backend = ocr_backend
         self.enable_layout_fallback = enable_layout_fallback
@@ -680,6 +988,83 @@ class AdaptiveDocumentExtractor:
         self.max_ocr_pages = max(0, max_ocr_pages)
         self.ocr_dpi = max(72, min(ocr_dpi, 300))
         self.preprocess_for_ocr = preprocess_for_ocr
+        self.page_workers = max(1, min(page_workers, 8))
+        self.task_timeout_seconds = max(1.0, task_timeout_seconds)
+        self.enable_adaptive_ocr_preprocess = enable_adaptive_ocr_preprocess
+        self.isolate_untrusted_parse = isolate_untrusted_parse
+        self.intra_op_thread_budget = (
+            max(1, intra_op_thread_budget) if intra_op_thread_budget is not None else None
+        )
+        self._pool_lock = threading.Lock()
+        self._pool_holder: dict[str, Any] = {"pool": None, "workers": 0, "warm_ocr": False}
+        self._pool_finalizer = weakref.finalize(
+            self, _shutdown_pool_holder, self._pool_holder
+        )
+
+    def _get_or_create_pool(self, *, warm_ocr: bool) -> ProcessPoolExecutor:
+        with self._pool_lock:
+            existing: ProcessPoolExecutor | None = self._pool_holder.get("pool")
+            existing_workers = int(self._pool_holder.get("workers", 0))
+            existing_warm = bool(self._pool_holder.get("warm_ocr", False))
+            if (
+                existing is not None
+                and existing_workers == self.page_workers
+                and (existing_warm or not warm_ocr)
+            ):
+                return existing
+            if existing is not None:
+                _shutdown_pool_holder(self._pool_holder)
+            cpu_count = os.cpu_count() or 2
+            intra_threads = (
+                self.intra_op_thread_budget
+                if self.intra_op_thread_budget is not None
+                else max(1, cpu_count // max(1, self.page_workers))
+            )
+            ctx = mp.get_context("spawn")
+            pool = ProcessPoolExecutor(
+                max_workers=self.page_workers,
+                mp_context=ctx,
+                initializer=_pool_worker_init,
+                initargs=(warm_ocr, intra_threads),
+            )
+            self._pool_holder["pool"] = pool
+            self._pool_holder["workers"] = self.page_workers
+            self._pool_holder["warm_ocr"] = warm_ocr
+            return pool
+
+    def _invalidate_pool(self) -> None:
+        with self._pool_lock:
+            _shutdown_pool_holder(self._pool_holder)
+
+    def warm_pool(self, *, warm_ocr: bool | None = None) -> None:
+        """Pre-spawn and warm reusable worker processes when parallel or isolated execution is enabled."""
+        if self.page_workers <= 1 and not self.isolate_untrusted_parse:
+            return
+        use_ocr = (
+            isinstance(self.ocr_backend, RapidOcrBackend)
+            and self.ocr_backend.is_available()
+            if warm_ocr is None
+            else warm_ocr
+        )
+        pool = self._get_or_create_pool(warm_ocr=use_ocr)
+        # Force child worker processes to spawn & run initializer now.
+        futs = [pool.submit(int, 0) for _ in range(self.page_workers)]
+        for fut in futs:
+            fut.result()
+
+    def close(self) -> None:
+        """Terminate and reap any persistent worker processes owned by this extractor."""
+        self._invalidate_pool()
+
+    def _run_ocr_on_image(self, img: Any) -> OcrPageResult:
+        assert self.ocr_backend is not None
+        if self.enable_adaptive_ocr_preprocess and isinstance(
+            self.ocr_backend, RapidOcrBackend
+        ):
+            return self.ocr_backend.recognize_image_adaptive(
+                img, force_preprocess=self.preprocess_for_ocr
+            )
+        return self.ocr_backend.recognize_image(img, preprocess=self.preprocess_for_ocr)
 
     def extract(
         self,
@@ -693,7 +1078,65 @@ class AdaptiveDocumentExtractor:
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,
+        progress_callback: Callable[[str, dict[str, str | int | float | bool]], None]
+        | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+        page_ocr_cache_lookup: Callable[[str], OcrPageResult | None] | None = None,
+        page_ocr_cache_store: Callable[[str, OcrPageResult], None] | None = None,
     ) -> ExtractedDocument:
+        if cancel_check is not None and cancel_check():
+            raise ExtractionCancelledError("Extraction cancelled before start")
+        if (
+            self.isolate_untrusted_parse
+            and input_format in {"digital_pdf", "scanned_pdf", "png", "jpeg"}
+            and (self.page_workers == 1 or input_format in {"png", "jpeg"})
+        ):
+            ocr_enabled = (
+                self.ocr_backend is not None and self.ocr_backend.is_available()
+            )
+            if progress_callback is not None:
+                progress_callback(
+                    "isolated_parse",
+                    {"isolated_process": True, "format": input_format},
+                )
+            pool = self._get_or_create_pool(
+                warm_ocr=bool(
+                    ocr_enabled and isinstance(self.ocr_backend, RapidOcrBackend)
+                )
+            )
+            doc, captured_ocr = _run_bounded_process_tasks(
+                fn=_pool_run_isolated_binary_extract,
+                tasks=[
+                    (
+                        tenant_id,
+                        source_id,
+                        version_id,
+                        source_version,
+                        source_sha256,
+                        input_format,
+                        title,
+                        raw_bytes,
+                        limits,
+                        ocr_enabled,
+                        self.ocr_dpi,
+                        self.preprocess_for_ocr,
+                        self.enable_layout_fallback,
+                        self.enable_table_extraction,
+                        self.max_fallback_pages,
+                        self.max_ocr_pages,
+                        self.task_timeout_seconds,
+                        self.enable_adaptive_ocr_preprocess,
+                    )
+                ],
+                executor=pool,
+                timeout_seconds=self.task_timeout_seconds,
+                cancel_check=cancel_check,
+                on_abort=self._invalidate_pool,
+            )[0]
+            if page_ocr_cache_store is not None:
+                for sha, ocr_res in captured_ocr:
+                    page_ocr_cache_store(sha, ocr_res)
+            return doc
         if input_format in {"digital_pdf", "scanned_pdf"}:
             return self._extract_digital_pdf(
                 tenant_id=tenant_id,
@@ -705,6 +1148,10 @@ class AdaptiveDocumentExtractor:
                 title=title,
                 raw_bytes=raw_bytes,
                 limits=limits,
+                progress_callback=progress_callback,
+                cancel_check=cancel_check,
+                page_ocr_cache_lookup=page_ocr_cache_lookup,
+                page_ocr_cache_store=page_ocr_cache_store,
             )
         if input_format in {"png", "jpeg"}:
             return self._extract_image(
@@ -717,6 +1164,7 @@ class AdaptiveDocumentExtractor:
                 title=title,
                 raw_bytes=raw_bytes,
                 limits=limits,
+                progress_callback=progress_callback,
             )
         return self._extract_native_text(
             tenant_id=tenant_id,
@@ -1225,6 +1673,8 @@ class AdaptiveDocumentExtractor:
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,
+        progress_callback: Callable[[str, dict[str, str | int | float | bool]], None]
+        | None = None,
     ) -> ExtractedDocument:
         if not raw_bytes:
             raise AccessError(422, "empty_input", "Image input is empty")
@@ -1234,6 +1684,8 @@ class AdaptiveDocumentExtractor:
                 "payload_too_large",
                 f"Image exceeds byte limit of {limits.max_bytes} bytes",
             )
+        if progress_callback is not None:
+            progress_callback("ocr", {"total_pages": 1, "completed_pages": 0})
         try:
             img = decode_bounded_image(raw_bytes)
         except (OSError, ValueError) as exc:
@@ -1287,15 +1739,13 @@ class AdaptiveDocumentExtractor:
 
         ocr_res: OcrPageResult | None = None
         if self.ocr_backend is not None and self.ocr_backend.is_available():
-            ocr_res = self.ocr_backend.recognize_image(
-                img, preprocess=self.preprocess_for_ocr
-            )
+            ocr_res = self._run_ocr_on_image(img)
             ocr_prov = ExtractionProvenance(
                 extractor_id=ocr_res.engine_id,
                 extractor_version=ocr_res.engine_version,
                 method="ocr",
                 confidence=ocr_res.mean_confidence,
-                raw_locator=f"image_ocr:{img.width}x{img.height}",
+                raw_locator=f"image_ocr:{img.width}x{img.height};preprocess={ocr_res.preprocess_applied}",
             )
             base_prov = ocr_prov
             for idx, ln in enumerate(ocr_res.lines):
@@ -1351,16 +1801,43 @@ class AdaptiveDocumentExtractor:
                 )
             warnings.append(
                 ExtractionWarning(
-                    warning_id="warn-1",
+                    warning_id=f"warn-{len(warnings) + 1}",
                     code="ocr_fallback_applied",
                     severity="info",
                     message=(
                         f"Printed-text OCR applied via {ocr_res.engine_id} "
-                        f"(mean confidence {ocr_res.mean_confidence:.2f}); visual/handwriting understanding remains deferred."
+                        f"(mean confidence {ocr_res.mean_confidence:.2f}, preprocess={ocr_res.preprocess_applied}); "
+                        "visual/diagram and handwriting understanding remain deferred."
                     ),
                     page_number=1,
                 )
             )
+            if not ocr_res.lines or ocr_res.mean_confidence < OCR_UNSUPPORTED_OR_HANDWRITING_THRESHOLD:
+                warnings.append(
+                    ExtractionWarning(
+                        warning_id=f"warn-{len(warnings) + 1}",
+                        code="unsupported_script_or_handwriting",
+                        severity="warning",
+                        message=(
+                            "OCR yielded empty or very low confidence output; handwritten notes, non-Latin/Indic scripts "
+                            "(e.g. Hindi/Devanagari), or pure diagrams are not reliably supported by printed-text OCR."
+                        ),
+                        page_number=1,
+                    )
+                )
+            elif ocr_res.mean_confidence < OCR_LOW_CONFIDENCE_THRESHOLD:
+                warnings.append(
+                    ExtractionWarning(
+                        warning_id=f"warn-{len(warnings) + 1}",
+                        code="low_confidence_ocr",
+                        severity="warning",
+                        message=(
+                            f"OCR confidence ({ocr_res.mean_confidence:.2f}) is below {OCR_LOW_CONFIDENCE_THRESHOLD:.2f}; "
+                            "review extracted text carefully."
+                        ),
+                        page_number=1,
+                    )
+                )
         else:
             code = "ocr_unavailable" if self.ocr_backend is not None else "ocr_required"
             warnings.append(
@@ -1373,6 +1850,8 @@ class AdaptiveDocumentExtractor:
                     deferred_stage="batch_2_4_ocr_worker",
                 )
             )
+        if progress_callback is not None:
+            progress_callback("assembling", {"total_pages": 1, "completed_pages": 1})
 
         full_norm = "\n\n".join(norm_parts)
         usable = len(full_norm.strip()) >= limits.min_text_chars
@@ -1463,8 +1942,56 @@ class AdaptiveDocumentExtractor:
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,
+        progress_callback: Callable[[str, dict[str, str | int | float | bool]], None]
+        | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+        page_ocr_cache_lookup: Callable[[str], OcrPageResult | None] | None = None,
+        page_ocr_cache_store: Callable[[str, OcrPageResult], None] | None = None,
     ) -> ExtractedDocument:
         started_at = time.monotonic()
+        if self.isolate_untrusted_parse and self.page_workers > 1:
+            if progress_callback is not None:
+                progress_callback("triage", {"isolated_process": True})
+            pool = self._get_or_create_pool(
+                warm_ocr=bool(
+                    isinstance(self.ocr_backend, RapidOcrBackend)
+                    and self.ocr_backend.is_available()
+                )
+            )
+            page_count, triage_pages, total_raw_chars, repeated_headers, repeated_footers = (
+                _run_bounded_process_tasks(
+                    fn=_pool_run_pdf_triage,
+                    tasks=[(raw_bytes, limits)],
+                    executor=pool,
+                    timeout_seconds=self.task_timeout_seconds,
+                    cancel_check=cancel_check,
+                    on_abort=self._invalidate_pool,
+                )[0]
+            )
+            return self._extract_digital_pdf_pages(
+                reader=None,
+                page_count=page_count,
+                started_at=started_at,
+                tenant_id=tenant_id,
+                source_id=source_id,
+                version_id=version_id,
+                source_version=source_version,
+                source_sha256=source_sha256,
+                input_format=input_format,
+                title=title,
+                raw_bytes=raw_bytes,
+                limits=limits,
+                progress_callback=progress_callback,
+                cancel_check=cancel_check,
+                page_ocr_cache_lookup=page_ocr_cache_lookup,
+                page_ocr_cache_store=page_ocr_cache_store,
+                precomputed_triage=(
+                    triage_pages,
+                    total_raw_chars,
+                    repeated_headers,
+                    repeated_footers,
+                ),
+            )
         with _bounded_pypdf_config():
             reader, page_count = _validate_pdf_bytes(raw_bytes, limits)
             return self._extract_digital_pdf_pages(
@@ -1480,6 +2007,10 @@ class AdaptiveDocumentExtractor:
                 title=title,
                 raw_bytes=raw_bytes,
                 limits=limits,
+                progress_callback=progress_callback,
+                cancel_check=cancel_check,
+                page_ocr_cache_lookup=page_ocr_cache_lookup,
+                page_ocr_cache_store=page_ocr_cache_store,
             )
 
     def _triage_pdf_pages(
@@ -1968,17 +2499,38 @@ class AdaptiveDocumentExtractor:
                 "info",
                 (
                     f"Page {page_no} processed with {ocr_res.engine_id} "
-                    f"(mean confidence {ocr_res.mean_confidence:.2f})."
+                    f"(mean confidence {ocr_res.mean_confidence:.2f}, preprocess={ocr_res.preprocess_applied})."
                 ),
                 page_number=page_no,
             )
         )
+        if not ocr_res.lines or ocr_res.mean_confidence < OCR_UNSUPPORTED_OR_HANDWRITING_THRESHOLD:
+            page_warn_ids.append(
+                state.add_warning(
+                    "unsupported_script_or_handwriting",
+                    "warning",
+                    (
+                        f"Page {page_no} OCR yielded empty or very low confidence output; "
+                        "handwritten notes, Hindi/Indic scripts, or pure diagrams are not solved by printed-text OCR."
+                    ),
+                    page_number=page_no,
+                )
+            )
+        elif ocr_res.mean_confidence < OCR_LOW_CONFIDENCE_THRESHOLD:
+            page_warn_ids.append(
+                state.add_warning(
+                    "low_confidence_ocr",
+                    "warning",
+                    f"Page {page_no} OCR confidence ({ocr_res.mean_confidence:.2f}) is low; verify extracted text.",
+                    page_number=page_no,
+                )
+            )
         return page_norm_chars
 
     def _extract_digital_pdf_pages(
         self,
         *,
-        reader: pypdf.PdfReader,
+        reader: pypdf.PdfReader | None,
         page_count: int,
         started_at: float,
         tenant_id: UUID,
@@ -1990,15 +2542,34 @@ class AdaptiveDocumentExtractor:
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,
+        progress_callback: Callable[[str, dict[str, str | int | float | bool]], None]
+        | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+        page_ocr_cache_lookup: Callable[[str], OcrPageResult | None] | None = None,
+        page_ocr_cache_store: Callable[[str, OcrPageResult], None] | None = None,
+        precomputed_triage: tuple[
+            list[_TriagePage], int, frozenset[str], frozenset[str]
+        ]
+        | None = None,
     ) -> ExtractedDocument:
-        triage_pages, total_raw_chars, repeated_headers, repeated_footers = (
-            self._triage_pdf_pages(
-                reader=reader,
-                page_count=page_count,
-                started_at=started_at,
-                limits=limits,
+        if precomputed_triage is not None:
+            triage_pages, total_raw_chars, repeated_headers, repeated_footers = (
+                precomputed_triage
             )
-        )
+        else:
+            assert reader is not None
+            if progress_callback is not None:
+                progress_callback("triage", {"total_pages": page_count, "completed_pages": 0})
+            triage_pages, total_raw_chars, repeated_headers, repeated_footers = (
+                self._triage_pdf_pages(
+                    reader=reader,
+                    page_count=page_count,
+                    started_at=started_at,
+                    limits=limits,
+                )
+            )
+        if cancel_check is not None and cancel_check():
+            raise ExtractionCancelledError("Extraction cancelled after triage")
 
         spatial_targets: list[int] = []
         ocr_targets: list[int] = []
@@ -2026,33 +2597,78 @@ class AdaptiveDocumentExtractor:
         if spatial_targets:
             capped_spatial = spatial_targets[: self.max_fallback_pages]
             spatial_overflow = set(spatial_targets[self.max_fallback_pages :])
-            with pdfplumber.open(io.BytesIO(raw_bytes)) as plumber_pdf:
-                for idx in capped_spatial:
-                    if (time.monotonic() - started_at) > MAX_PDF_EXTRACTION_SECONDS:
-                        raise AccessError(
-                            422,
-                            "extraction_timeout",
-                            "Spatial PDF layout reconstruction exceeded CPU time budget",
-                        )
-                    res = analyze_page_spatial(
-                        plumber_pdf.pages[idx],
-                        repeated_header_templates=repeated_headers,
-                        repeated_footer_templates=repeated_footers,
-                        extract_tables=self.enable_table_extraction,
-                        allow_borderless_tables=triage_pages[idx].suspected_table,
+            if progress_callback is not None:
+                progress_callback(
+                    "spatial_layout",
+                    {
+                        "total_pages": page_count,
+                        "spatial_pages": len(capped_spatial),
+                        "ocr_pages": len(ocr_targets),
+                    },
+                )
+            if self.page_workers > 1 and (
+                len(capped_spatial) >= 4 or self.isolate_untrusted_parse
+            ):
+                tasks = [
+                    (
+                        raw_bytes,
+                        idx,
+                        repeated_headers,
+                        repeated_footers,
+                        self.enable_table_extraction,
+                        triage_pages[idx].suspected_table,
                     )
-                    # If spatial inspection finds only full-page raster image with no text/tables, route to OCR
-                    if (
-                        not res.blocks
-                        and not res.tables
-                        and any(f.kind == "raster_image" for f in res.figures)
-                    ):
+                    for idx in capped_spatial
+                ]
+                pool = self._get_or_create_pool(
+                    warm_ocr=bool(
+                        ocr_targets
+                        and isinstance(self.ocr_backend, RapidOcrBackend)
+                        and self.ocr_backend.is_available()
+                    )
+                )
+                for idx, res, route_to_ocr in _run_bounded_process_tasks(
+                    fn=_pool_run_spatial_page,
+                    tasks=tasks,
+                    executor=pool,
+                    timeout_seconds=self.task_timeout_seconds,
+                    cancel_check=cancel_check,
+                    on_abort=self._invalidate_pool,
+                ):
+                    if route_to_ocr:
                         ocr_targets.append(idx)
                     else:
                         spatial_results[idx] = res
+            else:
+                with pdfplumber.open(io.BytesIO(raw_bytes)) as plumber_pdf:
+                    for idx in capped_spatial:
+                        if cancel_check is not None and cancel_check():
+                            raise ExtractionCancelledError("Extraction cancelled during spatial layout")
+                        if (time.monotonic() - started_at) > self.task_timeout_seconds:
+                            raise AccessError(
+                                422,
+                                "extraction_timeout",
+                                "Spatial PDF layout reconstruction exceeded CPU time budget",
+                            )
+                        res = analyze_page_spatial(
+                            plumber_pdf.pages[idx],
+                            repeated_header_templates=repeated_headers,
+                            repeated_footer_templates=repeated_footers,
+                            extract_tables=self.enable_table_extraction,
+                            allow_borderless_tables=triage_pages[idx].suspected_table,
+                        )
+                        if (
+                            not res.blocks
+                            and not res.tables
+                            and any(f.kind == "raster_image" for f in res.figures)
+                        ):
+                            ocr_targets.append(idx)
+                        else:
+                            spatial_results[idx] = res
 
         ocr_results: dict[int, OcrPageResult] = {}
         ocr_overflow: set[int] = set()
+        page_cache_hits = 0
         ocr_ready = (
             self.ocr_backend is not None and self.ocr_backend.is_available()
         )
@@ -2060,14 +2676,91 @@ class AdaptiveDocumentExtractor:
             ocr_ordered = sorted(set(ocr_targets))
             capped_ocr = ocr_ordered[: self.max_ocr_pages]
             ocr_overflow = set(ocr_ordered[self.max_ocr_pages :])
-            for idx in capped_ocr:
-                if (time.monotonic() - started_at) > (MAX_PDF_EXTRACTION_SECONDS * 2.5):
-                    ocr_overflow.add(idx)
-                    continue
-                img = render_pdf_page_to_rgb(raw_bytes, idx, dpi=self.ocr_dpi)
-                ocr_results[idx] = self.ocr_backend.recognize_image(
-                    img, preprocess=self.preprocess_for_ocr
+            if progress_callback is not None:
+                progress_callback(
+                    "ocr",
+                    {
+                        "total_pages": page_count,
+                        "spatial_pages": len(spatial_results),
+                        "ocr_pages": len(capped_ocr),
+                    },
                 )
+            remaining_ocr: list[tuple[int, str | None]] = []
+            for idx in capped_ocr:
+                if cancel_check is not None and cancel_check():
+                    raise ExtractionCancelledError("Extraction cancelled before OCR")
+                if page_ocr_cache_lookup is not None:
+                    img = render_pdf_page_to_rgb(raw_bytes, idx, dpi=self.ocr_dpi)
+                    img_sha = hash_pil_image(img)
+                    cached_page = page_ocr_cache_lookup(img_sha)
+                    if cached_page is not None:
+                        ocr_results[idx] = cached_page
+                        page_cache_hits += 1
+                        continue
+                    remaining_ocr.append((idx, img_sha))
+                else:
+                    remaining_ocr.append((idx, None))
+
+            if (
+                remaining_ocr
+                and self.page_workers > 1
+                and (len(remaining_ocr) >= 2 or self.isolate_untrusted_parse)
+                and isinstance(self.ocr_backend, RapidOcrBackend)
+            ):
+                tasks = [
+                    (
+                        raw_bytes,
+                        idx,
+                        self.ocr_dpi,
+                        self.preprocess_for_ocr,
+                        self.enable_adaptive_ocr_preprocess,
+                    )
+                    for idx, _ in remaining_ocr
+                ]
+                sha_by_idx = dict(remaining_ocr)
+                pool = self._get_or_create_pool(warm_ocr=True)
+                for idx, ocr_res in _run_bounded_process_tasks(
+                    fn=_pool_run_ocr_page,
+                    tasks=tasks,
+                    executor=pool,
+                    timeout_seconds=self.task_timeout_seconds,
+                    cancel_check=cancel_check,
+                    on_abort=self._invalidate_pool,
+                ):
+                    ocr_results[idx] = ocr_res
+                    if page_ocr_cache_store is not None:
+                        img_sha = sha_by_idx.get(idx)
+                        if img_sha is None:
+                            img_sha = hash_pil_image(
+                                render_pdf_page_to_rgb(raw_bytes, idx, dpi=self.ocr_dpi)
+                            )
+                        page_ocr_cache_store(img_sha, ocr_res)
+            else:
+                for idx, img_sha in remaining_ocr:
+                    if cancel_check is not None and cancel_check():
+                        raise ExtractionCancelledError("Extraction cancelled during OCR")
+                    if (time.monotonic() - started_at) > max(
+                        self.task_timeout_seconds, MAX_PDF_EXTRACTION_SECONDS * 2.5
+                    ):
+                        ocr_overflow.add(idx)
+                        continue
+                    img = render_pdf_page_to_rgb(raw_bytes, idx, dpi=self.ocr_dpi)
+                    ocr_res = self._run_ocr_on_image(img)
+                    ocr_results[idx] = ocr_res
+                    if page_ocr_cache_store is not None:
+                        page_ocr_cache_store(img_sha or hash_pil_image(img), ocr_res)
+
+        if progress_callback is not None:
+            progress_callback(
+                "assembling",
+                {
+                    "total_pages": page_count,
+                    "completed_pages": page_count,
+                    "spatial_pages": len(spatial_results),
+                    "ocr_pages": len(ocr_results),
+                    "page_cache_hits": page_cache_hits,
+                },
+            )
 
         if ocr_results and not spatial_results:
             doc_prov = ExtractionProvenance(

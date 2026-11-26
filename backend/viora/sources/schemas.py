@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints
 
-from ..contracts import ArtifactVersionRef, Contract, Digest
+from ..contracts import ArtifactVersionRef, Contract, Digest, JobState
 from .document_contracts import ExtractedDocument, ExtractionQualityReport
 
 SourceInputFormat = Literal[
@@ -14,6 +14,9 @@ SourceInputFormat = Literal[
     "typed_notes",
     "topic_description",
     "digital_pdf",
+    "scanned_pdf",
+    "png",
+    "jpeg",
 ]
 
 TextInputFormat = Literal[
@@ -36,7 +39,15 @@ TeacherMutableVisibility = Literal["teacher_only", "offering_published"]
 StudentMutableVisibility = Literal["owner_private", "teacher_review"]
 
 SourceLifecycleState = Literal["active", "archived"]
-SourceProcessingStatus = Literal["extracted", "partial_extraction"]
+SourceProcessingStatus = Literal[
+    "pending",
+    "extracted",
+    "partial_extraction",
+    "ocr_required",
+    "unreadable",
+    "failed",
+    "cancelled",
+]
 
 SourceTitle = Annotated[
     str,
@@ -174,17 +185,23 @@ class SourceVersionSummary(Contract):
     page_count: int = Field(ge=1)
     warning_count: int = Field(ge=0)
     processing_metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    latest_extraction_id: UUID | None = None
+    latest_extraction_version: int = Field(default=0, ge=0)
+    latest_job_id: UUID | None = None
+    latest_job_state: JobState | None = None
     created_at: datetime
 
 
 class SourceVersionDetail(SourceVersionSummary):
-    extracted_document: ExtractedDocument
+    extracted_document: ExtractedDocument | None = None
 
 
 class SourceRegistrationResult(Contract):
     source: SourceSummary
     version: SourceVersionSummary
-    quality: ExtractionQualityReport
+    quality: ExtractionQualityReport | None = None
+    job_id: UUID | None = None
+    job_state: JobState | None = None
     idempotent_replay: bool = False
     orphans_cleaned: int = 0
     registration_ms: float = Field(ge=0.0)

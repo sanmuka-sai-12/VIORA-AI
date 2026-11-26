@@ -62,6 +62,15 @@ class Settings(BaseModel):
     source_max_pdf_pages: int = Field(default=100, ge=1, le=500)
     source_max_text_chars: int = Field(default=200_000, ge=10, le=1_000_000)
     source_min_text_chars: int = Field(default=3, ge=1, le=100)
+    worker_poll_interval_seconds: float = Field(default=0.25, gt=0.0, le=60.0)
+    worker_lease_seconds: int = Field(default=30, ge=5, le=600)
+    worker_heartbeat_seconds: int = Field(default=5, ge=1, le=300)
+    worker_max_attempts: int = Field(default=3, ge=1, le=10)
+    worker_concurrency: int = Field(default=2, ge=1, le=16)
+    worker_page_workers: int = Field(default=2, ge=1, le=8)
+    worker_task_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
+    worker_enable_ocr: bool = True
+    extraction_cache_ttl_seconds: int = Field(default=7 * 24 * 3600, ge=60, le=90 * 24 * 3600)
 
     @model_validator(mode="after")
     def validate_connections(self) -> Self:
@@ -163,5 +172,14 @@ class Settings(BaseModel):
                 "source_max_pdf_pages": values.get("SOURCE_MAX_PDF_PAGES", 100),
                 "source_max_text_chars": values.get("SOURCE_MAX_TEXT_CHARS", 200_000),
                 "source_min_text_chars": values.get("SOURCE_MIN_TEXT_CHARS", 3),
+                "worker_poll_interval_seconds": values.get("WORKER_POLL_INTERVAL_SECONDS", 0.25),
+                "worker_lease_seconds": values.get("WORKER_LEASE_SECONDS", 30),
+                "worker_heartbeat_seconds": values.get("WORKER_HEARTBEAT_SECONDS", 5),
+                "worker_max_attempts": values.get("WORKER_MAX_ATTEMPTS", 3),
+                "worker_concurrency": values.get("WORKER_CONCURRENCY", 2),
+                "worker_page_workers": values.get("WORKER_PAGE_WORKERS", 2),
+                "worker_task_timeout_seconds": values.get("WORKER_TASK_TIMEOUT_SECONDS", 60.0),
+                "worker_enable_ocr": values.get("WORKER_ENABLE_OCR", "true"),
+                "extraction_cache_ttl_seconds": values.get("EXTRACTION_CACHE_TTL_SECONDS", 7 * 24 * 3600),
             }
         )

@@ -5,7 +5,11 @@ from typing import Protocol
 from uuid import UUID
 
 from ..contracts import ArtifactVersionRef, Page
-from .document_contracts import ExtractedDocument, SourceDocumentFormat
+from .document_contracts import (
+    DerivedExtractionRecord,
+    ExtractedDocument,
+    SourceDocumentFormat,
+)
 from .schemas import (
     OfferingSourcePolicyInfo,
     SourceAccessInfo,
@@ -54,6 +58,19 @@ class SourceIngestionRepository(Protocol):
     def get_version(
         self, tenant_id: UUID, source_id: UUID, version_id: UUID
     ) -> SourceVersionDetail | None: ...
+
+    def get_latest_derived_extraction(
+        self, tenant_id: UUID, source_id: UUID, version_id: UUID
+    ) -> DerivedExtractionRecord | None: ...
+
+    def list_derived_extractions(
+        self,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        *,
+        limit: int = 25,
+    ) -> Page[DerivedExtractionRecord]: ...
 
     def list_versions(
         self,
@@ -140,11 +157,13 @@ class SourceIngestionRepository(Protocol):
         page_count: int,
         warning_count: int,
         processing_metadata: dict[str, str | int | float | bool],
-        extracted_document: ExtractedDocument,
+        extracted_document: ExtractedDocument | None,
         now: datetime,
         idempotency_key: str | None,
         request_digest: str | None,
-    ) -> tuple[SourceSummary, SourceVersionSummary]: ...
+        enqueue_extraction_job: bool = False,
+        job_max_attempts: int = 3,
+    ) -> tuple[SourceSummary, SourceVersionSummary, UUID | None]: ...
 
     def append_version(
         self,
@@ -168,11 +187,13 @@ class SourceIngestionRepository(Protocol):
         page_count: int,
         warning_count: int,
         processing_metadata: dict[str, str | int | float | bool],
-        extracted_document: ExtractedDocument,
+        extracted_document: ExtractedDocument | None,
         now: datetime,
         idempotency_key: str | None,
         request_digest: str | None,
-    ) -> tuple[SourceSummary, SourceVersionSummary]: ...
+        enqueue_extraction_job: bool = False,
+        job_max_attempts: int = 3,
+    ) -> tuple[SourceSummary, SourceVersionSummary, UUID | None]: ...
 
     def update_source_metadata(
         self,

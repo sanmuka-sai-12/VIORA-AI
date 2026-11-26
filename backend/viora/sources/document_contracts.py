@@ -97,6 +97,8 @@ class ExtractionWarning(Contract):
         "ocr_required",
         "ocr_unavailable",
         "ocr_fallback_applied",
+        "low_confidence_ocr",
+        "unsupported_script_or_handwriting",
         "layout_reconstruction_required",
         "table_extraction_required",
         "visual_content_detected",
@@ -289,5 +291,7 @@ class DerivedExtractionRecord(Contract):
     source_sha256: Digest
     extraction_version: int = Field(ge=1)
     supersedes_extraction_id: UUID | None = None
+    job_id: UUID | None = None
+    cache_hit: bool = False
     document: ExtractedDocument
     created_at: datetime

@@ -1,0 +1,11 @@
+# Optional CPU OCR worker runtime dependencies (RapidOCR Apache-2.0 + ONNX Runtime MIT).
+# Install in dedicated worker deployments alongside base backend dependencies:
+#   python -m pip install -r backend/requirements-worker-ocr.txt
+-r requirements.txt
+rapidocr==3.10.0
+onnxruntime==1.32.0
+numpy==2.5.5
+opencv-python-headless==5.1.0.95
+pyclipper==1.4.0
+shapely==2.2.0
+omegaconf==2.4.0

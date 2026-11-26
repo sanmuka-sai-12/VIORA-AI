@@ -458,6 +458,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Workflow Job */
+        get: operations["readWorkflowJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Workflow Job */
+        post: operations["cancelWorkflowJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Workflow Job */
+        post: operations["retryWorkflowJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/memberships": {
         parameters: {
             query?: never;
@@ -932,6 +983,23 @@ export interface paths {
         patch: operations["updateSourceMetadata"];
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Source Jobs */
+        get: operations["listSourceJobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions": {
         parameters: {
             query?: never;
@@ -976,6 +1044,57 @@ export interface paths {
         };
         /** Read Source Version */
         get: operations["readSourceVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trigger Version Extraction */
+        post: operations["triggerVersionExtraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Latest Derived Extraction */
+        get: operations["readLatestDerivedExtraction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extractions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Derived Extractions */
+        get: operations["listDerivedExtractions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1143,7 +1262,7 @@ export interface components {
             /** Idempotency Key */
             idempotency_key?: string | null;
             /** Input Format */
-            input_format?: ("plain_text" | "typed_notes" | "topic_description" | "digital_pdf") | null;
+            input_format?: ("plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg") | null;
         };
         /** Body_registerFileSource */
         Body_registerFileSource: {
@@ -1152,7 +1271,7 @@ export interface components {
             /** Idempotency Key */
             idempotency_key?: string | null;
             /** Input Format */
-            input_format?: ("plain_text" | "typed_notes" | "topic_description" | "digital_pdf") | null;
+            input_format?: ("plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg") | null;
             /**
              * Origin Kind
              * @default teacher_resource
@@ -1284,6 +1403,51 @@ export interface components {
             campus_id?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * DerivedExtractionRecord
+         * @description Versioned derived extraction result stored independently of immutable source_versions.
+         */
+        DerivedExtractionRecord: {
+            /**
+             * Cache Hit
+             * @default false
+             */
+            cache_hit: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            document: components["schemas"]["ExtractedDocument"];
+            /**
+             * Extraction Id
+             * Format: uuid
+             */
+            extraction_id: string;
+            /** Extraction Version */
+            extraction_version: number;
+            /** Job Id */
+            job_id?: string | null;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Supersedes Extraction Id */
+            supersedes_extraction_id?: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
         };
         /** DocumentPage */
         DocumentPage: {
@@ -1534,6 +1698,11 @@ export interface components {
             /** Warning Count */
             warning_count: number;
         };
+        /** ExtractionTriggerRequest */
+        ExtractionTriggerRequest: {
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
         /** ExtractionWarning */
         ExtractionWarning: {
             /** Block Id */
@@ -1542,7 +1711,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "ocr_required" | "ocr_unavailable" | "ocr_fallback_applied" | "layout_reconstruction_required" | "table_extraction_required" | "visual_content_detected" | "formula_detected_unparsed" | "reading_order_uncertain" | "blank_or_low_text_page" | "repeated_header_footer_suspected" | "encoding_normalized" | "truncation_warning" | "partial_page_error";
+            code: "ocr_required" | "ocr_unavailable" | "ocr_fallback_applied" | "low_confidence_ocr" | "unsupported_script_or_handwriting" | "layout_reconstruction_required" | "table_extraction_required" | "visual_content_detected" | "formula_detected_unparsed" | "reading_order_uncertain" | "blank_or_low_text_page" | "repeated_header_footer_suspected" | "encoding_normalized" | "truncation_warning" | "partial_page_error";
             /** Deferred Stage */
             deferred_stage?: string | null;
             /** Message */
@@ -1868,6 +2037,13 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[DerivedExtractionRecord] */
+        Page_DerivedExtractionRecord_: {
+            /** Items */
+            items: components["schemas"]["DerivedExtractionRecord"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[GuardianLinkSummary] */
         Page_GuardianLinkSummary_: {
             /** Items */
@@ -1935,6 +2111,13 @@ export interface components {
         Page_SubjectSummary_: {
             /** Items */
             items: components["schemas"]["SubjectSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[WorkflowJobSummary] */
+        Page_WorkflowJobSummary_: {
+            /** Items */
+            items: components["schemas"]["WorkflowJobSummary"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -2108,12 +2291,15 @@ export interface components {
              * @default false
              */
             idempotent_replay: boolean;
+            /** Job Id */
+            job_id?: string | null;
+            job_state?: components["schemas"]["JobState"] | null;
             /**
              * Orphans Cleaned
              * @default 0
              */
             orphans_cleaned: number;
-            quality: components["schemas"]["ExtractionQualityReport"];
+            quality?: components["schemas"]["ExtractionQualityReport"] | null;
             /** Registration Ms */
             registration_ms: number;
             source: components["schemas"]["SourceSummary"];
@@ -2251,7 +2437,7 @@ export interface components {
              * Format: uuid
              */
             created_by_user_id: string;
-            extracted_document: components["schemas"]["ExtractedDocument"];
+            extracted_document?: components["schemas"]["ExtractedDocument"] | null;
             /** Extraction Ms */
             extraction_ms: number;
             /** Extractor Id */
@@ -2260,7 +2446,17 @@ export interface components {
              * Input Format
              * @enum {string}
              */
-            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf";
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg";
+            /** Latest Extraction Id */
+            latest_extraction_id?: string | null;
+            /**
+             * Latest Extraction Version
+             * @default 0
+             */
+            latest_extraction_version: number;
+            /** Latest Job Id */
+            latest_job_id?: string | null;
+            latest_job_state?: components["schemas"]["JobState"] | null;
             /** Original Filename */
             original_filename?: string | null;
             /** Page Count */
@@ -2273,7 +2469,7 @@ export interface components {
              * Processing Status
              * @enum {string}
              */
-            processing_status: "extracted" | "partial_extraction";
+            processing_status: "pending" | "extracted" | "partial_extraction" | "ocr_required" | "unreadable" | "failed" | "cancelled";
             /** Size Bytes */
             size_bytes: number;
             /**
@@ -2323,7 +2519,17 @@ export interface components {
              * Input Format
              * @enum {string}
              */
-            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf";
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg";
+            /** Latest Extraction Id */
+            latest_extraction_id?: string | null;
+            /**
+             * Latest Extraction Version
+             * @default 0
+             */
+            latest_extraction_version: number;
+            /** Latest Job Id */
+            latest_job_id?: string | null;
+            latest_job_state?: components["schemas"]["JobState"] | null;
             /** Original Filename */
             original_filename?: string | null;
             /** Page Count */
@@ -2336,7 +2542,7 @@ export interface components {
              * Processing Status
              * @enum {string}
              */
-            processing_status: "extracted" | "partial_extraction";
+            processing_status: "pending" | "extracted" | "partial_extraction" | "ocr_required" | "unreadable" | "failed" | "cancelled";
             /** Size Bytes */
             size_bytes: number;
             /**
@@ -2573,6 +2779,180 @@ export interface components {
              * @constant
              */
             token_type: "Bearer";
+        };
+        /** WorkflowJobDetail */
+        WorkflowJobDetail: {
+            /** Attempt Count */
+            attempt_count: number;
+            /**
+             * Cancel Requested
+             * @default false
+             */
+            cancel_requested: boolean;
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Fencing Token */
+            fencing_token: number;
+            /** Heartbeat At */
+            heartbeat_at?: string | null;
+            /**
+             * Idempotent Replay
+             * @default false
+             */
+            idempotent_replay: boolean;
+            input_artifact: components["schemas"]["ArtifactVersionRef"];
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Last Error Message */
+            last_error_message?: string | null;
+            /** Lease Expires At */
+            lease_expires_at?: string | null;
+            /** Lease Owner */
+            lease_owner?: string | null;
+            /** Max Attempts */
+            max_attempts: number;
+            /**
+             * Next Run At
+             * Format: date-time
+             */
+            next_run_at: string;
+            /** Offering Id */
+            offering_id?: string | null;
+            /**
+             * Operation Kind
+             * @constant
+             */
+            operation_kind: "source_extract";
+            /** Progress Metadata */
+            progress_metadata?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Result Extraction Id */
+            result_extraction_id?: string | null;
+            /** Result Metadata */
+            result_metadata?: {
+                [key: string]: string | number | boolean;
+            };
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Stage */
+            stage: string;
+            /** Started At */
+            started_at?: string | null;
+            state: components["schemas"]["JobState"];
+            /**
+             * Submitted By User Id
+             * Format: uuid
+             */
+            submitted_by_user_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** WorkflowJobSummary */
+        WorkflowJobSummary: {
+            /** Attempt Count */
+            attempt_count: number;
+            /**
+             * Cancel Requested
+             * @default false
+             */
+            cancel_requested: boolean;
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Last Error Message */
+            last_error_message?: string | null;
+            /** Max Attempts */
+            max_attempts: number;
+            /**
+             * Next Run At
+             * Format: date-time
+             */
+            next_run_at: string;
+            /** Offering Id */
+            offering_id?: string | null;
+            /**
+             * Operation Kind
+             * @constant
+             */
+            operation_kind: "source_extract";
+            /** Progress Metadata */
+            progress_metadata?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Result Extraction Id */
+            result_extraction_id?: string | null;
+            /** Result Metadata */
+            result_metadata?: {
+                [key: string]: string | number | boolean;
+            };
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Stage */
+            stage: string;
+            /** Started At */
+            started_at?: string | null;
+            state: components["schemas"]["JobState"];
+            /**
+             * Submitted By User Id
+             * Format: uuid
+             */
+            submitted_by_user_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
         };
     };
     responses: never;
@@ -5615,6 +5995,264 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GuardianLinkSummary"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    readWorkflowJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowJobDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancelWorkflowJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowJobDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retryWorkflowJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowJobDetail"];
                 };
             };
             /** @description Unauthorized */
@@ -9423,6 +10061,94 @@ export interface operations {
             };
         };
     };
+    listSourceJobs: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WorkflowJobSummary_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listSourceVersions: {
         parameters: {
             query?: {
@@ -9716,6 +10442,275 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceVersionDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    triggerVersionExtraction: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ExtractionTriggerRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowJobDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    readLatestDerivedExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedExtractionRecord"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listDerivedExtractions: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_DerivedExtractionRecord_"];
                 };
             };
             /** @description Unauthorized */

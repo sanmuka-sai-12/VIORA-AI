@@ -1,16 +1,28 @@
 """SQLAlchemy repositories for source directory lookups and versioned ingestion."""
 
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..contracts import ArtifactVersionRef, Page
+from ..contracts import ArtifactVersionRef, JobState, Page
 from ..security import AccessError
-from .document_contracts import ExtractedDocument
-from .models import OfferingSourcePolicy, Source, SourceIdempotencyRecord, SourceVersion
+from ..workflow.public import (
+    SqlWorkflowRepository,
+    WorkflowJobSubmit,
+    WorkflowJobSummary,
+)
+from .cache import SqlExtractionCache
+from .document_contracts import DerivedExtractionRecord, ExtractedDocument
+from .models import (
+    DerivedExtraction,
+    OfferingSourcePolicy,
+    Source,
+    SourceIdempotencyRecord,
+    SourceVersion,
+)
 from .ports import ConcurrentUniqueConflict
 from .schemas import (
     OfferingSourcePolicyInfo,
@@ -56,7 +68,36 @@ def _source_dto(row: Source, latest: SourceVersion | None = None) -> SourceSumma
     )
 
 
-def _version_summary_dto(row: SourceVersion) -> SourceVersionSummary:
+def _version_summary_dto(
+    row: SourceVersion,
+    derived: DerivedExtraction | None = None,
+    latest_job: WorkflowJobSummary | None = None,
+) -> SourceVersionSummary:
+    if derived is not None:
+        proc_status = derived.processing_status
+        extractor_id = derived.extractor_id
+        contract_version = derived.contract_version
+        extraction_ms = derived.extraction_ms
+        char_count = derived.char_count
+        page_count = derived.page_count
+        warning_count = derived.warning_count
+        proc_meta = dict(derived.processing_metadata)
+        latest_ext_id = derived.extraction_id
+        latest_ext_ver = derived.extraction_version
+    else:
+        proc_status = row.processing_status
+        if latest_job is not None and latest_job.state in {"failed", "cancelled"}:
+            proc_status = latest_job.state
+        extractor_id = row.extractor_id
+        contract_version = row.contract_version
+        extraction_ms = row.extraction_ms
+        char_count = row.char_count
+        page_count = row.page_count
+        warning_count = row.warning_count
+        proc_meta = dict(row.processing_metadata)
+        latest_ext_id = None
+        latest_ext_ver = 0
+
     return SourceVersionSummary(
         tenant_id=row.tenant_id,
         source_id=row.source_id,
@@ -74,14 +115,34 @@ def _version_summary_dto(row: SourceVersion) -> SourceVersionSummary:
             version_id=row.storage_version_id,
             sha256=row.storage_sha256,
         ),
-        processing_status=row.processing_status,  # type: ignore[arg-type]
-        extractor_id=row.extractor_id,
-        contract_version=row.contract_version,
-        extraction_ms=row.extraction_ms,
-        char_count=row.char_count,
-        page_count=row.page_count,
-        warning_count=row.warning_count,
-        processing_metadata=dict(row.processing_metadata),
+        processing_status=proc_status,  # type: ignore[arg-type]
+        extractor_id=extractor_id,
+        contract_version=contract_version,
+        extraction_ms=extraction_ms,
+        char_count=char_count,
+        page_count=page_count,
+        warning_count=warning_count,
+        processing_metadata=proc_meta,
+        latest_extraction_id=latest_ext_id,
+        latest_extraction_version=latest_ext_ver,
+        latest_job_id=latest_job.job_id if latest_job is not None else None,
+        latest_job_state=JobState(latest_job.state) if latest_job is not None else None,
+        created_at=row.created_at,
+    )
+
+
+def _derived_dto(row: DerivedExtraction) -> DerivedExtractionRecord:
+    return DerivedExtractionRecord(
+        extraction_id=row.extraction_id,
+        tenant_id=row.tenant_id,
+        source_id=row.source_id,
+        version_id=row.version_id,
+        source_sha256=row.source_sha256,
+        extraction_version=row.extraction_version,
+        supersedes_extraction_id=row.supersedes_extraction_id,
+        job_id=row.job_id,
+        cache_hit=row.cache_hit,
+        document=ExtractedDocument.model_validate(row.document),
         created_at=row.created_at,
     )
 
@@ -197,6 +258,26 @@ class SqlSourceRepository:
             lifecycle_state=row.lifecycle_state,
         )
 
+    def _latest_derived_for_version(
+        self, tenant_id: UUID, version_id: UUID
+    ) -> DerivedExtraction | None:
+        return self.session.scalar(
+            select(DerivedExtraction)
+            .where(
+                DerivedExtraction.tenant_id == tenant_id,
+                DerivedExtraction.version_id == version_id,
+            )
+            .order_by(DerivedExtraction.extraction_version.desc())
+            .limit(1)
+        )
+
+    def _latest_job_for_version(
+        self, tenant_id: UUID, version_id: UUID
+    ) -> WorkflowJobSummary | None:
+        return SqlWorkflowRepository(self.session).get_latest_job_for_version(
+            tenant_id, version_id
+        )
+
     def get_version(
         self, tenant_id: UUID, source_id: UUID, version_id: UUID
     ) -> SourceVersionDetail | None:
@@ -209,11 +290,119 @@ class SqlSourceRepository:
         )
         if row is None:
             return None
-        summary = _version_summary_dto(row)
+        derived = self._latest_derived_for_version(tenant_id, version_id)
+        latest_job = self._latest_job_for_version(tenant_id, version_id)
+        summary = _version_summary_dto(row, derived=derived, latest_job=latest_job)
+        doc_payload = (
+            derived.document if derived is not None else row.extracted_document
+        )
         return SourceVersionDetail(
             **summary.model_dump(),
-            extracted_document=ExtractedDocument.model_validate(row.extracted_document),
+            extracted_document=(
+                ExtractedDocument.model_validate(doc_payload)
+                if doc_payload is not None
+                else None
+            ),
         )
+
+    def get_latest_derived_extraction(
+        self, tenant_id: UUID, source_id: UUID, version_id: UUID
+    ) -> DerivedExtractionRecord | None:
+        row = self.session.scalar(
+            select(DerivedExtraction)
+            .where(
+                DerivedExtraction.tenant_id == tenant_id,
+                DerivedExtraction.source_id == source_id,
+                DerivedExtraction.version_id == version_id,
+            )
+            .order_by(DerivedExtraction.extraction_version.desc())
+            .limit(1)
+        )
+        return _derived_dto(row) if row is not None else None
+
+    def list_derived_extractions(
+        self,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        *,
+        limit: int = 25,
+    ) -> Page[DerivedExtractionRecord]:
+        rows = self.session.scalars(
+            select(DerivedExtraction)
+            .where(
+                DerivedExtraction.tenant_id == tenant_id,
+                DerivedExtraction.source_id == source_id,
+                DerivedExtraction.version_id == version_id,
+            )
+            .order_by(DerivedExtraction.extraction_version.desc())
+            .limit(limit + 1)
+        ).all()
+        has_more = len(rows) > limit
+        items = tuple(_derived_dto(r) for r in rows[:limit])
+        next_cursor = str(items[-1].extraction_version) if has_more else None
+        return Page(items=items, next_cursor=next_cursor)
+
+    def append_derived_extraction(
+        self,
+        *,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        source_sha256: str,
+        document: ExtractedDocument,
+        processing_status: SourceProcessingStatus,
+        extraction_ms: float,
+        processing_metadata: dict[str, str | int | float | bool],
+        now: datetime,
+        job_id: UUID | None = None,
+        cache_hit: bool = False,
+        cache_key: str | None = None,
+    ) -> DerivedExtractionRecord:
+        """Append a versioned derived extraction row while locking parent Source for monotonic numbering."""
+        self.session.scalar(
+            select(Source.source_id)
+            .where(Source.tenant_id == tenant_id, Source.source_id == source_id)
+            .with_for_update()
+        )
+        if job_id is not None:
+            existing_for_job = self.session.scalar(
+                select(DerivedExtraction).where(
+                    DerivedExtraction.tenant_id == tenant_id,
+                    DerivedExtraction.job_id == job_id,
+                )
+            )
+            if existing_for_job is not None:
+                return _derived_dto(existing_for_job)
+
+        prev = self._latest_derived_for_version(tenant_id, version_id)
+        next_ext_ver = (prev.extraction_version + 1) if prev is not None else 1
+        rec = DerivedExtraction(
+            tenant_id=tenant_id,
+            extraction_id=uuid4(),
+            source_id=source_id,
+            version_id=version_id,
+            source_sha256=source_sha256,
+            extraction_version=next_ext_ver,
+            supersedes_extraction_id=prev.extraction_id if prev is not None else None,
+            job_id=job_id,
+            cache_hit=cache_hit,
+            cache_key=cache_key,
+            processing_status=processing_status,
+            extractor_id=document.provenance.extractor_id,
+            extractor_version=document.provenance.extractor_version,
+            contract_version=document.schema_version,
+            extraction_ms=extraction_ms,
+            char_count=len(document.normalized_text),
+            page_count=max(1, document.quality.total_pages),
+            warning_count=document.quality.warning_count,
+            processing_metadata=dict(processing_metadata),
+            document=document.model_dump(mode="json"),
+            created_at=now,
+        )
+        self.session.add(rec)
+        self.session.flush()
+        return _derived_dto(rec)
 
     def list_versions(
         self,
@@ -236,7 +425,14 @@ class SqlSourceRepository:
         slice_rows = rows[:limit]
         next_cursor = str(slice_rows[-1].version_number) if has_more else None
         return Page(
-            items=tuple(_version_summary_dto(item) for item in slice_rows),
+            items=tuple(
+                _version_summary_dto(
+                    item,
+                    derived=self._latest_derived_for_version(tenant_id, item.version_id),
+                    latest_job=self._latest_job_for_version(tenant_id, item.version_id),
+                )
+                for item in slice_rows
+            ),
             next_cursor=next_cursor,
         )
 
@@ -431,11 +627,24 @@ class SqlSourceRepository:
                 "idempotency_unavailable",
                 "Idempotent source registration state could not be resolved",
             )
-        doc = ExtractedDocument.model_validate(ver_row.extracted_document)
+        derived = self._latest_derived_for_version(tenant_id, ver_row.version_id)
+        latest_job = self._latest_job_for_version(tenant_id, ver_row.version_id)
+        doc_payload = (
+            derived.document if derived is not None else ver_row.extracted_document
+        )
+        doc_quality = (
+            ExtractedDocument.model_validate(doc_payload).quality
+            if doc_payload is not None
+            else None
+        )
         return SourceRegistrationResult(
             source=_source_dto(src_row, ver_row),
-            version=_version_summary_dto(ver_row),
-            quality=doc.quality,
+            version=_version_summary_dto(
+                ver_row, derived=derived, latest_job=latest_job
+            ),
+            quality=doc_quality,
+            job_id=latest_job.job_id if latest_job is not None else None,
+            job_state=JobState(latest_job.state) if latest_job is not None else None,
             idempotent_replay=True,
             orphans_cleaned=0,
             registration_ms=0.0,
@@ -498,11 +707,13 @@ class SqlSourceRepository:
         page_count: int,
         warning_count: int,
         processing_metadata: dict[str, str | int | float | bool],
-        extracted_document: ExtractedDocument,
+        extracted_document: ExtractedDocument | None,
         now: datetime,
         idempotency_key: str | None,
         request_digest: str | None,
-    ) -> tuple[SourceSummary, SourceVersionSummary]:
+        enqueue_extraction_job: bool = False,
+        job_max_attempts: int = 3,
+    ) -> tuple[SourceSummary, SourceVersionSummary, UUID | None]:
         source = Source(
             tenant_id=tenant_id,
             source_id=source_id,
@@ -541,14 +752,69 @@ class SqlSourceRepository:
             page_count=page_count,
             warning_count=warning_count,
             processing_metadata=dict(processing_metadata),
-            extracted_document=extracted_document.model_dump(mode="json"),
+            extracted_document=(
+                extracted_document.model_dump(mode="json")
+                if extracted_document is not None
+                else None
+            ),
             created_at=now,
         )
+        derived_row: DerivedExtraction | None = None
+        job_id: UUID | None = None
+        job_row: WorkflowJobSummary | None = None
         self.session.add(source)
         try:
             self.session.flush()
             self.session.add(version)
             self.session.flush()
+            if extracted_document is not None:
+                derived_row = DerivedExtraction(
+                    tenant_id=tenant_id,
+                    extraction_id=uuid4(),
+                    source_id=source_id,
+                    version_id=version_id,
+                    source_sha256=content_sha256,
+                    extraction_version=1,
+                    supersedes_extraction_id=None,
+                    job_id=None,
+                    cache_hit=False,
+                    cache_key=None,
+                    processing_status=processing_status,
+                    extractor_id=extracted_document.provenance.extractor_id,
+                    extractor_version=extracted_document.provenance.extractor_version,
+                    contract_version=extracted_document.schema_version,
+                    extraction_ms=extraction_ms,
+                    char_count=char_count,
+                    page_count=page_count,
+                    warning_count=warning_count,
+                    processing_metadata=dict(processing_metadata),
+                    document=extracted_document.model_dump(mode="json"),
+                    created_at=now,
+                )
+                self.session.add(derived_row)
+                self.session.flush()
+            if enqueue_extraction_job:
+                job_detail, _ = SqlWorkflowRepository(self.session).enqueue(
+                    WorkflowJobSubmit(
+                        tenant_id=tenant_id,
+                        offering_id=offering_id,
+                        source_id=source_id,
+                        version_id=version_id,
+                        submitted_by_user_id=actor_id,
+                        operation_kind="source_extract",
+                        idempotency_key=(
+                            f"src:{idempotency_key}"[:128]
+                            if idempotency_key
+                            else None
+                        ),
+                        request_digest=request_digest,
+                        input_artifact=storage_ref,
+                        max_attempts=job_max_attempts,
+                    ),
+                    now=now,
+                )
+                job_id = job_detail.job_id
+                job_row = job_detail
             if idempotency_key is not None and request_digest is not None:
                 self.session.add(
                     SourceIdempotencyRecord(
@@ -576,7 +842,11 @@ class SqlSourceRepository:
                     "Duplicate active source content or idempotency key conflict",
                 ) from None
             raise
-        return _source_dto(source, version), _version_summary_dto(version)
+        return (
+            _source_dto(source, version),
+            _version_summary_dto(version, derived=derived_row, latest_job=job_row),
+            job_id,
+        )
 
     def append_version(
         self,
@@ -600,11 +870,13 @@ class SqlSourceRepository:
         page_count: int,
         warning_count: int,
         processing_metadata: dict[str, str | int | float | bool],
-        extracted_document: ExtractedDocument,
+        extracted_document: ExtractedDocument | None,
         now: datetime,
         idempotency_key: str | None,
         request_digest: str | None,
-    ) -> tuple[SourceSummary, SourceVersionSummary]:
+        enqueue_extraction_job: bool = False,
+        job_max_attempts: int = 3,
+    ) -> tuple[SourceSummary, SourceVersionSummary, UUID | None]:
         source = self.session.scalar(
             select(Source)
             .where(Source.tenant_id == tenant_id, Source.source_id == source_id)
@@ -641,16 +913,71 @@ class SqlSourceRepository:
             page_count=page_count,
             warning_count=warning_count,
             processing_metadata=dict(processing_metadata),
-            extracted_document=extracted_document.model_dump(mode="json"),
+            extracted_document=(
+                extracted_document.model_dump(mode="json")
+                if extracted_document is not None
+                else None
+            ),
             created_at=now,
         )
         source.latest_version_number = next_num
         source.latest_version_id = version_id
         source.active_dedupe_key = active_dedupe_key
         source.updated_at = now
+        derived_row: DerivedExtraction | None = None
+        job_id: UUID | None = None
+        job_row: WorkflowJobSummary | None = None
         self.session.add(version)
         try:
             self.session.flush()
+            if extracted_document is not None:
+                derived_row = DerivedExtraction(
+                    tenant_id=tenant_id,
+                    extraction_id=uuid4(),
+                    source_id=source_id,
+                    version_id=version_id,
+                    source_sha256=content_sha256,
+                    extraction_version=1,
+                    supersedes_extraction_id=None,
+                    job_id=None,
+                    cache_hit=False,
+                    cache_key=None,
+                    processing_status=processing_status,
+                    extractor_id=extracted_document.provenance.extractor_id,
+                    extractor_version=extracted_document.provenance.extractor_version,
+                    contract_version=extracted_document.schema_version,
+                    extraction_ms=extraction_ms,
+                    char_count=char_count,
+                    page_count=page_count,
+                    warning_count=warning_count,
+                    processing_metadata=dict(processing_metadata),
+                    document=extracted_document.model_dump(mode="json"),
+                    created_at=now,
+                )
+                self.session.add(derived_row)
+                self.session.flush()
+            if enqueue_extraction_job:
+                job_detail, _ = SqlWorkflowRepository(self.session).enqueue(
+                    WorkflowJobSubmit(
+                        tenant_id=tenant_id,
+                        offering_id=offering_id,
+                        source_id=source_id,
+                        version_id=version_id,
+                        submitted_by_user_id=actor_id,
+                        operation_kind="source_extract",
+                        idempotency_key=(
+                            f"ver:{idempotency_key}"[:128]
+                            if idempotency_key
+                            else None
+                        ),
+                        request_digest=request_digest,
+                        input_artifact=storage_ref,
+                        max_attempts=job_max_attempts,
+                    ),
+                    now=now,
+                )
+                job_id = job_detail.job_id
+                job_row = job_detail
             if idempotency_key is not None and request_digest is not None:
                 self.session.add(
                     SourceIdempotencyRecord(
@@ -676,7 +1003,11 @@ class SqlSourceRepository:
                     "Identical version digest or concurrent version conflict",
                 ) from None
             raise
-        return _source_dto(source, version), _version_summary_dto(version)
+        return (
+            _source_dto(source, version),
+            _version_summary_dto(version, derived=derived_row, latest_job=job_row),
+            job_id,
+        )
 
     def update_source_metadata(
         self,
@@ -721,6 +1052,9 @@ class SqlSourceRepository:
             source.lifecycle_state = lifecycle_state
             if lifecycle_state == "archived":
                 source.active_dedupe_key = None
+                SqlExtractionCache(self.session).invalidate_source(
+                    tenant_id=tenant_id, source_id=source_id, now=now
+                )
             elif (
                 source.offering_id is not None
                 and source.owner_user_id is not None
@@ -760,3 +1094,12 @@ class SqlSourceRepository:
                 )
             )
         return _source_dto(source, latest)
+
+    def list_storage_keys(self, tenant_id: UUID) -> set[tuple[UUID, UUID]]:
+        """Return referenced (storage_resource_id, storage_version_id) pairs inside tenant scope."""
+        rows = self.session.execute(
+            select(SourceVersion.storage_resource_id, SourceVersion.storage_version_id).where(
+                SourceVersion.tenant_id == tenant_id
+            )
+        ).all()
+        return {(row[0], row[1]) for row in rows}

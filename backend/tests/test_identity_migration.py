@@ -19,7 +19,11 @@ REVISION = "0002_identity_academics"
 
 def test_identity_revision_follows_sources() -> None:
     history = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert history.get_heads() == ["0008_source_ingestion"]
+    assert history.get_heads() == ["0009_workflow_extraction_cache"]
+    assert (
+        history.get_revision("0009_workflow_extraction_cache").down_revision
+        == "0008_source_ingestion"
+    )
     assert (
         history.get_revision("0008_source_ingestion").down_revision
         == "0007_actor_institution_discovery"

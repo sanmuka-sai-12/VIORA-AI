@@ -14,6 +14,14 @@ from ..contracts import Page, ResourceRef
 from ..institution.public import offering_actor_access
 from ..security import Access, AccessError, TransactionalAccess
 from ..storage.public import ArtifactStore, local_artifact_store
+from ..workflow.public import (
+    DurableWorkflowService,
+    ExtractionTriggerRequest,
+    SqlWorkflowRepository,
+    WorkflowJobDetail,
+    WorkflowJobSummary,
+)
+from .document_contracts import DerivedExtractionRecord
 from .repository import SqlSourceRepository
 from .schemas import (
     OfferingSourcePolicyInfo,
@@ -444,5 +452,143 @@ def build_protected_router(
             )
             scope.audit.change(scope.context, "source.policy.updated", ref)
             return updated
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extraction",
+        operation_id="readLatestDerivedExtraction",
+    )
+    def read_latest_derived_extraction(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> DerivedExtractionRecord:
+        resource = ResourceRef(tenant_id=tenant_id, kind="source", resource_id=source_id)
+        with access.transaction(_token(bearer), "source.version.read", resource) as scope:
+            rec = SqlSourceRepository(scope.session).get_latest_derived_extraction(
+                tenant_id, source_id, version_id
+            )
+            if rec is None:
+                raise AccessError(
+                    404,
+                    "extraction_missing",
+                    "No derived extraction is available yet for this source version",
+                )
+            return rec
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extractions",
+        operation_id="listDerivedExtractions",
+    )
+    def list_derived_extractions(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    ) -> Page[DerivedExtractionRecord]:
+        resource = ResourceRef(tenant_id=tenant_id, kind="source", resource_id=source_id)
+        with access.transaction(_token(bearer), "source.version.read", resource) as scope:
+            return SqlSourceRepository(scope.session).list_derived_extractions(
+                tenant_id, source_id, version_id, limit=limit
+            )
+
+    @router.post(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extract",
+        status_code=202,
+        operation_id="triggerVersionExtraction",
+    )
+    def trigger_version_extraction(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        body: ExtractionTriggerRequest | None = None,
+        idempotency_header: Annotated[
+            str | None, Header(alias="Idempotency-Key")
+        ] = None,
+    ) -> WorkflowJobDetail:
+        idemp_key = _resolve_idempotency_key(
+            body.idempotency_key if body is not None else None, idempotency_header
+        )
+        return ingestion.trigger_extraction(
+            access=access,
+            repo_factory=SqlSourceRepository,
+            bearer=_token(bearer),
+            tenant_id=tenant_id,
+            source_id=source_id,
+            version_id=version_id,
+            idempotency_key=idemp_key,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/jobs",
+        operation_id="listSourceJobs",
+    )
+    def list_source_jobs(
+        tenant_id: UUID,
+        source_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    ) -> Page[WorkflowJobSummary]:
+        return DurableWorkflowService.list_source_jobs(
+            access,
+            SqlWorkflowRepository,
+            bearer=_token(bearer),
+            tenant_id=tenant_id,
+            source_id=source_id,
+            limit=limit,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/jobs/{job_id}",
+        operation_id="readWorkflowJob",
+    )
+    def read_workflow_job(
+        tenant_id: UUID,
+        job_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> WorkflowJobDetail:
+        return DurableWorkflowService.get_job(
+            access,
+            SqlWorkflowRepository,
+            bearer=_token(bearer),
+            tenant_id=tenant_id,
+            job_id=job_id,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/jobs/{job_id}/cancel",
+        operation_id="cancelWorkflowJob",
+    )
+    def cancel_workflow_job(
+        tenant_id: UUID,
+        job_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> WorkflowJobDetail:
+        return DurableWorkflowService.cancel_job(
+            access,
+            SqlWorkflowRepository,
+            bearer=_token(bearer),
+            tenant_id=tenant_id,
+            job_id=job_id,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/jobs/{job_id}/retry",
+        operation_id="retryWorkflowJob",
+    )
+    def retry_workflow_job(
+        tenant_id: UUID,
+        job_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> WorkflowJobDetail:
+        return DurableWorkflowService.retry_job(
+            access,
+            SqlWorkflowRepository,
+            bearer=_token(bearer),
+            tenant_id=tenant_id,
+            job_id=job_id,
+        )
 
     return router

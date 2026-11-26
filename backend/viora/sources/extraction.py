@@ -832,6 +832,7 @@ def _pool_run_isolated_binary_extract(
         bytes,
         SourceIngestionLimits,
         bool,
+        OcrBackend | None,
         int,
         bool,
         bool,
@@ -853,6 +854,7 @@ def _pool_run_isolated_binary_extract(
         raw_bytes,
         limits,
         ocr_enabled,
+        custom_ocr_backend,
         ocr_dpi,
         preprocess_for_ocr,
         enable_layout_fallback,
@@ -862,9 +864,13 @@ def _pool_run_isolated_binary_extract(
         task_timeout_seconds,
         enable_adaptive_ocr_preprocess,
     ) = args
-    backend: OcrBackend | None = (
-        get_process_ocr_backend(warm_up=True) if ocr_enabled else None
-    )
+    backend: OcrBackend | None
+    if custom_ocr_backend is not None:
+        backend = custom_ocr_backend
+    elif ocr_enabled:
+        backend = get_process_ocr_backend(warm_up=True)
+    else:
+        backend = None
     captured_ocr: list[tuple[str, OcrPageResult]] = []
     extractor = AdaptiveDocumentExtractor(
         ocr_backend=backend,
@@ -1104,6 +1110,14 @@ class AdaptiveDocumentExtractor:
                     ocr_enabled and isinstance(self.ocr_backend, RapidOcrBackend)
                 )
             )
+            custom_ocr = (
+                self.ocr_backend
+                if (
+                    self.ocr_backend is not None
+                    and not isinstance(self.ocr_backend, RapidOcrBackend)
+                )
+                else None
+            )
             doc, captured_ocr = _run_bounded_process_tasks(
                 fn=_pool_run_isolated_binary_extract,
                 tasks=[
@@ -1118,6 +1132,7 @@ class AdaptiveDocumentExtractor:
                         raw_bytes,
                         limits,
                         ocr_enabled,
+                        custom_ocr,
                         self.ocr_dpi,
                         self.preprocess_for_ocr,
                         self.enable_layout_fallback,

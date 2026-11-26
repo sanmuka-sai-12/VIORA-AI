@@ -39,6 +39,25 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[^a-z0-9\s]")
 
 
+def _compact_schema_size_chars() -> int:
+    def _strip(node: object, in_props: bool = False) -> object:
+        if isinstance(node, dict):
+            return {k: _strip(v, k == "properties") for k, v in node.items() if in_props or k != "title"}
+        if isinstance(node, list):
+            return [_strip(x) for x in node]
+        return node
+
+    return len(
+        json.dumps(
+            _strip(RawConceptExtractionBatch.model_json_schema()),
+            separators=(",", ":"),
+        )
+    )
+
+
+_SCHEMA_OVERHEAD_CHARS = _compact_schema_size_chars()
+
+
 def normalize_concept_name(name: str) -> str:
     lowered = _PUNCT_RE.sub(" ", name.lower())
     return _WHITESPACE_RE.sub(" ", lowered).strip()
@@ -121,9 +140,7 @@ class ConceptExtractor:
             ev.evidence_id: ev for ev in doc.evidence_references
         }
         is_topic = doc.input_format == "topic_description"
-        schema_overhead_chars = len(
-            json.dumps(RawConceptExtractionBatch.model_json_schema())
-        )
+        schema_overhead_chars = _SCHEMA_OVERHEAD_CHARS
         max_total_chars = self.request_config.resource_limits.max_input_chars
 
         t_inf0 = time.monotonic_ns()

@@ -4,11 +4,16 @@ import json
 import os
 import secrets
 import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
 from uuid import uuid4
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from _common import load_postgres_test_url
 from alembic import command
 from alembic.config import Config
 from psycopg import sql
@@ -36,21 +41,9 @@ from viora.sources.schemas import clamp_source_limits
 from viora.sources.service import SourceIngestionService
 from viora.storage.public import local_artifact_store
 
-ROOT = Path(__file__).resolve().parents[1]
-
 
 def main() -> int:
-    pw = ""
-    env_file = ROOT / ".env"
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            if line.startswith("POSTGRES_PASSWORD="):
-                pw = line.split("=", 1)[1].strip()
-    raw_url = os.environ.get("VIORA_TEST_DATABASE_URL") or (
-        f"postgresql+psycopg://viora:{pw}@127.0.0.1:5432/viora_test" if pw else ""
-    )
-    if not raw_url:
-        raise SystemExit("VIORA_TEST_DATABASE_URL or .env POSTGRES_PASSWORD required")
+    raw_url = load_postgres_test_url(ROOT)
 
     url = make_url(raw_url)
     corpus = build_synthetic_corpus()

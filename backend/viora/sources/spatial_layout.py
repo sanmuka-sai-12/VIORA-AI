@@ -223,8 +223,6 @@ def _extract_spatial_tables(
 
             # Tighten bbox to actual non-trimmed rows when borderless rows were trimmed
             if strategy == "text" and hasattr(tbl, "rows") and tbl.rows:
-                first_txt = final_rows[0][0] if final_rows[0] else ""
-                last_txt = final_rows[-1][0] if final_rows[-1] else ""
                 cell_words = [
                     w
                     for w in (page.extract_words(x_tolerance=3, y_tolerance=3) or [])
@@ -262,7 +260,6 @@ def _extract_spatial_tables(
                     )
                 else:
                     bbox = _clamp_bbox(*tbl.bbox, pw, ph)
-                _ = (first_txt, last_txt)
             else:
                 bbox = _clamp_bbox(*tbl.bbox, pw, ph)
             if (bbox.x1 - bbox.x0) < 20.0 or (bbox.y1 - bbox.y0) < 16.0:

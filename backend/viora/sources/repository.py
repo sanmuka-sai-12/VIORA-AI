@@ -682,6 +682,158 @@ class SqlSourceRepository:
         )
         return found is not None
 
+    def _persist_version_bundle(
+        self,
+        *,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        version_number: int,
+        offering_id: UUID,
+        actor_id: UUID,
+        input_format: SourceInputFormat,
+        original_filename: str | None,
+        content_sha256: str,
+        size_bytes: int,
+        storage_ref: ArtifactVersionRef,
+        processing_status: SourceProcessingStatus,
+        extractor_id: str,
+        contract_version: str,
+        extraction_ms: float,
+        char_count: int,
+        page_count: int,
+        warning_count: int,
+        processing_metadata: dict[str, str | int | float | bool],
+        extracted_document: ExtractedDocument | None,
+        now: datetime,
+        idempotency_key: str | None,
+        request_digest: str | None,
+        idempotency_operation: str,
+        idempotency_scope_id: UUID,
+        job_idempotency_prefix: str,
+        enqueue_extraction_job: bool,
+        job_max_attempts: int,
+        conflict_code: str,
+        conflict_message: str,
+        allow_idempotency_race: bool,
+        source_row: Source | None = None,
+    ) -> tuple[SourceVersion, DerivedExtraction | None, UUID | None, WorkflowJobSummary | None]:
+        doc_payload = (
+            extracted_document.model_dump(mode="json")
+            if extracted_document is not None
+            else None
+        )
+        version = SourceVersion(
+            tenant_id=tenant_id,
+            version_id=version_id,
+            source_id=source_id,
+            version_number=version_number,
+            created_by_user_id=actor_id,
+            input_format=input_format,
+            original_filename=original_filename,
+            content_sha256=content_sha256,
+            size_bytes=size_bytes,
+            storage_kind=storage_ref.kind,
+            storage_resource_id=storage_ref.resource_id,
+            storage_version_id=storage_ref.version_id,
+            storage_sha256=storage_ref.sha256,
+            processing_status=processing_status,
+            extractor_id=extractor_id,
+            contract_version=contract_version,
+            extraction_ms=extraction_ms,
+            char_count=char_count,
+            page_count=page_count,
+            warning_count=warning_count,
+            processing_metadata=dict(processing_metadata),
+            extracted_document=doc_payload,
+            created_at=now,
+        )
+        derived_row: DerivedExtraction | None = None
+        job_id: UUID | None = None
+        job_row: WorkflowJobSummary | None = None
+        if source_row is not None:
+            self.session.add(source_row)
+        try:
+            if source_row is not None:
+                self.session.flush()
+            self.session.add(version)
+            self.session.flush()
+            if extracted_document is not None:
+                derived_row = DerivedExtraction(
+                    tenant_id=tenant_id,
+                    extraction_id=uuid4(),
+                    source_id=source_id,
+                    version_id=version_id,
+                    source_sha256=content_sha256,
+                    extraction_version=1,
+                    supersedes_extraction_id=None,
+                    job_id=None,
+                    cache_hit=False,
+                    cache_key=None,
+                    processing_status=processing_status,
+                    extractor_id=extracted_document.provenance.extractor_id,
+                    extractor_version=extracted_document.provenance.extractor_version,
+                    contract_version=extracted_document.schema_version,
+                    extraction_ms=extraction_ms,
+                    char_count=char_count,
+                    page_count=page_count,
+                    warning_count=warning_count,
+                    processing_metadata=dict(processing_metadata),
+                    document=doc_payload,
+                    created_at=now,
+                )
+                self.session.add(derived_row)
+                self.session.flush()
+            if enqueue_extraction_job:
+                job_detail, _ = SqlWorkflowRepository(self.session).enqueue(
+                    WorkflowJobSubmit(
+                        tenant_id=tenant_id,
+                        offering_id=offering_id,
+                        source_id=source_id,
+                        version_id=version_id,
+                        submitted_by_user_id=actor_id,
+                        operation_kind="source_extract",
+                        idempotency_key=(
+                            f"{job_idempotency_prefix}:{idempotency_key}"[:128]
+                            if idempotency_key
+                            else None
+                        ),
+                        request_digest=request_digest,
+                        input_artifact=storage_ref,
+                        max_attempts=job_max_attempts,
+                    ),
+                    now=now,
+                )
+                job_id = job_detail.job_id
+                job_row = job_detail
+            if idempotency_key is not None and request_digest is not None:
+                self.session.add(
+                    SourceIdempotencyRecord(
+                        tenant_id=tenant_id,
+                        offering_id=offering_id,
+                        actor_user_id=actor_id,
+                        target_scope_id=idempotency_scope_id,
+                        operation_kind=idempotency_operation,
+                        idempotency_key=idempotency_key,
+                        request_digest=request_digest,
+                        source_id=source_id,
+                        version_id=version_id,
+                        created_at=now,
+                    )
+                )
+                self.session.flush()
+        except IntegrityError as exc:
+            if getattr(exc.orig, "sqlstate", None) == "23505":
+                if (
+                    allow_idempotency_race
+                    and idempotency_key is not None
+                    and request_digest is not None
+                ):
+                    raise ConcurrentUniqueConflict() from None
+                raise AccessError(409, conflict_code, conflict_message) from None
+            raise
+        return version, derived_row, job_id, job_row
+
     def create_source_and_version(
         self,
         *,
@@ -730,20 +882,18 @@ class SqlSourceRepository:
             created_at=now,
             updated_at=now,
         )
-        version = SourceVersion(
+        version, derived_row, job_id, job_row = self._persist_version_bundle(
             tenant_id=tenant_id,
-            version_id=version_id,
             source_id=source_id,
+            version_id=version_id,
             version_number=1,
-            created_by_user_id=actor_id,
+            offering_id=offering_id,
+            actor_id=actor_id,
             input_format=input_format,
             original_filename=original_filename,
             content_sha256=content_sha256,
             size_bytes=size_bytes,
-            storage_kind=storage_ref.kind,
-            storage_resource_id=storage_ref.resource_id,
-            storage_version_id=storage_ref.version_id,
-            storage_sha256=storage_ref.sha256,
+            storage_ref=storage_ref,
             processing_status=processing_status,
             extractor_id=extractor_id,
             contract_version=contract_version,
@@ -751,97 +901,21 @@ class SqlSourceRepository:
             char_count=char_count,
             page_count=page_count,
             warning_count=warning_count,
-            processing_metadata=dict(processing_metadata),
-            extracted_document=(
-                extracted_document.model_dump(mode="json")
-                if extracted_document is not None
-                else None
-            ),
-            created_at=now,
+            processing_metadata=processing_metadata,
+            extracted_document=extracted_document,
+            now=now,
+            idempotency_key=idempotency_key,
+            request_digest=request_digest,
+            idempotency_operation="create_source",
+            idempotency_scope_id=offering_id,
+            job_idempotency_prefix="src",
+            enqueue_extraction_job=enqueue_extraction_job,
+            job_max_attempts=job_max_attempts,
+            conflict_code="duplicate_source",
+            conflict_message="Duplicate active source content or idempotency key conflict",
+            allow_idempotency_race=True,
+            source_row=source,
         )
-        derived_row: DerivedExtraction | None = None
-        job_id: UUID | None = None
-        job_row: WorkflowJobSummary | None = None
-        self.session.add(source)
-        try:
-            self.session.flush()
-            self.session.add(version)
-            self.session.flush()
-            if extracted_document is not None:
-                derived_row = DerivedExtraction(
-                    tenant_id=tenant_id,
-                    extraction_id=uuid4(),
-                    source_id=source_id,
-                    version_id=version_id,
-                    source_sha256=content_sha256,
-                    extraction_version=1,
-                    supersedes_extraction_id=None,
-                    job_id=None,
-                    cache_hit=False,
-                    cache_key=None,
-                    processing_status=processing_status,
-                    extractor_id=extracted_document.provenance.extractor_id,
-                    extractor_version=extracted_document.provenance.extractor_version,
-                    contract_version=extracted_document.schema_version,
-                    extraction_ms=extraction_ms,
-                    char_count=char_count,
-                    page_count=page_count,
-                    warning_count=warning_count,
-                    processing_metadata=dict(processing_metadata),
-                    document=extracted_document.model_dump(mode="json"),
-                    created_at=now,
-                )
-                self.session.add(derived_row)
-                self.session.flush()
-            if enqueue_extraction_job:
-                job_detail, _ = SqlWorkflowRepository(self.session).enqueue(
-                    WorkflowJobSubmit(
-                        tenant_id=tenant_id,
-                        offering_id=offering_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        submitted_by_user_id=actor_id,
-                        operation_kind="source_extract",
-                        idempotency_key=(
-                            f"src:{idempotency_key}"[:128]
-                            if idempotency_key
-                            else None
-                        ),
-                        request_digest=request_digest,
-                        input_artifact=storage_ref,
-                        max_attempts=job_max_attempts,
-                    ),
-                    now=now,
-                )
-                job_id = job_detail.job_id
-                job_row = job_detail
-            if idempotency_key is not None and request_digest is not None:
-                self.session.add(
-                    SourceIdempotencyRecord(
-                        tenant_id=tenant_id,
-                        offering_id=offering_id,
-                        actor_user_id=actor_id,
-                        target_scope_id=offering_id,
-                        operation_kind="create_source",
-                        idempotency_key=idempotency_key,
-                        request_digest=request_digest,
-                        source_id=source_id,
-                        version_id=version_id,
-                        created_at=now,
-                    )
-                )
-                self.session.flush()
-        except IntegrityError as exc:
-            sqlstate = getattr(exc.orig, "sqlstate", None)
-            if sqlstate == "23505":
-                if idempotency_key is not None and request_digest is not None:
-                    raise ConcurrentUniqueConflict() from None
-                raise AccessError(
-                    409,
-                    "duplicate_source",
-                    "Duplicate active source content or idempotency key conflict",
-                ) from None
-            raise
         return (
             _source_dto(source, version),
             _version_summary_dto(version, derived=derived_row, latest_job=job_row),
@@ -891,20 +965,22 @@ class SqlSourceRepository:
                 "Cannot create a new version on an archived source",
             )
         next_num = source.latest_version_number + 1
-        version = SourceVersion(
+        source.latest_version_number = next_num
+        source.latest_version_id = version_id
+        source.active_dedupe_key = active_dedupe_key
+        source.updated_at = now
+        version, derived_row, job_id, job_row = self._persist_version_bundle(
             tenant_id=tenant_id,
-            version_id=version_id,
             source_id=source_id,
+            version_id=version_id,
             version_number=next_num,
-            created_by_user_id=actor_id,
+            offering_id=offering_id,
+            actor_id=actor_id,
             input_format=input_format,
             original_filename=original_filename,
             content_sha256=content_sha256,
             size_bytes=size_bytes,
-            storage_kind=storage_ref.kind,
-            storage_resource_id=storage_ref.resource_id,
-            storage_version_id=storage_ref.version_id,
-            storage_sha256=storage_ref.sha256,
+            storage_ref=storage_ref,
             processing_status=processing_status,
             extractor_id=extractor_id,
             contract_version=contract_version,
@@ -912,97 +988,20 @@ class SqlSourceRepository:
             char_count=char_count,
             page_count=page_count,
             warning_count=warning_count,
-            processing_metadata=dict(processing_metadata),
-            extracted_document=(
-                extracted_document.model_dump(mode="json")
-                if extracted_document is not None
-                else None
-            ),
-            created_at=now,
+            processing_metadata=processing_metadata,
+            extracted_document=extracted_document,
+            now=now,
+            idempotency_key=idempotency_key,
+            request_digest=request_digest,
+            idempotency_operation="create_version",
+            idempotency_scope_id=source_id,
+            job_idempotency_prefix="ver",
+            enqueue_extraction_job=enqueue_extraction_job,
+            job_max_attempts=job_max_attempts,
+            conflict_code="duplicate_version",
+            conflict_message="Identical version digest or concurrent version conflict",
+            allow_idempotency_race=False,
         )
-        source.latest_version_number = next_num
-        source.latest_version_id = version_id
-        source.active_dedupe_key = active_dedupe_key
-        source.updated_at = now
-        derived_row: DerivedExtraction | None = None
-        job_id: UUID | None = None
-        job_row: WorkflowJobSummary | None = None
-        self.session.add(version)
-        try:
-            self.session.flush()
-            if extracted_document is not None:
-                derived_row = DerivedExtraction(
-                    tenant_id=tenant_id,
-                    extraction_id=uuid4(),
-                    source_id=source_id,
-                    version_id=version_id,
-                    source_sha256=content_sha256,
-                    extraction_version=1,
-                    supersedes_extraction_id=None,
-                    job_id=None,
-                    cache_hit=False,
-                    cache_key=None,
-                    processing_status=processing_status,
-                    extractor_id=extracted_document.provenance.extractor_id,
-                    extractor_version=extracted_document.provenance.extractor_version,
-                    contract_version=extracted_document.schema_version,
-                    extraction_ms=extraction_ms,
-                    char_count=char_count,
-                    page_count=page_count,
-                    warning_count=warning_count,
-                    processing_metadata=dict(processing_metadata),
-                    document=extracted_document.model_dump(mode="json"),
-                    created_at=now,
-                )
-                self.session.add(derived_row)
-                self.session.flush()
-            if enqueue_extraction_job:
-                job_detail, _ = SqlWorkflowRepository(self.session).enqueue(
-                    WorkflowJobSubmit(
-                        tenant_id=tenant_id,
-                        offering_id=offering_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        submitted_by_user_id=actor_id,
-                        operation_kind="source_extract",
-                        idempotency_key=(
-                            f"ver:{idempotency_key}"[:128]
-                            if idempotency_key
-                            else None
-                        ),
-                        request_digest=request_digest,
-                        input_artifact=storage_ref,
-                        max_attempts=job_max_attempts,
-                    ),
-                    now=now,
-                )
-                job_id = job_detail.job_id
-                job_row = job_detail
-            if idempotency_key is not None and request_digest is not None:
-                self.session.add(
-                    SourceIdempotencyRecord(
-                        tenant_id=tenant_id,
-                        offering_id=offering_id,
-                        actor_user_id=actor_id,
-                        target_scope_id=source_id,
-                        operation_kind="create_version",
-                        idempotency_key=idempotency_key,
-                        request_digest=request_digest,
-                        source_id=source_id,
-                        version_id=version_id,
-                        created_at=now,
-                    )
-                )
-                self.session.flush()
-        except IntegrityError as exc:
-            sqlstate = getattr(exc.orig, "sqlstate", None)
-            if sqlstate == "23505":
-                raise AccessError(
-                    409,
-                    "duplicate_version",
-                    "Identical version digest or concurrent version conflict",
-                ) from None
-            raise
         return (
             _source_dto(source, version),
             _version_summary_dto(version, derived=derived_row, latest_job=job_row),

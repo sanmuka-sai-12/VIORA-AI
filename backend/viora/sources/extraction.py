@@ -679,6 +679,7 @@ class _PdfAssemblyState:
     provenance: ExtractionProvenance
     page_count: int
     title: str
+    source_version: int = 1
     blocks: list[TextBlock] = field(default_factory=list)
     tables: list[TableBlock] = field(default_factory=list)
     figures: list[FigureReference] = field(default_factory=list)
@@ -695,6 +696,7 @@ class _PdfAssemblyState:
     sec_seq: int = 1
     reading_order_verified: bool = True
     sections_work: list[dict[str, object]] = field(default_factory=list)
+    section_stack: list[dict[str, object]] = field(default_factory=list)
     current_section: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -715,6 +717,7 @@ class _PdfAssemblyState:
             "norm_end": 0,
         }
         self.sections_work.append(root)
+        self.section_stack.append(root)
         self.current_section = root
 
     def add_warning(
@@ -751,6 +754,268 @@ class _PdfAssemblyState:
         self.normalized_parts.append(piece)
         self.norm_cursor += len(piece)
         return start, self.norm_cursor
+
+    def add_evidence(
+        self,
+        *,
+        section_id: str,
+        block_id: str | None,
+        page_number: int,
+        span: SourcePositionSpan,
+        excerpt: str,
+        bbox: BoundingBox | None = None,
+    ) -> None:
+        self.evidence_refs.append(
+            EvidenceReference(
+                evidence_id=f"ev-{len(self.evidence_refs) + 1}",
+                source_id=self.source_id,
+                version_id=self.version_id,
+                source_sha256=self.source_sha256,
+                section_id=section_id,
+                block_id=block_id,
+                page_number=page_number,
+                bbox=bbox,
+                span=span,
+                excerpt=excerpt[:1000],
+            )
+        )
+
+    def _bump_norm_end(self, norm_end: int, page_number: int) -> None:
+        for ancestor in self.section_stack:
+            ancestor["norm_end"] = norm_end
+        self.current_section["page_end"] = page_number
+
+    def open_section(
+        self,
+        *,
+        title: str,
+        level: int,
+        page_no: int,
+        hierarchical: bool = False,
+    ) -> tuple[str, int, int]:
+        self.sec_seq += 1
+        clamped_level = min(level, 6)
+        if hierarchical:
+            while len(self.section_stack) > 1 and int(self.section_stack[-1]["level"]) >= level:  # type: ignore[arg-type]
+                popped = self.section_stack.pop()
+                popped["norm_end"] = self.norm_cursor
+            parent = self.section_stack[-1] if self.section_stack else None
+        else:
+            root = self.sections_work[0]
+            self.section_stack = [root]
+            parent = root
+        n_start, n_end = self.append_norm_piece(title)
+        new_sec_id = f"sec-{self.sec_seq}"
+        new_sec: dict[str, object] = {
+            "section_id": new_sec_id,
+            "parent_section_id": None if parent is None else str(parent["section_id"]),
+            "title": title,
+            "level": clamped_level,
+            "reading_order": self.reading_order,
+            "page_start": page_no,
+            "page_end": page_no,
+            "block_ids": [],
+            "table_ids": [],
+            "figure_ids": [],
+            "formula_ids": [],
+            "child_section_ids": [],
+            "norm_start": n_start,
+            "norm_end": n_end,
+        }
+        if parent is not None:
+            parent["child_section_ids"].append(new_sec_id)  # type: ignore[attr-defined]
+        if not hierarchical and parent is not None:
+            parent["norm_end"] = self.norm_cursor
+        self.sections_work.append(new_sec)
+        self.section_stack.append(new_sec)
+        self.current_section = new_sec
+        return new_sec_id, n_start, n_end
+
+    def emit_block(
+        self,
+        *,
+        kind: str,
+        page_number: int,
+        raw_text: str,
+        normalized_text: str,
+        provenance: ExtractionProvenance,
+        bbox: BoundingBox | None = None,
+        section_id: str | None = None,
+        heading_level: int | None = None,
+        source_start_offset: int = 0,
+        source_end_offset: int = 0,
+        source_byte_start: int | None = None,
+        source_byte_end: int | None = None,
+        source_line_start: int | None = None,
+        source_line_end: int | None = None,
+        pre_norm_span: tuple[int, int] | None = None,
+        page_block_ids: list[str] | None = None,
+        page_formula_ids: list[str] | None = None,
+        page_warn_ids: list[str] | None = None,
+        extract_formulas: bool = False,
+        warn_on_formulas: bool = False,
+    ) -> int:
+        sec = self.current_section
+        sec_id = section_id or str(sec["section_id"])
+        if pre_norm_span is not None:
+            n_start, n_end = pre_norm_span
+        else:
+            n_start, n_end = self.append_norm_piece(normalized_text)
+            self._bump_norm_end(n_end, page_number)
+        blk_id = f"blk-{len(self.blocks) + 1}"
+        span = SourcePositionSpan(
+            source_start_offset=source_start_offset,
+            source_end_offset=source_end_offset,
+            source_byte_start=source_byte_start,
+            source_byte_end=source_byte_end,
+            source_line_start=source_line_start,
+            source_line_end=source_line_end,
+            normalized_start_offset=n_start,
+            normalized_end_offset=n_end,
+        )
+        self.blocks.append(
+            TextBlock(
+                block_id=blk_id,
+                kind=kind,  # type: ignore[arg-type]
+                page_number=page_number,
+                reading_order=self.reading_order,
+                section_id=sec_id,
+                bbox=bbox,
+                raw_text=raw_text,
+                normalized_text=normalized_text,
+                span=span,
+                heading_level=heading_level,
+                provenance=provenance,
+            )
+        )
+        sec["block_ids"].append(blk_id)  # type: ignore[attr-defined]
+        if page_block_ids is not None:
+            page_block_ids.append(blk_id)
+        if extract_formulas:
+            new_formulas, self.frm_seq = _extract_formulas_from_text(
+                text=normalized_text,
+                page_number=page_number,
+                section_id=sec_id,
+                start_order=self.reading_order,
+                formula_counter_start=self.frm_seq,
+                provenance=provenance,
+            )
+            for frm in new_formulas:
+                self.formulas.append(frm)
+                sec["formula_ids"].append(frm.formula_id)  # type: ignore[attr-defined]
+                if page_formula_ids is not None:
+                    page_formula_ids.append(frm.formula_id)
+            if warn_on_formulas and new_formulas:
+                wid = self.add_warning(
+                    "formula_detected_unparsed",
+                    "info",
+                    f"Detected {len(new_formulas)} mathematical expression(s) on page {page_number}.",
+                    page_number=page_number,
+                    block_id=blk_id,
+                )
+                if page_warn_ids is not None:
+                    page_warn_ids.append(wid)
+        self.add_evidence(
+            section_id=sec_id,
+            block_id=blk_id,
+            page_number=page_number,
+            span=span,
+            excerpt=normalized_text,
+            bbox=bbox,
+        )
+        self.reading_order += 1
+        return len(normalized_text)
+
+    def finalize_sections(self) -> tuple[SourceSection, ...]:
+        for sec in self.section_stack:
+            sec["norm_end"] = self.norm_cursor
+        return tuple(
+            SourceSection(
+                section_id=str(s["section_id"]),
+                parent_section_id=(
+                    None if s["parent_section_id"] is None else str(s["parent_section_id"])
+                ),
+                title=str(s["title"]),
+                level=int(s["level"]),
+                reading_order=int(s["reading_order"]),
+                page_start=int(s["page_start"]),
+                page_end=int(s["page_end"]),
+                block_ids=tuple(s["block_ids"]),  # type: ignore[arg-type]
+                table_ids=tuple(s["table_ids"]),  # type: ignore[arg-type]
+                figure_ids=tuple(s["figure_ids"]),  # type: ignore[arg-type]
+                formula_ids=tuple(s["formula_ids"]),  # type: ignore[arg-type]
+                child_section_ids=tuple(s["child_section_ids"]),  # type: ignore[arg-type]
+                normalized_start_offset=int(s["norm_start"]),
+                normalized_end_offset=int(s["norm_end"]),
+            )
+            for s in self.sections_work
+        )
+
+    def build_document(
+        self,
+        *,
+        tenant_id: UUID,
+        input_format: SourceDocumentFormat,
+        pages: tuple[DocumentPage, ...],
+        total_raw_chars: int,
+        limits: SourceIngestionLimits,
+        notes: tuple[str, ...],
+        overall_status: str | None = None,
+        usable_override: bool | None = None,
+        doc_provenance: ExtractionProvenance | None = None,
+    ) -> ExtractedDocument:
+        full_normalized = "\n\n".join(self.normalized_parts)
+        counts = Counter(p.classification for p in pages)
+        usable = (
+            len(full_normalized.strip()) >= limits.min_text_chars
+            if usable_override is None
+            else usable_override
+        )
+        resolved_status = overall_status
+        if resolved_status is None:
+            if not usable:
+                resolved_status = "ocr_required" if counts["needs_ocr"] > 0 else "unreadable"
+            elif self.warnings:
+                resolved_status = "partial_with_warnings"
+            else:
+                resolved_status = "complete"
+        quality = ExtractionQualityReport(
+            overall_status=resolved_status,  # type: ignore[arg-type]
+            usable_for_digital_ingestion=usable,
+            reading_order_verified=self.reading_order_verified,
+            total_pages=len(pages),
+            digital_text_pages=counts["digital_text"],
+            pages_needing_layout=counts["needs_layout"],
+            pages_needing_table=counts["needs_table"],
+            pages_needing_ocr=counts["needs_ocr"],
+            pages_with_visuals=counts["visual_content"],
+            pages_uncertain=counts["uncertain"],
+            total_raw_chars=total_raw_chars,
+            total_normalized_chars=len(full_normalized),
+            warning_count=len(self.warnings),
+            notes=notes,
+        )
+        return ExtractedDocument(
+            tenant_id=tenant_id,
+            source_id=self.source_id,
+            version_id=self.version_id,
+            source_version=self.source_version,
+            source_sha256=self.source_sha256,
+            input_format=input_format,
+            title=self.title,
+            normalized_text=full_normalized,
+            pages=pages,
+            sections=self.finalize_sections(),
+            text_blocks=tuple(self.blocks),
+            tables=tuple(self.tables),
+            figures=tuple(self.figures),
+            formulas=tuple(self.formulas),
+            evidence_references=tuple(self.evidence_refs),
+            warnings=tuple(self.warnings),
+            quality=quality,
+            provenance=doc_provenance or self.provenance,
+            created_at=datetime.now(UTC),
+        )
 
 
 class ExtractionCancelledError(RuntimeError):
@@ -1215,16 +1480,21 @@ class AdaptiveDocumentExtractor:
             confidence=1.0,
             raw_locator="utf8_stream",
         )
-        warnings: list[ExtractionWarning] = []
+        state = _PdfAssemblyState(
+            source_id=source_id,
+            version_id=version_id,
+            source_sha256=source_sha256,
+            provenance=provenance,
+            page_count=1,
+            title=title,
+            source_version=source_version,
+        )
         if has_bom or "\r\n" in decoded:
-            warnings.append(
-                ExtractionWarning(
-                    warning_id="warn-1",
-                    code="encoding_normalized",
-                    severity="info",
-                    message="Normalized line endings and/or UTF-8 BOM without altering text order.",
-                    page_number=1,
-                )
+            state.add_warning(
+                "encoding_normalized",
+                "info",
+                "Normalized line endings and/or UTF-8 BOM without altering text order.",
+                page_number=1,
             )
 
         line_spans: list[tuple[int, int, int, int, int, str]] = []
@@ -1232,54 +1502,17 @@ class AdaptiveDocumentExtractor:
         byte_pos = 3 if has_bom else 0
         for line_no, raw_line in enumerate(decoded.splitlines(keepends=True), start=1):
             stripped_nl = raw_line.rstrip("\r\n")
-            char_start = char_pos
             char_end = char_pos + len(stripped_nl)
-            byte_start = byte_pos
             byte_end = byte_pos + len(stripped_nl.encode("utf-8"))
             line_spans.append(
-                (char_start, char_end, byte_start, byte_end, line_no, stripped_nl)
+                (char_pos, char_end, byte_pos, byte_end, line_no, stripped_nl)
             )
             char_pos += len(raw_line)
             byte_pos += len(raw_line.encode("utf-8"))
-
         if not line_spans and decoded:
             line_spans.append(
                 (0, len(decoded), 0, len(decoded.encode("utf-8")), 1, decoded)
             )
-
-        blocks: list[TextBlock] = []
-        sections: list[SourceSection] = []
-        formulas: list[FormulaReference] = []
-        evidence_refs: list[EvidenceReference] = []
-        normalized_parts: list[str] = []
-        norm_cursor = 0
-        reading_order = 0
-        formula_count = 0
-
-        root_section: dict[str, object] = {
-            "section_id": "sec-1",
-            "parent_section_id": None,
-            "title": title,
-            "level": 1,
-            "reading_order": 0,
-            "block_ids": [],
-            "formula_ids": [],
-            "child_section_ids": [],
-            "norm_start": 0,
-            "norm_end": 0,
-        }
-        sections_work: list[dict[str, object]] = [root_section]
-        section_stack: list[dict[str, object]] = [root_section]
-        sec_seq = 1
-
-        def append_norm_piece(text_piece: str) -> tuple[int, int]:
-            nonlocal norm_cursor
-            if normalized_parts:
-                norm_cursor += 2
-            start = norm_cursor
-            normalized_parts.append(text_piece)
-            norm_cursor += len(text_piece)
-            return start, norm_cursor
 
         idx = 0
         while idx < len(line_spans):
@@ -1299,56 +1532,23 @@ class AdaptiveDocumentExtractor:
                 fence_end = idx if idx < len(line_spans) else len(line_spans) - 1
                 if idx < len(line_spans):
                     idx += 1
-                raw_span_start = line_spans[fence_start][0]
-                raw_span_end = line_spans[fence_end][1]
-                byte_span_start = line_spans[fence_start][2]
-                byte_span_end = line_spans[fence_end][3]
+                raw_span_start, _, byte_span_start, _, line_start, _ = line_spans[fence_start]
+                _, raw_span_end, _, byte_span_end, line_end, _ = line_spans[fence_end]
                 c_raw = decoded[raw_span_start:raw_span_end]
                 c_norm = "\n".join(item[5].rstrip() for item in code_inner) or c_raw
-                cur_sec = section_stack[-1]
-                cur_sec_id = str(cur_sec["section_id"])
-                norm_start, norm_end = append_norm_piece(c_norm)
-                for ancestor in section_stack:
-                    ancestor["norm_end"] = norm_end
-                block_id = f"blk-{len(blocks) + 1}"
-                span = SourcePositionSpan(
+                state.emit_block(
+                    kind="code",
+                    page_number=1,
+                    raw_text=c_raw,
+                    normalized_text=c_norm,
+                    provenance=provenance,
                     source_start_offset=raw_span_start,
                     source_end_offset=raw_span_end,
                     source_byte_start=byte_span_start,
                     source_byte_end=byte_span_end,
-                    source_line_start=line_spans[fence_start][4],
-                    source_line_end=line_spans[fence_end][4],
-                    normalized_start_offset=norm_start,
-                    normalized_end_offset=norm_end,
+                    source_line_start=line_start,
+                    source_line_end=line_end,
                 )
-                blocks.append(
-                    TextBlock(
-                        block_id=block_id,
-                        kind="code",
-                        page_number=1,
-                        reading_order=reading_order,
-                        section_id=cur_sec_id,
-                        raw_text=c_raw,
-                        normalized_text=c_norm,
-                        span=span,
-                        provenance=provenance,
-                    )
-                )
-                cur_sec["block_ids"].append(block_id)  # type: ignore[attr-defined]
-                evidence_refs.append(
-                    EvidenceReference(
-                        evidence_id=f"ev-{len(evidence_refs) + 1}",
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_sha256=source_sha256,
-                        section_id=cur_sec_id,
-                        block_id=block_id,
-                        page_number=1,
-                        span=span,
-                        excerpt=c_norm[:1000],
-                    )
-                )
-                reading_order += 1
                 continue
 
             md_match = _MARKDOWN_HEADING_RE.match(norm_line)
@@ -1356,71 +1556,25 @@ class AdaptiveDocumentExtractor:
             if md_match or num_match:
                 h_level = len(md_match.group(1)) if md_match else 2
                 h_title = (md_match.group(2) if md_match else norm_line)[:300]
-                sec_seq += 1
-                while len(section_stack) > 1 and int(section_stack[-1]["level"]) >= h_level:
-                    popped = section_stack.pop()
-                    popped["norm_end"] = norm_cursor
-                parent_id = str(section_stack[-1]["section_id"]) if section_stack else None
-
-                norm_start, norm_end = append_norm_piece(h_title)
-                new_sec_id = f"sec-{sec_seq}"
-                new_sec: dict[str, object] = {
-                    "section_id": new_sec_id,
-                    "parent_section_id": parent_id,
-                    "title": h_title,
-                    "level": min(h_level, 6),
-                    "reading_order": reading_order,
-                    "block_ids": [],
-                    "formula_ids": [],
-                    "child_section_ids": [],
-                    "norm_start": norm_start,
-                    "norm_end": norm_end,
-                }
-                if section_stack:
-                    section_stack[-1]["child_section_ids"].append(new_sec_id)  # type: ignore[attr-defined]
-                sections_work.append(new_sec)
-                section_stack.append(new_sec)
-
-                block_id = f"blk-{len(blocks) + 1}"
-                span = SourcePositionSpan(
+                sec_id, n_start, n_end = state.open_section(
+                    title=h_title, level=h_level, page_no=1, hierarchical=True
+                )
+                state.emit_block(
+                    kind="heading",
+                    page_number=1,
+                    raw_text=line_txt,
+                    normalized_text=h_title,
+                    provenance=provenance,
+                    section_id=sec_id,
+                    heading_level=min(h_level, 6),
                     source_start_offset=c_start,
                     source_end_offset=c_end,
                     source_byte_start=b_start,
                     source_byte_end=b_end,
                     source_line_start=l_no,
                     source_line_end=l_no,
-                    normalized_start_offset=norm_start,
-                    normalized_end_offset=norm_end,
+                    pre_norm_span=(n_start, n_end),
                 )
-                blocks.append(
-                    TextBlock(
-                        block_id=block_id,
-                        kind="heading",
-                        page_number=1,
-                        reading_order=reading_order,
-                        section_id=new_sec_id,
-                        raw_text=line_txt,
-                        normalized_text=h_title,
-                        span=span,
-                        heading_level=min(h_level, 6),
-                        provenance=provenance,
-                    )
-                )
-                new_sec["block_ids"].append(block_id)  # type: ignore[attr-defined]
-                evidence_refs.append(
-                    EvidenceReference(
-                        evidence_id=f"ev-{len(evidence_refs) + 1}",
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_sha256=source_sha256,
-                        section_id=new_sec_id,
-                        block_id=block_id,
-                        page_number=1,
-                        span=span,
-                        excerpt=h_title[:1000],
-                    )
-                )
-                reading_order += 1
                 idx += 1
                 continue
 
@@ -1444,92 +1598,21 @@ class AdaptiveDocumentExtractor:
                 for item in para_lines
                 if _normalize_line(item[5])
             )
-            cur_sec = section_stack[-1]
-            cur_sec_id = str(cur_sec["section_id"])
-            norm_start, norm_end = append_norm_piece(p_norm)
-            for ancestor in section_stack:
-                ancestor["norm_end"] = norm_end
-
-            block_kind = (
-                "list_item" if _LIST_ITEM_RE.match(para_lines[0][5]) else "paragraph"
-            )
-            block_id = f"blk-{len(blocks) + 1}"
-            span = SourcePositionSpan(
+            state.emit_block(
+                kind="list_item" if _LIST_ITEM_RE.match(para_lines[0][5]) else "paragraph",
+                page_number=1,
+                raw_text=p_raw,
+                normalized_text=p_norm,
+                provenance=provenance,
                 source_start_offset=para_lines[0][0],
                 source_end_offset=para_lines[-1][1],
                 source_byte_start=para_lines[0][2],
                 source_byte_end=para_lines[-1][3],
                 source_line_start=para_lines[0][4],
                 source_line_end=para_lines[-1][4],
-                normalized_start_offset=norm_start,
-                normalized_end_offset=norm_end,
-            )
-            blocks.append(
-                TextBlock(
-                    block_id=block_id,
-                    kind=block_kind,
-                    page_number=1,
-                    reading_order=reading_order,
-                    section_id=cur_sec_id,
-                    raw_text=p_raw,
-                    normalized_text=p_norm,
-                    span=span,
-                    provenance=provenance,
-                )
-            )
-            cur_sec["block_ids"].append(block_id)  # type: ignore[attr-defined]
-            new_formulas, formula_count = _extract_formulas_from_text(
-                text=p_norm,
-                page_number=1,
-                section_id=cur_sec_id,
-                start_order=reading_order,
-                formula_counter_start=formula_count,
-                provenance=provenance,
-            )
-            for frm in new_formulas:
-                formulas.append(frm)
-                cur_sec["formula_ids"].append(frm.formula_id)  # type: ignore[attr-defined]
-            evidence_refs.append(
-                EvidenceReference(
-                    evidence_id=f"ev-{len(evidence_refs) + 1}",
-                    source_id=source_id,
-                    version_id=version_id,
-                    source_sha256=source_sha256,
-                    section_id=cur_sec_id,
-                    block_id=block_id,
-                    page_number=1,
-                    span=span,
-                    excerpt=p_norm[:1000],
-                )
-            )
-            reading_order += 1
-
-        for sec in section_stack:
-            sec["norm_end"] = norm_cursor
-
-        for sec in sections_work:
-            sections.append(
-                SourceSection(
-                    section_id=str(sec["section_id"]),
-                    parent_section_id=(
-                        None
-                        if sec["parent_section_id"] is None
-                        else str(sec["parent_section_id"])
-                    ),
-                    title=str(sec["title"]),
-                    level=int(sec["level"]),
-                    reading_order=int(sec["reading_order"]),
-                    page_start=1,
-                    page_end=1,
-                    block_ids=tuple(sec["block_ids"]),  # type: ignore[arg-type]
-                    formula_ids=tuple(sec["formula_ids"]),  # type: ignore[arg-type]
-                    child_section_ids=tuple(sec["child_section_ids"]),  # type: ignore[arg-type]
-                    normalized_start_offset=int(sec["norm_start"]),
-                    normalized_end_offset=int(sec["norm_end"]),
-                )
+                extract_formulas=True,
             )
 
-        full_normalized = "\n\n".join(normalized_parts)
         page = DocumentPage(
             page_number=1,
             classification="digital_text",
@@ -1537,50 +1620,23 @@ class AdaptiveDocumentExtractor:
             confidence=1.0,
             reading_order_reliable=True,
             raw_char_count=len(decoded),
-            normalized_char_count=len(full_normalized),
+            normalized_char_count=len("\n\n".join(state.normalized_parts)),
             image_count=0,
-            suspected_formula=bool(formulas),
-            text_block_ids=tuple(b.block_id for b in blocks),
-            formula_ids=tuple(f.formula_id for f in formulas),
-            warning_ids=tuple(w.warning_id for w in warnings),
+            suspected_formula=bool(state.formulas),
+            text_block_ids=tuple(b.block_id for b in state.blocks),
+            formula_ids=tuple(f.formula_id for f in state.formulas),
+            warning_ids=tuple(w.warning_id for w in state.warnings),
             provenance=provenance,
         )
-        quality = ExtractionQualityReport(
-            overall_status="partial_with_warnings" if warnings else "complete",
-            usable_for_digital_ingestion=True,
-            reading_order_verified=True,
-            total_pages=1,
-            digital_text_pages=1,
-            pages_needing_layout=0,
-            pages_needing_table=0,
-            pages_needing_ocr=0,
-            pages_with_visuals=0,
-            pages_uncertain=0,
-            total_raw_chars=len(decoded),
-            total_normalized_chars=len(full_normalized),
-            warning_count=len(warnings),
-            notes=("Native UTF-8 text normalization preserved deterministic offsets.",),
-        )
-        return ExtractedDocument(
+        return state.build_document(
             tenant_id=tenant_id,
-            source_id=source_id,
-            version_id=version_id,
-            source_version=source_version,
-            source_sha256=source_sha256,
             input_format=input_format,
-            title=title,
-            normalized_text=full_normalized,
             pages=(page,),
-            sections=tuple(sections),
-            text_blocks=tuple(blocks),
-            tables=(),
-            figures=(),
-            formulas=tuple(formulas),
-            evidence_references=tuple(evidence_refs),
-            warnings=tuple(warnings),
-            quality=quality,
-            provenance=provenance,
-            created_at=datetime.now(UTC),
+            total_raw_chars=len(decoded),
+            limits=limits,
+            notes=("Native UTF-8 text normalization preserved deterministic offsets.",),
+            overall_status="partial_with_warnings" if state.warnings else "complete",
+            usable_override=True,
         )
 
     def _commit_pdf_paragraph(
@@ -1596,10 +1652,8 @@ class AdaptiveDocumentExtractor:
     ) -> int:
         if not paragraph_buf:
             return 0
-        p_start = paragraph_buf[0][0]
-        p_end = paragraph_buf[-1][1]
-        line_start = paragraph_buf[0][2]
-        line_end = paragraph_buf[-1][2]
+        p_start, p_end = paragraph_buf[0][0], paragraph_buf[-1][1]
+        line_start, line_end = paragraph_buf[0][2], paragraph_buf[-1][2]
         first_raw = paragraph_buf[0][3]
         p_raw = page_text[p_start:p_end]
         p_norm = "\n".join(
@@ -1608,73 +1662,22 @@ class AdaptiveDocumentExtractor:
         paragraph_buf.clear()
         if not p_norm:
             return 0
-
-        sec_id = str(state.current_section["section_id"])
-        n_start, n_end = state.append_norm_piece(p_norm)
-        state.sections_work[0]["norm_end"] = state.norm_cursor
-        state.current_section["norm_end"] = state.norm_cursor
-        state.current_section["page_end"] = page_no
-        blk_id = f"blk-{len(state.blocks) + 1}"
-        span = SourcePositionSpan(
+        return state.emit_block(
+            kind="list_item" if _LIST_ITEM_RE.match(first_raw) else "paragraph",
+            page_number=page_no,
+            raw_text=p_raw,
+            normalized_text=p_norm,
+            provenance=state.provenance,
             source_start_offset=p_start,
             source_end_offset=p_end,
             source_line_start=line_start,
             source_line_end=line_end,
-            normalized_start_offset=n_start,
-            normalized_end_offset=n_end,
+            page_block_ids=page_block_ids,
+            page_formula_ids=page_formula_ids,
+            page_warn_ids=page_warn_ids,
+            extract_formulas=True,
+            warn_on_formulas=True,
         )
-        state.blocks.append(
-            TextBlock(
-                block_id=blk_id,
-                kind="list_item" if _LIST_ITEM_RE.match(first_raw) else "paragraph",
-                page_number=page_no,
-                reading_order=state.reading_order,
-                section_id=sec_id,
-                raw_text=p_raw,
-                normalized_text=p_norm,
-                span=span,
-                provenance=state.provenance,
-            )
-        )
-        page_block_ids.append(blk_id)
-        state.current_section["block_ids"].append(blk_id)  # type: ignore[attr-defined]
-        new_formulas, state.frm_seq = _extract_formulas_from_text(
-            text=p_norm,
-            page_number=page_no,
-            section_id=sec_id,
-            start_order=state.reading_order,
-            formula_counter_start=state.frm_seq,
-            provenance=state.provenance,
-        )
-        for frm in new_formulas:
-            state.formulas.append(frm)
-            page_formula_ids.append(frm.formula_id)
-            state.current_section["formula_ids"].append(frm.formula_id)  # type: ignore[attr-defined]
-        if new_formulas:
-            page_warn_ids.append(
-                state.add_warning(
-                    "formula_detected_unparsed",
-                    "info",
-                    f"Detected {len(new_formulas)} mathematical expression(s) on page {page_no}.",
-                    page_number=page_no,
-                    block_id=blk_id,
-                )
-            )
-        state.evidence_refs.append(
-            EvidenceReference(
-                evidence_id=f"ev-{len(state.evidence_refs) + 1}",
-                source_id=state.source_id,
-                version_id=state.version_id,
-                source_sha256=state.source_sha256,
-                section_id=sec_id,
-                block_id=blk_id,
-                page_number=page_no,
-                span=span,
-                excerpt=p_norm[:1000],
-            )
-        )
-        state.reading_order += 1
-        return len(p_norm)
 
     def _extract_image(
         self,
@@ -1727,49 +1730,48 @@ class AdaptiveDocumentExtractor:
             confidence=None,
             raw_locator=f"image:{input_format}:{img.width}x{img.height}",
         )
-        warnings: list[ExtractionWarning] = []
-        blocks: list[TextBlock] = []
-        evidence_refs: list[EvidenceReference] = []
-        formulas: list[FormulaReference] = []
-        norm_parts: list[str] = []
-        norm_cursor = 0
-
-        fig_ref = FigureReference(
-            figure_id="fig-1",
-            page_number=1,
-            reading_order=0,
-            section_id="sec-1",
-            bbox=fig_bbox,
-            kind="raster_image",
-            image_count_on_page=1,
-            alt_text_or_description=None,
-            interpretation_status="not_interpreted_visual_deferred",
-            provenance=ExtractionProvenance(
-                extractor_id=ADAPTIVE_EXTRACTOR_ID,
-                extractor_version=ADAPTIVE_EXTRACTOR_VERSION,
-                method="deferred",
-                raw_locator=f"image_region={img.width}x{img.height}",
-            ),
+        state = _PdfAssemblyState(
+            source_id=source_id,
+            version_id=version_id,
+            source_sha256=source_sha256,
+            provenance=base_prov,
+            page_count=1,
+            title=title,
+            source_version=source_version,
         )
+        state.figures.append(
+            FigureReference(
+                figure_id="fig-1",
+                page_number=1,
+                reading_order=0,
+                section_id="sec-1",
+                bbox=fig_bbox,
+                kind="raster_image",
+                image_count_on_page=1,
+                alt_text_or_description=None,
+                interpretation_status="not_interpreted_visual_deferred",
+                provenance=ExtractionProvenance(
+                    extractor_id=ADAPTIVE_EXTRACTOR_ID,
+                    extractor_version=ADAPTIVE_EXTRACTOR_VERSION,
+                    method="deferred",
+                    raw_locator=f"image_region={img.width}x{img.height}",
+                ),
+            )
+        )
+        state.sections_work[0]["figure_ids"].append("fig-1")  # type: ignore[attr-defined]
+        state.reading_order = 1
 
         ocr_res: OcrPageResult | None = None
         if self.ocr_backend is not None and self.ocr_backend.is_available():
             ocr_res = self._run_ocr_on_image(img)
-            ocr_prov = ExtractionProvenance(
+            base_prov = ExtractionProvenance(
                 extractor_id=ocr_res.engine_id,
                 extractor_version=ocr_res.engine_version,
                 method="ocr",
                 confidence=ocr_res.mean_confidence,
                 raw_locator=f"image_ocr:{img.width}x{img.height};preprocess={ocr_res.preprocess_applied}",
             )
-            base_prov = ocr_prov
-            for idx, ln in enumerate(ocr_res.lines):
-                if norm_parts:
-                    norm_cursor += 2
-                n_start = norm_cursor
-                norm_parts.append(ln.text)
-                norm_cursor += len(ln.text)
-                n_end = norm_cursor
+            for ln in ocr_res.lines:
                 bbox = BoundingBox(
                     x0=round(min(ln.x0, iw), 2),
                     y0=round(min(ln.y0, ih), 2),
@@ -1779,101 +1781,63 @@ class AdaptiveDocumentExtractor:
                     page_width=iw,
                     page_height=ih,
                 )
-                span = SourcePositionSpan(
-                    source_start_offset=0,
-                    source_end_offset=0,
-                    normalized_start_offset=n_start,
-                    normalized_end_offset=n_end,
+                state.emit_block(
+                    kind="paragraph",
+                    page_number=1,
+                    raw_text=ln.text,
+                    normalized_text=ln.text,
+                    provenance=base_prov,
+                    bbox=bbox,
                 )
-                blk_id = f"blk-{idx + 1}"
-                blocks.append(
-                    TextBlock(
-                        block_id=blk_id,
-                        kind="paragraph",
-                        page_number=1,
-                        reading_order=idx + 1,
-                        section_id="sec-1",
-                        bbox=bbox,
-                        raw_text=ln.text,
-                        normalized_text=ln.text,
-                        span=span,
-                        provenance=ocr_prov,
-                    )
-                )
-                evidence_refs.append(
-                    EvidenceReference(
-                        evidence_id=f"ev-{idx + 1}",
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_sha256=source_sha256,
-                        section_id="sec-1",
-                        block_id=blk_id,
-                        page_number=1,
-                        bbox=bbox,
-                        span=span,
-                        excerpt=ln.text[:1000],
-                    )
-                )
-            warnings.append(
-                ExtractionWarning(
-                    warning_id=f"warn-{len(warnings) + 1}",
-                    code="ocr_fallback_applied",
-                    severity="info",
-                    message=(
-                        f"Printed-text OCR applied via {ocr_res.engine_id} "
-                        f"(mean confidence {ocr_res.mean_confidence:.2f}, preprocess={ocr_res.preprocess_applied}); "
-                        "visual/diagram and handwriting understanding remain deferred."
+            state.add_warning(
+                "ocr_fallback_applied",
+                "info",
+                (
+                    f"Printed-text OCR applied via {ocr_res.engine_id} "
+                    f"(mean confidence {ocr_res.mean_confidence:.2f}, preprocess={ocr_res.preprocess_applied}); "
+                    "visual/diagram and handwriting understanding remain deferred."
+                ),
+                page_number=1,
+            )
+            if not ocr_res.lines or ocr_res.mean_confidence < OCR_UNSUPPORTED_OR_HANDWRITING_THRESHOLD:
+                state.add_warning(
+                    "unsupported_script_or_handwriting",
+                    "warning",
+                    (
+                        "OCR yielded empty or very low confidence output; handwritten notes, non-Latin/Indic scripts "
+                        "(e.g. Hindi/Devanagari), or pure diagrams are not reliably supported by printed-text OCR."
                     ),
                     page_number=1,
                 )
-            )
-            if not ocr_res.lines or ocr_res.mean_confidence < OCR_UNSUPPORTED_OR_HANDWRITING_THRESHOLD:
-                warnings.append(
-                    ExtractionWarning(
-                        warning_id=f"warn-{len(warnings) + 1}",
-                        code="unsupported_script_or_handwriting",
-                        severity="warning",
-                        message=(
-                            "OCR yielded empty or very low confidence output; handwritten notes, non-Latin/Indic scripts "
-                            "(e.g. Hindi/Devanagari), or pure diagrams are not reliably supported by printed-text OCR."
-                        ),
-                        page_number=1,
-                    )
-                )
             elif ocr_res.mean_confidence < OCR_LOW_CONFIDENCE_THRESHOLD:
-                warnings.append(
-                    ExtractionWarning(
-                        warning_id=f"warn-{len(warnings) + 1}",
-                        code="low_confidence_ocr",
-                        severity="warning",
-                        message=(
-                            f"OCR confidence ({ocr_res.mean_confidence:.2f}) is below {OCR_LOW_CONFIDENCE_THRESHOLD:.2f}; "
-                            "review extracted text carefully."
-                        ),
-                        page_number=1,
-                    )
+                state.add_warning(
+                    "low_confidence_ocr",
+                    "warning",
+                    (
+                        f"OCR confidence ({ocr_res.mean_confidence:.2f}) is below {OCR_LOW_CONFIDENCE_THRESHOLD:.2f}; "
+                        "review extracted text carefully."
+                    ),
+                    page_number=1,
                 )
         else:
             code = "ocr_unavailable" if self.ocr_backend is not None else "ocr_required"
-            warnings.append(
-                ExtractionWarning(
-                    warning_id="warn-1",
-                    code=code,  # type: ignore[arg-type]
-                    severity="blocking_for_auto_publish",
-                    message="Image requires printed-text OCR or multimodal analysis; no OCR backend is active.",
-                    page_number=1,
-                    deferred_stage="batch_2_4_ocr_worker",
-                )
+            state.add_warning(
+                code,
+                "blocking_for_auto_publish",
+                "Image requires printed-text OCR or multimodal analysis; no OCR backend is active.",
+                page_number=1,
+                deferred_stage="batch_2_4_ocr_worker",
             )
         if progress_callback is not None:
             progress_callback("assembling", {"total_pages": 1, "completed_pages": 1})
 
-        full_norm = "\n\n".join(norm_parts)
+        full_norm = "\n\n".join(state.normalized_parts)
         usable = len(full_norm.strip()) >= limits.min_text_chars
         classification: PageClassification = "visual_content" if usable else "needs_ocr"
-        overall_status = (
-            "partial_with_warnings" if usable else "ocr_required"
+        reliable = usable and (
+            ocr_res is not None and ocr_res.mean_confidence >= 0.65
         )
+        state.reading_order_verified = reliable
         page = DocumentPage(
             page_number=1,
             width=iw,
@@ -1881,68 +1845,27 @@ class AdaptiveDocumentExtractor:
             classification=classification,
             recommended_processors=("visual",) if usable else ("ocr", "visual"),
             confidence=ocr_res.mean_confidence if ocr_res is not None else 0.25,
-            reading_order_reliable=usable and (
-                ocr_res is not None and ocr_res.mean_confidence >= 0.65
-            ),
+            reading_order_reliable=reliable,
             raw_char_count=len(full_norm),
             normalized_char_count=len(full_norm),
             image_count=1,
-            text_block_ids=tuple(b.block_id for b in blocks),
+            text_block_ids=tuple(b.block_id for b in state.blocks),
             figure_ids=("fig-1",),
-            warning_ids=tuple(w.warning_id for w in warnings),
+            warning_ids=tuple(w.warning_id for w in state.warnings),
             provenance=base_prov,
         )
-        section = SourceSection(
-            section_id="sec-1",
-            parent_section_id=None,
-            title=title,
-            level=1,
-            reading_order=0,
-            page_start=1,
-            page_end=1,
-            block_ids=tuple(b.block_id for b in blocks),
-            figure_ids=("fig-1",),
-            normalized_start_offset=0,
-            normalized_end_offset=len(full_norm),
-        )
-        quality = ExtractionQualityReport(
-            overall_status=overall_status,  # type: ignore[arg-type]
-            usable_for_digital_ingestion=usable,
-            reading_order_verified=page.reading_order_reliable,
-            total_pages=1,
-            digital_text_pages=0,
-            pages_needing_layout=0,
-            pages_needing_table=0,
-            pages_needing_ocr=0 if usable else 1,
-            pages_with_visuals=1,
-            pages_uncertain=0,
+        return state.build_document(
+            tenant_id=tenant_id,
+            input_format=input_format,
+            pages=(page,),
             total_raw_chars=len(full_norm),
-            total_normalized_chars=len(full_norm),
-            warning_count=len(warnings),
+            limits=limits,
             notes=(
                 "Image extraction executed at extractor level; diagram/handwriting interpretation remains deferred.",
             ),
-        )
-        return ExtractedDocument(
-            tenant_id=tenant_id,
-            source_id=source_id,
-            version_id=version_id,
-            source_version=source_version,
-            source_sha256=source_sha256,
-            input_format=input_format,
-            title=title,
-            normalized_text=full_norm,
-            pages=(page,),
-            sections=(section,),
-            text_blocks=tuple(blocks),
-            tables=(),
-            figures=(fig_ref,),
-            formulas=tuple(formulas),
-            evidence_references=tuple(evidence_refs),
-            warnings=tuple(warnings),
-            quality=quality,
-            provenance=base_prov,
-            created_at=datetime.now(UTC),
+            overall_status="partial_with_warnings" if usable else "ocr_required",
+            usable_override=usable,
+            doc_provenance=base_prov,
         )
 
     def _extract_digital_pdf(
@@ -2292,95 +2215,37 @@ class AdaptiveDocumentExtractor:
 
         for sblk in spatial.blocks:
             if sblk.kind == "heading":
-                state.sec_seq += 1
                 h_level = sblk.heading_level or 2
                 h_title = sblk.text[:300]
-                new_sec_id = f"sec-{state.sec_seq}"
-                n_start, n_end = state.append_norm_piece(h_title)
-                page_norm_chars += len(h_title)
-                new_sec: dict[str, object] = {
-                    "section_id": new_sec_id,
-                    "parent_section_id": "sec-1",
-                    "title": h_title,
-                    "level": min(h_level, 6),
-                    "reading_order": state.reading_order,
-                    "page_start": page_no,
-                    "page_end": page_no,
-                    "block_ids": [],
-                    "table_ids": [],
-                    "figure_ids": [],
-                    "formula_ids": [],
-                    "child_section_ids": [],
-                    "norm_start": n_start,
-                    "norm_end": n_end,
-                }
-                root = state.sections_work[0]
-                root["child_section_ids"].append(new_sec_id)  # type: ignore[attr-defined]
-                root["norm_end"] = state.norm_cursor
-                state.sections_work.append(new_sec)
-                state.current_section = new_sec
-                sec_id = new_sec_id
-                blk_text = h_title
-            else:
-                sec_id = str(state.current_section["section_id"])
-                blk_text = sblk.text
-                n_start, n_end = state.append_norm_piece(blk_text)
-                state.sections_work[0]["norm_end"] = state.norm_cursor
-                state.current_section["norm_end"] = state.norm_cursor
-                state.current_section["page_end"] = page_no
-                page_norm_chars += len(blk_text)
-
-            blk_id = f"blk-{len(state.blocks) + 1}"
-            span = SourcePositionSpan(
-                source_start_offset=0,
-                source_end_offset=0,
-                normalized_start_offset=n_start,
-                normalized_end_offset=n_end,
-            )
-            state.blocks.append(
-                TextBlock(
-                    block_id=blk_id,
-                    kind=sblk.kind,  # type: ignore[arg-type]
+                sec_id, n_start, n_end = state.open_section(
+                    title=h_title, level=h_level, page_no=page_no, hierarchical=False
+                )
+                page_norm_chars += state.emit_block(
+                    kind="heading",
                     page_number=page_no,
-                    reading_order=state.reading_order,
-                    section_id=sec_id,
-                    bbox=sblk.bbox,
                     raw_text=sblk.raw_text,
-                    normalized_text=blk_text,
-                    span=span,
-                    heading_level=sblk.heading_level if sblk.kind == "heading" else None,
+                    normalized_text=h_title,
                     provenance=spatial_prov,
-                )
-            )
-            page_block_ids.append(blk_id)
-            state.current_section["block_ids"].append(blk_id)  # type: ignore[attr-defined]
-            new_formulas, state.frm_seq = _extract_formulas_from_text(
-                text=blk_text,
-                page_number=page_no,
-                section_id=sec_id,
-                start_order=state.reading_order,
-                formula_counter_start=state.frm_seq,
-                provenance=spatial_prov,
-            )
-            for frm in new_formulas:
-                state.formulas.append(frm)
-                page_formula_ids.append(frm.formula_id)
-                state.current_section["formula_ids"].append(frm.formula_id)  # type: ignore[attr-defined]
-            state.evidence_refs.append(
-                EvidenceReference(
-                    evidence_id=f"ev-{len(state.evidence_refs) + 1}",
-                    source_id=state.source_id,
-                    version_id=state.version_id,
-                    source_sha256=state.source_sha256,
-                    section_id=sec_id,
-                    block_id=blk_id,
-                    page_number=page_no,
                     bbox=sblk.bbox,
-                    span=span,
-                    excerpt=blk_text[:1000],
+                    section_id=sec_id,
+                    heading_level=sblk.heading_level,
+                    pre_norm_span=(n_start, n_end),
+                    page_block_ids=page_block_ids,
+                    page_formula_ids=page_formula_ids,
+                    extract_formulas=True,
                 )
-            )
-            state.reading_order += 1
+            else:
+                page_norm_chars += state.emit_block(
+                    kind=sblk.kind,
+                    page_number=page_no,
+                    raw_text=sblk.raw_text,
+                    normalized_text=sblk.text,
+                    provenance=spatial_prov,
+                    bbox=sblk.bbox,
+                    page_block_ids=page_block_ids,
+                    page_formula_ids=page_formula_ids,
+                    extract_formulas=True,
+                )
 
         return page_norm_chars
 
@@ -2440,73 +2305,22 @@ class AdaptiveDocumentExtractor:
             state.reading_order += 1
 
         page_norm_chars = 0
-        sec_id = str(state.current_section["section_id"])
         for ln in ocr_res.lines:
-            n_start, n_end = state.append_norm_piece(ln.text)
-            state.sections_work[0]["norm_end"] = state.norm_cursor
-            state.current_section["norm_end"] = state.norm_cursor
-            state.current_section["page_end"] = page_no
-            page_norm_chars += len(ln.text)
             bbox = _scale_ocr_bbox_to_pdf(
-                ln.x0,
-                ln.y0,
-                ln.x1,
-                ln.y1,
-                ocr_res.image_width,
-                ocr_res.image_height,
-                pw,
-                ph,
+                ln.x0, ln.y0, ln.x1, ln.y1,
+                ocr_res.image_width, ocr_res.image_height, pw, ph,
             )
-            span = SourcePositionSpan(
-                source_start_offset=0,
-                source_end_offset=0,
-                normalized_start_offset=n_start,
-                normalized_end_offset=n_end,
-            )
-            blk_id = f"blk-{len(state.blocks) + 1}"
-            state.blocks.append(
-                TextBlock(
-                    block_id=blk_id,
-                    kind="paragraph",
-                    page_number=page_no,
-                    reading_order=state.reading_order,
-                    section_id=sec_id,
-                    bbox=bbox,
-                    raw_text=ln.text,
-                    normalized_text=ln.text,
-                    span=span,
-                    provenance=ocr_prov,
-                )
-            )
-            page_block_ids.append(blk_id)
-            state.current_section["block_ids"].append(blk_id)  # type: ignore[attr-defined]
-            new_formulas, state.frm_seq = _extract_formulas_from_text(
-                text=ln.text,
+            page_norm_chars += state.emit_block(
+                kind="paragraph",
                 page_number=page_no,
-                section_id=sec_id,
-                start_order=state.reading_order,
-                formula_counter_start=state.frm_seq,
+                raw_text=ln.text,
+                normalized_text=ln.text,
                 provenance=ocr_prov,
+                bbox=bbox,
+                page_block_ids=page_block_ids,
+                page_formula_ids=page_formula_ids,
+                extract_formulas=True,
             )
-            for frm in new_formulas:
-                state.formulas.append(frm)
-                page_formula_ids.append(frm.formula_id)
-                state.current_section["formula_ids"].append(frm.formula_id)  # type: ignore[attr-defined]
-            state.evidence_refs.append(
-                EvidenceReference(
-                    evidence_id=f"ev-{len(state.evidence_refs) + 1}",
-                    source_id=state.source_id,
-                    version_id=state.version_id,
-                    source_sha256=state.source_sha256,
-                    section_id=sec_id,
-                    block_id=blk_id,
-                    page_number=page_no,
-                    bbox=bbox,
-                    span=span,
-                    excerpt=ln.text[:1000],
-                )
-            )
-            state.reading_order += 1
 
         page_warn_ids.append(
             state.add_warning(
@@ -2811,6 +2625,7 @@ class AdaptiveDocumentExtractor:
             provenance=doc_prov,
             page_count=page_count,
             title=title,
+            source_version=source_version,
         )
 
         pages: list[DocumentPage] = []
@@ -3188,72 +3003,26 @@ class AdaptiveDocumentExtractor:
                         page_formula_ids=page_formula_ids,
                         page_warn_ids=page_warn_ids,
                     )
-                    state.sec_seq += 1
                     h_level = len(md_match.group(1)) if md_match else 2
                     h_title = (md_match.group(2) if md_match else norm_ln)[:300]
-                    new_sec_id = f"sec-{state.sec_seq}"
-                    n_start, n_end = state.append_norm_piece(h_title)
-                    page_norm_chars += len(h_title)
-                    new_sec = {
-                        "section_id": new_sec_id,
-                        "parent_section_id": "sec-1",
-                        "title": h_title,
-                        "level": min(h_level, 6),
-                        "reading_order": state.reading_order,
-                        "page_start": page_no,
-                        "page_end": page_no,
-                        "block_ids": [],
-                        "table_ids": [],
-                        "figure_ids": [],
-                        "formula_ids": [],
-                        "child_section_ids": [],
-                        "norm_start": n_start,
-                        "norm_end": n_end,
-                    }
-                    root = state.sections_work[0]
-                    root["child_section_ids"].append(new_sec_id)  # type: ignore[attr-defined]
-                    root["norm_end"] = state.norm_cursor
-                    state.sections_work.append(new_sec)
-                    state.current_section = new_sec
-                    blk_id = f"blk-{len(state.blocks) + 1}"
-                    span = SourcePositionSpan(
+                    sec_id, n_start, n_end = state.open_section(
+                        title=h_title, level=h_level, page_no=page_no, hierarchical=False
+                    )
+                    page_norm_chars += state.emit_block(
+                        kind="heading",
+                        page_number=page_no,
+                        raw_text=stripped_ln,
+                        normalized_text=h_title,
+                        provenance=fast_prov,
+                        section_id=sec_id,
+                        heading_level=min(h_level, 6),
                         source_start_offset=l_start,
                         source_end_offset=l_end,
                         source_line_start=line_no,
                         source_line_end=line_no,
-                        normalized_start_offset=n_start,
-                        normalized_end_offset=n_end,
+                        pre_norm_span=(n_start, n_end),
+                        page_block_ids=page_block_ids,
                     )
-                    state.blocks.append(
-                        TextBlock(
-                            block_id=blk_id,
-                            kind="heading",
-                            page_number=page_no,
-                            reading_order=state.reading_order,
-                            section_id=new_sec_id,
-                            raw_text=stripped_ln,
-                            normalized_text=h_title,
-                            span=span,
-                            heading_level=min(h_level, 6),
-                            provenance=fast_prov,
-                        )
-                    )
-                    page_block_ids.append(blk_id)
-                    new_sec["block_ids"].append(blk_id)  # type: ignore[attr-defined]
-                    state.evidence_refs.append(
-                        EvidenceReference(
-                            evidence_id=f"ev-{len(state.evidence_refs) + 1}",
-                            source_id=source_id,
-                            version_id=version_id,
-                            source_sha256=source_sha256,
-                            section_id=new_sec_id,
-                            block_id=blk_id,
-                            page_number=page_no,
-                            span=span,
-                            excerpt=h_title[:1000],
-                        )
-                    )
-                    state.reading_order += 1
                     continue
                 paragraph_buf.append((l_start, l_end, line_no, stripped_ln))
 
@@ -3267,50 +3036,18 @@ class AdaptiveDocumentExtractor:
                 page_warn_ids=page_warn_ids,
             )
             for hf_start, hf_end, hf_lno, hf_raw in hf_lines_on_page:
-                hf_norm = _normalize_line(hf_raw)
-                sec_id = str(state.current_section["section_id"])
-                n_start, n_end = state.append_norm_piece(hf_norm)
-                state.sections_work[0]["norm_end"] = state.norm_cursor
-                state.current_section["norm_end"] = state.norm_cursor
-                page_norm_chars += len(hf_norm)
-                blk_id = f"blk-{len(state.blocks) + 1}"
-                span = SourcePositionSpan(
+                page_norm_chars += state.emit_block(
+                    kind="header_or_footer",
+                    page_number=page_no,
+                    raw_text=hf_raw,
+                    normalized_text=_normalize_line(hf_raw),
+                    provenance=fast_prov,
                     source_start_offset=hf_start,
                     source_end_offset=hf_end,
                     source_line_start=hf_lno,
                     source_line_end=hf_lno,
-                    normalized_start_offset=n_start,
-                    normalized_end_offset=n_end,
+                    page_block_ids=page_block_ids,
                 )
-                state.blocks.append(
-                    TextBlock(
-                        block_id=blk_id,
-                        kind="header_or_footer",
-                        page_number=page_no,
-                        reading_order=state.reading_order,
-                        section_id=sec_id,
-                        raw_text=hf_raw,
-                        normalized_text=hf_norm,
-                        span=span,
-                        provenance=fast_prov,
-                    )
-                )
-                page_block_ids.append(blk_id)
-                state.current_section["block_ids"].append(blk_id)  # type: ignore[attr-defined]
-                state.evidence_refs.append(
-                    EvidenceReference(
-                        evidence_id=f"ev-{len(state.evidence_refs) + 1}",
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_sha256=source_sha256,
-                        section_id=sec_id,
-                        block_id=blk_id,
-                        page_number=page_no,
-                        span=span,
-                        excerpt=hf_norm[:1000],
-                    )
-                )
-                state.reading_order += 1
             pages.append(
                 DocumentPage(
                     page_number=page_no,
@@ -3348,46 +3085,6 @@ class AdaptiveDocumentExtractor:
                 "Repeated bottom footer detected across pages and isolated as header_or_footer blocks.",
             )
 
-        sections = tuple(
-            SourceSection(
-                section_id=str(s["section_id"]),
-                parent_section_id=(
-                    None
-                    if s["parent_section_id"] is None
-                    else str(s["parent_section_id"])
-                ),
-                title=str(s["title"]),
-                level=int(s["level"]),
-                reading_order=int(s["reading_order"]),
-                page_start=int(s["page_start"]),
-                page_end=int(s["page_end"]),
-                block_ids=tuple(s["block_ids"]),  # type: ignore[arg-type]
-                table_ids=tuple(s["table_ids"]),  # type: ignore[arg-type]
-                figure_ids=tuple(s["figure_ids"]),  # type: ignore[arg-type]
-                formula_ids=tuple(s["formula_ids"]),  # type: ignore[arg-type]
-                child_section_ids=tuple(s["child_section_ids"]),  # type: ignore[arg-type]
-                normalized_start_offset=int(s["norm_start"]),
-                normalized_end_offset=int(s["norm_end"]),
-            )
-            for s in state.sections_work
-        )
-
-        full_normalized = "\n\n".join(state.normalized_parts)
-        c_digital = sum(1 for p in pages if p.classification == "digital_text")
-        c_layout = sum(1 for p in pages if p.classification == "needs_layout")
-        c_table = sum(1 for p in pages if p.classification == "needs_table")
-        c_ocr = sum(1 for p in pages if p.classification == "needs_ocr")
-        c_visual = sum(1 for p in pages if p.classification == "visual_content")
-        c_uncertain = sum(1 for p in pages if p.classification == "uncertain")
-
-        usable = len(full_normalized.strip()) >= limits.min_text_chars
-        if not usable:
-            overall_status = "ocr_required" if c_ocr > 0 else "unreadable"
-        elif state.warnings:
-            overall_status = "partial_with_warnings"
-        else:
-            overall_status = "complete"
-
         notes: list[str] = [
             f"Adaptive extraction completed: fast_path={page_count - len(spatial_results) - len(ocr_results)}, spatial={len(spatial_results)}, ocr={len(ocr_results)}."
         ]
@@ -3395,41 +3092,11 @@ class AdaptiveDocumentExtractor:
             notes.append(
                 "One or more pages have uncertain reading order or deferred OCR/visual content."
             )
-
-        quality = ExtractionQualityReport(
-            overall_status=overall_status,  # type: ignore[arg-type]
-            usable_for_digital_ingestion=usable,
-            reading_order_verified=state.reading_order_verified,
-            total_pages=len(pages),
-            digital_text_pages=c_digital,
-            pages_needing_layout=c_layout,
-            pages_needing_table=c_table,
-            pages_needing_ocr=c_ocr,
-            pages_with_visuals=c_visual,
-            pages_uncertain=c_uncertain,
-            total_raw_chars=total_raw_chars,
-            total_normalized_chars=len(full_normalized),
-            warning_count=len(state.warnings),
-            notes=tuple(notes),
-        )
-        return ExtractedDocument(
+        return state.build_document(
             tenant_id=tenant_id,
-            source_id=source_id,
-            version_id=version_id,
-            source_version=source_version,
-            source_sha256=source_sha256,
             input_format=input_format,
-            title=title,
-            normalized_text=full_normalized,
             pages=tuple(pages),
-            sections=sections,
-            text_blocks=tuple(state.blocks),
-            tables=tuple(state.tables),
-            figures=tuple(state.figures),
-            formulas=tuple(state.formulas),
-            evidence_references=tuple(state.evidence_refs),
-            warnings=tuple(state.warnings),
-            quality=quality,
-            provenance=doc_prov,
-            created_at=datetime.now(UTC),
+            total_raw_chars=total_raw_chars,
+            limits=limits,
+            notes=tuple(notes),
         )

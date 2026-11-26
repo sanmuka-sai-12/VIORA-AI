@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
@@ -114,6 +115,38 @@ def build_knowledge_scope_key(
     )
 
 
+def _rebind_items(
+    items: tuple[Any, ...],
+    *,
+    source_id: UUID,
+    version_id: UUID,
+    derived_extraction_id: UUID,
+    source_sha256: str,
+) -> tuple[Any, ...]:
+    return tuple(
+        item.model_copy(
+            update={
+                "evidence_bindings": tuple(
+                    ConceptEvidenceBinding(
+                        evidence_id=b.evidence_id,
+                        source_id=source_id,
+                        version_id=version_id,
+                        source_sha256=source_sha256,
+                        extraction_id=derived_extraction_id,
+                        page_number=b.page_number,
+                        section_id=b.section_id,
+                        block_id=b.block_id,
+                        verified=b.verified,
+                        excerpt=b.excerpt,
+                    )
+                    for b in item.evidence_bindings
+                )
+            }
+        )
+        for item in items
+    )
+
+
 def rebind_cached_knowledge_graph(
     cached: ExtractedKnowledgeGraph,
     *,
@@ -125,51 +158,20 @@ def rebind_cached_knowledge_graph(
     created_at: datetime,
 ) -> ExtractedKnowledgeGraph:
     """Rebind cached concepts and evidence references strictly to target derived extraction IDs."""
-    rebound_concepts = tuple(
-        c.model_copy(
-            update={
-                "evidence_bindings": tuple(
-                    ConceptEvidenceBinding(
-                        evidence_id=b.evidence_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_sha256=source_sha256,
-                        extraction_id=derived_extraction_id,
-                        page_number=b.page_number,
-                        section_id=b.section_id,
-                        block_id=b.block_id,
-                        verified=b.verified,
-                        excerpt=b.excerpt,
-                    )
-                    for b in c.evidence_bindings
-                )
-            }
-        )
-        for c in cached.concepts
+    rebound_concepts = _rebind_items(
+        cached.concepts,
+        source_id=source_id,
+        version_id=version_id,
+        derived_extraction_id=derived_extraction_id,
+        source_sha256=source_sha256,
     )
-    rebound_rels = tuple(
-        r.model_copy(
-            update={
-                "evidence_bindings": tuple(
-                    ConceptEvidenceBinding(
-                        evidence_id=b.evidence_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        source_sha256=source_sha256,
-                        extraction_id=derived_extraction_id,
-                        page_number=b.page_number,
-                        section_id=b.section_id,
-                        block_id=b.block_id,
-                        verified=b.verified,
-                        excerpt=b.excerpt,
-                    )
-                    for b in r.evidence_bindings
-                )
-            }
-        )
-        for r in cached.relationships
+    rebound_rels = _rebind_items(
+        cached.relationships,
+        source_id=source_id,
+        version_id=version_id,
+        derived_extraction_id=derived_extraction_id,
+        source_sha256=source_sha256,
     )
-    # Type check satisfaction for tuple element preservation
     assert all(isinstance(c, ConceptCandidate) for c in rebound_concepts)
     assert all(isinstance(r, ConceptRelationshipCandidate) for r in rebound_rels)
     return cached.model_copy(

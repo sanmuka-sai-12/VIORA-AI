@@ -22,6 +22,7 @@ from .schemas import (
     AIQuotaExhaustedError,
     AIRateLimitError,
     AIRequestConfig,
+    AIResourceLimitError,
     AIResourceLimits,
     AIResponseFormatError,
     AITimeoutError,
@@ -32,6 +33,7 @@ from .schemas import (
     GatewayMetadata,
     StructuredResult,
     Usage,
+    clamp_resource_limits,
     validate_chat_budget,
     validate_embedding_budget,
     validate_provider_endpoint,
@@ -100,6 +102,19 @@ def _strip_json_code_fence(raw_content: str) -> str:
         if len(lines) >= 3 and lines[-1].strip() == "```":
             return "\n".join(lines[1:-1]).strip()
     return trimmed
+
+
+def _compact_json_schema(node: Any, *, _in_properties: bool = False) -> Any:
+    """Strip Pydantic auto-generated schema 'title' noise without dropping real 'title' fields."""
+    if isinstance(node, dict):
+        return {
+            k: _compact_json_schema(v, _in_properties=(k == "properties"))
+            for k, v in node.items()
+            if _in_properties or k != "title"
+        }
+    if isinstance(node, list):
+        return [_compact_json_schema(item) for item in node]
+    return node
 
 
 class OpenAIAdapter(AIGateway):
@@ -249,22 +264,35 @@ class OpenAIAdapter(AIGateway):
         retries = 0
         max_retries = config.max_retries
 
-        wait_budget = max(0.0, deadline - self._clock())
-        acquired = self._semaphore.acquire(timeout=wait_budget)
-        if not acquired:
-            elapsed_ms = (self._clock() - start) * 1000.0
+        def _fail(
+            level: int,
+            exc_cls: type[AIError],
+            msg: str,
+            error_code: str,
+            retry_count: int = 0,
+        ) -> AIError:
             self._log_event(
-                logging.WARNING,
+                level,
                 event="ai_request_failed",
                 context=context,
                 operation=operation_name,
                 model=model,
-                retry_count=0,
-                latency_ms=elapsed_ms,
+                retry_count=retry_count,
+                latency_ms=(self._clock() - start) * 1000.0,
                 input_chars=input_chars,
-                error_code="ai_timeout_error",
+                error_code=error_code,
             )
-            raise AITimeoutError("AI concurrency limit wait exceeded deadline") from None
+            return exc_cls(msg)
+
+        wait_budget = max(0.0, deadline - self._clock())
+        acquired = self._semaphore.acquire(timeout=wait_budget)
+        if not acquired:
+            raise _fail(
+                logging.WARNING,
+                AITimeoutError,
+                "AI concurrency limit wait exceeded deadline",
+                "ai_timeout_error",
+            ) from None
 
         try:
             while True:
@@ -278,37 +306,21 @@ class OpenAIAdapter(AIGateway):
                     elapsed_ms = (self._clock() - start) * 1000.0
                     return result, retries, elapsed_ms
                 except openai.AuthenticationError:
-                    elapsed_ms = (self._clock() - start) * 1000.0
-                    self._log_event(
+                    raise _fail(
                         logging.ERROR,
-                        event="ai_request_failed",
-                        context=context,
-                        operation=operation_name,
-                        model=model,
-                        retry_count=retries,
-                        latency_ms=elapsed_ms,
-                        input_chars=input_chars,
-                        error_code="ai_configuration_error",
-                    )
-                    raise AIConfigurationError(
-                        "Invalid or missing AI credentials"
+                        AIConfigurationError,
+                        "Invalid or missing AI credentials",
+                        "ai_configuration_error",
+                        retries,
                     ) from None
                 except openai.RateLimitError as exc:
                     if _is_quota_exhausted_error(exc):
-                        elapsed_ms = (self._clock() - start) * 1000.0
-                        self._log_event(
+                        raise _fail(
                             logging.WARNING,
-                            event="ai_request_failed",
-                            context=context,
-                            operation=operation_name,
-                            model=model,
-                            retry_count=retries,
-                            latency_ms=elapsed_ms,
-                            input_chars=input_chars,
-                            error_code="ai_quota_exhausted",
-                        )
-                        raise AIQuotaExhaustedError(
-                            "AI provider daily or account quota exhausted; stopping without retries"
+                            AIQuotaExhaustedError,
+                            "AI provider daily or account quota exhausted; stopping without retries",
+                            "ai_quota_exhausted",
+                            retries,
                         ) from None
                     err_cls: type[AITransientError] = AIRateLimitError
                     err_msg = "AI provider rate limit exceeded"
@@ -319,53 +331,32 @@ class OpenAIAdapter(AIGateway):
                     err_cls = AITransientError
                     err_msg = "AI provider unavailable"
                 except openai.BadRequestError as exc:
-                    err_code = getattr(exc, "code", "")
-                    elapsed_ms = (self._clock() - start) * 1000.0
-                    if err_code == "content_filter":
-                        self._log_event(
+                    if getattr(exc, "code", "") == "content_filter":
+                        raise _fail(
                             logging.WARNING,
-                            event="ai_request_failed",
-                            context=context,
-                            operation=operation_name,
-                            model=model,
-                            retry_count=retries,
-                            latency_ms=elapsed_ms,
-                            input_chars=input_chars,
-                            error_code="ai_content_filter_error",
-                        )
-                        raise AIContentFilterError(
-                            "Content rejected by safety filters"
+                            AIContentFilterError,
+                            "Content rejected by safety filters",
+                            "ai_content_filter_error",
+                            retries,
                         ) from None
-                    self._log_event(
+                    raise _fail(
                         logging.ERROR,
-                        event="ai_request_failed",
-                        context=context,
-                        operation=operation_name,
-                        model=model,
-                        retry_count=retries,
-                        latency_ms=elapsed_ms,
-                        input_chars=input_chars,
-                        error_code="ai_bad_request",
-                    )
-                    raise AIError("ai_bad_request", "AI request rejected") from None
+                        lambda m: AIError("ai_bad_request", m),  # type: ignore[arg-type]
+                        "AI request rejected",
+                        "ai_bad_request",
+                        retries,
+                    ) from None
                 except openai.OpenAIError:
-                    elapsed_ms = (self._clock() - start) * 1000.0
-                    self._log_event(
+                    raise _fail(
                         logging.ERROR,
-                        event="ai_request_failed",
-                        context=context,
-                        operation=operation_name,
-                        model=model,
-                        retry_count=retries,
-                        latency_ms=elapsed_ms,
-                        input_chars=input_chars,
-                        error_code="ai_provider_error",
-                    )
-                    raise AIError("ai_provider_error", "AI service failure") from None
+                        lambda m: AIError("ai_provider_error", m),  # type: ignore[arg-type]
+                        "AI service failure",
+                        "ai_provider_error",
+                        retries,
+                    ) from None
 
                 remaining_after = deadline - self._clock()
                 if retries >= max_retries or remaining_after <= 0.0:
-                    elapsed_ms = (self._clock() - start) * 1000.0
                     if remaining_after <= 0.0 and err_cls is not AITimeoutError and retries > 0:
                         final_exc: AITransientError = AITimeoutError(
                             "AI operation deadline exceeded"
@@ -379,7 +370,7 @@ class OpenAIAdapter(AIGateway):
                         operation=operation_name,
                         model=model,
                         retry_count=retries,
-                        latency_ms=elapsed_ms,
+                        latency_ms=(self._clock() - start) * 1000.0,
                         input_chars=input_chars,
                         error_code=final_exc.code,
                     )
@@ -391,20 +382,12 @@ class OpenAIAdapter(AIGateway):
                 )
                 delay = max(0.0, float(self._jitter(cap)))
                 if delay >= remaining_after:
-                    elapsed_ms = (self._clock() - start) * 1000.0
-                    self._log_event(
+                    raise _fail(
                         logging.WARNING,
-                        event="ai_request_failed",
-                        context=context,
-                        operation=operation_name,
-                        model=model,
-                        retry_count=retries,
-                        latency_ms=elapsed_ms,
-                        input_chars=input_chars,
-                        error_code="ai_timeout_error",
-                    )
-                    raise AITimeoutError(
-                        "AI operation deadline exceeded before retry"
+                        AITimeoutError,
+                        "AI operation deadline exceeded before retry",
+                        "ai_timeout_error",
+                        retries,
                     ) from None
 
                 retries += 1
@@ -520,25 +503,35 @@ class OpenAIAdapter(AIGateway):
             {"role": m.role.value, "content": m.content} for m in messages
         ]
 
-        schema_json = response_model.model_json_schema()
-        schema_prompt = (
-            "\nStrict response requirement: respond in valid JSON conforming to the following schema:\n"
-            f"{json.dumps(schema_json)}"
-        )
-        if formatted_messages and formatted_messages[0]["role"] == "system":
-            formatted_messages[0]["content"] += schema_prompt
-        else:
-            formatted_messages.insert(
-                0, {"role": "system", "content": schema_prompt.strip()}
-            )
-
+        schema_json = _compact_json_schema(response_model.model_json_schema())
+        compact_schema_str = json.dumps(schema_json, separators=(",", ":"))
         if self.structured_output_mode == "json_schema":
             response_format: dict[str, Any] = {
                 "type": "json_schema",
                 "json_schema": schema_json,
             }
+            schema_overhead = len(compact_schema_str)
         else:
+            schema_prompt = (
+                "\nRespond in valid JSON matching schema:\n"
+                f"{compact_schema_str}"
+            )
+            if formatted_messages and formatted_messages[0]["role"] == "system":
+                formatted_messages[0]["content"] += schema_prompt
+            else:
+                formatted_messages.insert(
+                    0, {"role": "system", "content": schema_prompt.strip()}
+                )
             response_format = {"type": "json_object"}
+            schema_overhead = len(schema_prompt)
+
+        effective_limits = clamp_resource_limits(cfg.resource_limits, self.hard_limits)
+        total_input_chars = input_chars + schema_overhead
+        if total_input_chars > effective_limits.max_input_chars:
+            raise AIResourceLimitError(
+                f"Total input + schema size {total_input_chars} chars exceeds limit {effective_limits.max_input_chars}"
+            )
+        input_chars = total_input_chars
 
         base_kwargs: dict[str, Any] = {
             "model": self.default_model,

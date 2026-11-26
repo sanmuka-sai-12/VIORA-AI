@@ -10,11 +10,8 @@ Measures:
 
 from __future__ import annotations
 
-import ctypes
-import ctypes.wintypes
 import io
 import json
-import os
 import subprocess
 import sys
 import time
@@ -24,9 +21,11 @@ from typing import Any
 from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 import pdfplumber
+from _common import compute_cer_wer, get_process_memory_mb
 from viora.perf.public import build_synthetic_corpus, percentile
 from viora.sources.extraction import AdaptiveDocumentExtractor
 from viora.sources.ocr import RapidOcrBackend, decode_bounded_image
@@ -34,70 +33,6 @@ from viora.sources.schemas import clamp_source_limits
 from viora.sources.spatial_layout import analyze_page_spatial
 
 GROUND_TRUTH_PATH = REPO_ROOT / "benchmarks" / "educational_corpus" / "ground_truth.json"
-
-
-class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-    _fields_ = [
-        ("cb", ctypes.wintypes.DWORD),
-        ("PageFaultCount", ctypes.wintypes.DWORD),
-        ("PeakWorkingSetSize", ctypes.c_size_t),
-        ("WorkingSetSize", ctypes.c_size_t),
-        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-        ("PagefileUsage", ctypes.c_size_t),
-        ("PeakPagefileUsage", ctypes.c_size_t),
-    ]
-
-
-def get_process_memory_mb() -> dict[str, float]:
-    """Read real OS process working set & peak working set separately from Python heap."""
-    if os.name == "nt":
-        pmc = _PROCESS_MEMORY_COUNTERS()
-        pmc.cb = ctypes.sizeof(pmc)
-        k32 = ctypes.windll.kernel32
-        k32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
-        k32.K32GetProcessMemoryInfo.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
-            ctypes.wintypes.DWORD,
-        ]
-        k32.K32GetProcessMemoryInfo.restype = ctypes.wintypes.BOOL
-        handle = k32.GetCurrentProcess()
-        if k32.K32GetProcessMemoryInfo(handle, ctypes.byref(pmc), pmc.cb):
-            return {
-                "rss_mb": round(pmc.WorkingSetSize / (1024 * 1024), 2),
-                "peak_rss_mb": round(pmc.PeakWorkingSetSize / (1024 * 1024), 2),
-            }
-    return {"rss_mb": 0.0, "peak_rss_mb": 0.0}
-
-
-def levenshtein_distance(seq_a: list[str] | str, seq_b: list[str] | str) -> int:
-    n, m = len(seq_a), len(seq_b)
-    if n == 0:
-        return m
-    if m == 0:
-        return n
-    prev = list(range(m + 1))
-    for i in range(1, n + 1):
-        cur = [i] + [0] * m
-        ai = seq_a[i - 1]
-        for j in range(1, m + 1):
-            cost = 0 if ai == seq_b[j - 1] else 1
-            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
-        prev = cur
-    return prev[m]
-
-
-def compute_cer_wer(reference: str, hypothesis: str) -> tuple[float, float]:
-    ref_clean = " ".join(reference.split())
-    hyp_clean = " ".join(hypothesis.split())
-    cer = levenshtein_distance(ref_clean, hyp_clean) / max(1, len(ref_clean))
-    ref_words = ref_clean.split()
-    hyp_words = hyp_clean.split()
-    wer = levenshtein_distance(ref_words, hyp_words) / max(1, len(ref_words))
-    return round(cer, 4), round(wer, 4)
 
 
 def reading_order_accuracy(text: str, ordered_markers: list[str]) -> float:

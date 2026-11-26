@@ -1,61 +1,33 @@
-import { useCallback, useState, type FormEvent } from "react";
-import {
-  normalizeApiError,
-  type NormalizedApiError,
-  type SectionSummary,
-} from "../../api/client";
+import { useCallback, useState } from "react";
+import type { SectionSummary } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
-import {
-  ActiveBadge,
-  AlertBanner,
-  ConfirmDialog,
-  DataTable,
-  FormField,
-  ModalDialog,
-  PageHeader,
-  PaginationBar,
-  SectionCard,
-  UuidChip,
-} from "../../components/common/UiPrimitives";
-import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStates";
+import { FormField, PageHeader, UuidChip } from "../../components/common/UiPrimitives";
 import { deriveRoleFlags } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
 import { validateRequiredName, validateRequiredUuid } from "../../tenant/validation";
+import { AcademicCrudSection, type ActiveFilterValue } from "../common/AcademicCrudSection";
 import { AssignmentModal } from "../common/AssignmentModal";
+import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { resolveLabelById, useTenantOptions } from "../common/useTenantOptions";
 
 export function SectionsPage() {
-  const { apiClient, controller: authController } = useAuth();
+  const { apiClient } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
   const flags = deriveRoleFlags(tenant.selectedInstitution?.roles ?? []);
-
-  const options = useTenantOptions({
-    semesters: true,
-    programmes: true,
-    members: true,
-  });
+  const feedback = useActionFeedback();
+  const options = useTenantOptions({ semesters: true, programmes: true, members: true });
 
   const [semesterFilter, setSemesterFilter] = useState("");
   const [programmeFilter, setProgrammeFilter] = useState("");
-  const [activeFilter, setActiveFilter] = useState<"all" | "active" | "archived">("all");
-  const [actionError, setActionError] = useState<NormalizedApiError | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-
+  const [activeFilter, setActiveFilter] = useState<ActiveFilterValue>("all");
   const [createName, setCreateName] = useState("");
   const [createSemesterId, setCreateSemesterId] = useState("");
   const [createProgrammeId, setCreateProgrammeId] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  const [editing, setEditing] = useState<SectionSummary | null>(null);
   const [editName, setEditName] = useState("");
   const [editSemesterId, setEditSemesterId] = useState("");
   const [editProgrammeId, setEditProgrammeId] = useState("");
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  const [lifecycleTarget, setLifecycleTarget] = useState<SectionSummary | null>(null);
-  const [toggling, setToggling] = useState(false);
   const [coordsSection, setCoordsSection] = useState<SectionSummary | null>(null);
 
   const fetcher = useCallback(
@@ -74,29 +46,18 @@ export function SectionsPage() {
       }),
     [activeFilter, apiClient, programmeFilter, semesterFilter, tenantId],
   );
-
   const list = useCursorList<SectionSummary>(tenantId, fetcher);
 
-  const handleCreate = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!tenantId) return;
-    setActionError(null);
-    setActionSuccess(null);
-
+  const handleCreate = async () => {
+    if (!tenantId) return false;
     const nameErr = validateRequiredName(createName, "Section name", 160);
     const semErr = validateRequiredUuid(createSemesterId, "Semester");
     if (nameErr || semErr) {
-      setActionError({
-        status: 422,
-        code: "validation_error",
-        message: nameErr ?? semErr ?? "Invalid section inputs.",
-      });
-      return;
+      feedback.setValidationError(nameErr ?? semErr ?? "Invalid section inputs.");
+      return false;
     }
-
-    setCreating(true);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+    return feedback.runApiAction({
+      call: () =>
         apiClient.POST("/api/v1/tenants/{tenant_id}/sections", {
           params: { path: { tenant_id: tenantId } },
           body: {
@@ -105,108 +66,58 @@ export function SectionsPage() {
             programme_id: createProgrammeId || null,
           },
         }),
-      );
-      if (res.data) {
+      fallbackError: "Failed to create section.",
+      onSuccess: (data) => {
         setCreateName("");
-        setActionSuccess(`Class section "${res.data.name}" created.`);
+        setCreateProgrammeId("");
+        feedback.setActionSuccess(`Section "${data.name}" created.`);
         list.resetToFirstPage();
         list.reload();
-      } else {
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Failed to create class section."),
-        );
-      }
-    } catch {
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setCreating(false);
-    }
+      },
+    });
   };
 
-  const handleSaveEdit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!tenantId || !editing) return;
-    setActionError(null);
-    setActionSuccess(null);
-
-    const problem = validateRequiredName(editName, "Section name", 160);
-    if (problem) {
-      setActionError({ status: 422, code: "validation_error", message: problem });
-      return;
+  const handleSaveEdit = async (target: SectionSummary) => {
+    if (!tenantId) return false;
+    const nameErr = validateRequiredName(editName, "Section name", 160);
+    if (nameErr) {
+      feedback.setValidationError(nameErr);
+      return false;
     }
-
-    setSavingEdit(true);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+    return feedback.runApiAction({
+      call: () =>
         apiClient.PATCH("/api/v1/tenants/{tenant_id}/sections/{section_id}", {
-          params: { path: { tenant_id: tenantId, section_id: editing.id } },
+          params: { path: { tenant_id: tenantId, section_id: target.id } },
           body: flags.isAdmin
             ? {
-                name: editName.trim(),
-                semester_id: editSemesterId || null,
-                programme_id: editProgrammeId || null,
-              }
+              name: editName.trim(),
+              semester_id: editSemesterId || null,
+              programme_id: editProgrammeId || null,
+            }
             : { name: editName.trim() },
         }),
-      );
-      if (res.data) {
-        setEditing(null);
-        setActionSuccess(`Class section "${res.data.name}" updated.`);
+      fallbackError: "Failed to update section.",
+      onSuccess: (data) => {
+        feedback.setActionSuccess(`Section "${data.name}" updated.`);
         list.reload();
-      } else {
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Failed to update class section."),
-        );
-      }
-    } catch {
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setSavingEdit(false);
-    }
+      },
+    });
   };
 
-  const handleConfirmLifecycle = async () => {
-    if (!tenantId || !lifecycleTarget) return;
-    setToggling(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+  const handleToggleLifecycle = async (target: SectionSummary) => {
+    if (!tenantId) return;
+    await feedback.runApiAction({
+      call: () =>
         apiClient.POST("/api/v1/tenants/{tenant_id}/sections/{section_id}/lifecycle", {
-          params: { path: { tenant_id: tenantId, section_id: lifecycleTarget.id } },
-          body: { active: !lifecycleTarget.active },
+          params: { path: { tenant_id: tenantId, section_id: target.id } },
+          body: { active: !target.active },
         }),
-      );
-      if (res.data) {
-        setActionSuccess(
-          `Section "${res.data.name}" ${res.data.active ? "activated" : "archived"}.`,
-        );
-        setLifecycleTarget(null);
+      fallbackError: "Failed to update section status.",
+      onSuccess: (data) => {
+        feedback.setActionSuccess(`Section "${data.name}" ${data.active ? "activated" : "archived"}.`);
         list.reload();
-      } else {
-        setLifecycleTarget(null);
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Failed to update section status."),
-        );
-      }
-    } catch {
-      setLifecycleTarget(null);
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setToggling(false);
-    }
+      },
+    });
   };
 
   return (
@@ -219,26 +130,19 @@ export function SectionsPage() {
             : "Class sections assigned to your coordination scope."
         }
       />
-
-      {actionSuccess && (
-        <AlertBanner
-          tone="success"
-          message={actionSuccess}
-          onDismiss={() => setActionSuccess(null)}
-        />
-      )}
-      {actionError && (
-        <AlertBanner
-          tone="error"
-          title="Operation failed"
-          error={actionError}
-          onDismiss={() => setActionError(null)}
-        />
-      )}
-
-      {flags.isAdmin && (
-        <SectionCard title="Create Class Section">
-          <form onSubmit={handleCreate} className="viora-grid-3" style={{ alignItems: "end" }}>
+      {feedback.alerts}
+      <AcademicCrudSection
+        entityLabel="Section"
+        list={list}
+        activeFilter={activeFilter}
+        onActiveFilterChange={setActiveFilter}
+        canCreate={flags.isAdmin}
+        createTitle="Create Class Section"
+        createSubmitLabel="Create section"
+        createFormClassName="viora-grid-3"
+        onCreate={handleCreate}
+        renderCreateFields={(busy) => (
+          <>
             <FormField label="Section name" htmlFor="sec-create-name">
               <input
                 id="sec-create-name"
@@ -247,18 +151,17 @@ export function SectionsPage() {
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder="CSE-A"
-                disabled={creating}
+                disabled={busy}
                 required
               />
             </FormField>
-
             <FormField label="Semester (required)" htmlFor="sec-create-sem">
               <select
                 id="sec-create-sem"
                 className="viora-select"
                 value={createSemesterId}
                 onChange={(e) => setCreateSemesterId(e.target.value)}
-                disabled={creating}
+                disabled={busy}
                 required
               >
                 <option value="">Select active semester...</option>
@@ -271,14 +174,13 @@ export function SectionsPage() {
                   ))}
               </select>
             </FormField>
-
             <FormField label="Programme (optional)" htmlFor="sec-create-prog">
               <select
                 id="sec-create-prog"
                 className="viora-select"
                 value={createProgrammeId}
                 onChange={(e) => setCreateProgrammeId(e.target.value)}
-                disabled={creating}
+                disabled={busy}
               >
                 <option value="">None</option>
                 {options.programmes
@@ -290,20 +192,11 @@ export function SectionsPage() {
                   ))}
               </select>
             </FormField>
-
-            <div>
-              <button type="submit" className="viora-btn viora-btn-primary" disabled={creating}>
-                {creating ? "Creating..." : "Create section"}
-              </button>
-            </div>
-          </form>
-        </SectionCard>
-      )}
-
-      <SectionCard
-        title="Sections"
-        actions={
-          <div className="viora-row">
+          </>
+        )}
+        directoryTitle="Sections"
+        extraFilters={
+          <>
             {flags.isAdmin && options.semesters.length > 0 && (
               <select
                 className="viora-select viora-select-inline"
@@ -340,180 +233,104 @@ export function SectionsPage() {
                 ))}
               </select>
             )}
-            <select
-              className="viora-select viora-select-inline"
-              aria-label="Filter sections by status"
-              value={activeFilter}
-              onChange={(e) => {
-                setActiveFilter(e.target.value as "all" | "active" | "archived");
-                list.resetToFirstPage();
-              }}
-            >
-              <option value="all">All statuses</option>
-              <option value="active">Active only</option>
-              <option value="archived">Archived only</option>
-            </select>
-          </div>
+          </>
         }
-      >
-        {list.loading && <LoadingSpinner message="Loading class sections..." />}
-        {!list.loading && list.error && (
-          <ErrorState
-            title="Could not load class sections"
-            message={`${list.error.message} (${list.error.code})`}
-            onRetry={list.reload}
-          />
+        loadingMessage="Loading class sections..."
+        errorTitle="Could not load class sections"
+        emptyTitle="No class sections available"
+        emptyDescription="No sections match your scope or filter."
+        columns={[
+          { key: "name", header: "Section", render: (s) => <strong>{s.name}</strong> },
+          {
+            key: "semester",
+            header: "Semester",
+            render: (s) =>
+              resolveLabelById(options.semesters, s.semester_id) ?? (
+                <UuidChip value={s.semester_id} />
+              ),
+          },
+          {
+            key: "programme",
+            header: "Programme",
+            render: (s) =>
+              resolveLabelById(options.programmes, s.programme_id) ??
+              (s.programme_id ? <UuidChip value={s.programme_id} /> : "Unassigned"),
+          },
+        ]}
+        extraRowActions={(s) => (
+          <button
+            type="button"
+            className="viora-btn viora-btn-sm"
+            onClick={() => setCoordsSection(s)}
+          >
+            Coordinators
+          </button>
         )}
-        {!list.loading && !list.error && (
+        canEditRow={() => flags.isAdmin || flags.isClassCoordinator}
+        canToggleRow={() => flags.isAdmin}
+        editModalTitle="Edit Section"
+        onOpenEdit={(s) => {
+          setEditName(s.name);
+          setEditSemesterId(s.semester_id);
+          setEditProgrammeId(s.programme_id ?? "");
+        }}
+        renderEditFields={(_, busy) => (
           <>
-            <DataTable
-              rows={list.items}
-              rowKey={(s) => s.id}
-              emptyTitle="No class sections available"
-              emptyDescription="No sections match your scope or filter."
-              columns={[
-                { key: "name", header: "Section", render: (s) => <strong>{s.name}</strong> },
-                {
-                  key: "semester",
-                  header: "Semester",
-                  render: (s) =>
-                    resolveLabelById(options.semesters, s.semester_id) ?? (
-                      <UuidChip value={s.semester_id} />
-                    ),
-                },
-                {
-                  key: "programme",
-                  header: "Programme",
-                  render: (s) => {
-                    const label = resolveLabelById(options.programmes, s.programme_id);
-                    if (label) return label;
-                    return s.programme_id ? <UuidChip value={s.programme_id} /> : "Unassigned";
-                  },
-                },
-                { key: "status", header: "Status", render: (s) => <ActiveBadge active={s.active} /> },
-                {
-                  key: "actions",
-                  header: "Actions",
-                  render: (s) => (
-                    <div className="viora-row">
-                      <button
-                        type="button"
-                        className="viora-btn viora-btn-sm"
-                        onClick={() => setCoordsSection(s)}
-                      >
-                        Coordinators
-                      </button>
-                      {(flags.isAdmin || flags.isClassCoordinator) && (
-                        <button
-                          type="button"
-                          className="viora-btn viora-btn-sm"
-                          onClick={() => {
-                            setEditing(s);
-                            setEditName(s.name);
-                            setEditSemesterId(s.semester_id);
-                            setEditProgrammeId(s.programme_id ?? "");
-                          }}
-                        >
-                          Edit
-                        </button>
-                      )}
-                      {flags.isAdmin && (
-                        <button
-                          type="button"
-                          className={`viora-btn viora-btn-sm ${s.active ? "viora-btn-danger" : ""}`}
-                          onClick={() => setLifecycleTarget(s)}
-                        >
-                          {s.active ? "Archive" : "Activate"}
-                        </button>
-                      )}
-                    </div>
-                  ),
-                },
-              ]}
-            />
-            <PaginationBar
-              limit={list.limit}
-              onLimitChange={list.setLimit}
-              hasPrevious={list.hasPrevious}
-              hasNext={list.hasNext}
-              onPrevious={list.goPrevious}
-              onNext={list.goNext}
-              count={list.items.length}
-            />
+            <FormField label="Section name" htmlFor="sec-edit-name">
+              <input
+                id="sec-edit-name"
+                type="text"
+                className="viora-input"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                disabled={busy}
+                required
+              />
+            </FormField>
+            {flags.isAdmin && (
+              <>
+                <FormField label="Semester" htmlFor="sec-edit-sem">
+                  <select
+                    id="sec-edit-sem"
+                    className="viora-select"
+                    value={editSemesterId}
+                    onChange={(e) => setEditSemesterId(e.target.value)}
+                    disabled={busy}
+                  >
+                    {options.semesters.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                        {s.active ? "" : " (Archived)"}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="Programme (optional)" htmlFor="sec-edit-prog">
+                  <select
+                    id="sec-edit-prog"
+                    className="viora-select"
+                    value={editProgrammeId}
+                    onChange={(e) => setEditProgrammeId(e.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">None</option>
+                    {options.programmes.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.active ? "" : " (Archived)"}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              </>
+            )}
           </>
         )}
-      </SectionCard>
-
-      <ModalDialog open={editing !== null} title="Edit Section" onClose={() => setEditing(null)}>
-        <form onSubmit={handleSaveEdit} className="viora-stack">
-          <FormField label="Section name" htmlFor="sec-edit-name">
-            <input
-              id="sec-edit-name"
-              type="text"
-              className="viora-input"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              disabled={savingEdit}
-              required
-            />
-          </FormField>
-          {flags.isAdmin && (
-            <>
-              <FormField label="Semester" htmlFor="sec-edit-sem">
-                <select
-                  id="sec-edit-sem"
-                  className="viora-select"
-                  value={editSemesterId}
-                  onChange={(e) => setEditSemesterId(e.target.value)}
-                  disabled={savingEdit}
-                >
-                  {options.semesters.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                      {s.active ? "" : " (Archived)"}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField label="Programme (optional)" htmlFor="sec-edit-prog">
-                <select
-                  id="sec-edit-prog"
-                  className="viora-select"
-                  value={editProgrammeId}
-                  onChange={(e) => setEditProgrammeId(e.target.value)}
-                  disabled={savingEdit}
-                >
-                  <option value="">None</option>
-                  {options.programmes.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                      {p.active ? "" : " (Archived)"}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-            </>
-          )}
-          <div className="viora-row" style={{ justifyContent: "flex-end" }}>
-            <button type="button" className="viora-btn" onClick={() => setEditing(null)}>
-              Cancel
-            </button>
-            <button type="submit" className="viora-btn viora-btn-primary" disabled={savingEdit}>
-              Save changes
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
-
-      <ConfirmDialog
-        open={lifecycleTarget !== null}
-        title={lifecycleTarget?.active ? "Archive section?" : "Activate section?"}
-        message={`Update status for section "${lifecycleTarget?.name ?? ""}"? Archiving blocks new offerings and coordinator assignments.`}
-        confirmLabel={lifecycleTarget?.active ? "Archive" : "Activate"}
-        danger={Boolean(lifecycleTarget?.active)}
-        busy={toggling}
-        onCancel={() => setLifecycleTarget(null)}
-        onConfirm={() => void handleConfirmLifecycle()}
+        onSaveEdit={handleSaveEdit}
+        archiveMessage={(s) =>
+          `Update status for section "${s.name}"? Archiving blocks new offerings and coordinator assignments.`
+        }
+        onToggleLifecycle={handleToggleLifecycle}
       />
 
       {tenantId && coordsSection && (
@@ -546,11 +363,7 @@ export function SectionsPage() {
               "/api/v1/tenants/{tenant_id}/sections/{section_id}/coordinators/{user_id}/revoke",
               {
                 params: {
-                  path: {
-                    tenant_id: tenantId,
-                    section_id: coordsSection.id,
-                    user_id: userId,
-                  },
+                  path: { tenant_id: tenantId, section_id: coordsSection.id, user_id: userId },
                 },
               },
             )

@@ -2540,7 +2540,7 @@ export interface components {
             learning_request_count: number;
             /**
              * Prompt Version
-             * @default concept_prompt:1.0
+             * @default concept_prompt:1.1
              */
             prompt_version: string;
             /**

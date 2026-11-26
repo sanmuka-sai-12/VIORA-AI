@@ -634,3 +634,25 @@ def test_openai_adapter_connection_pool_and_bounded_concurrency(
     assert max_seen <= 2
 
 
+def test_openai_adapter_structured_budget_counts_schema_overhead_in_json_schema_mode(
+    dummy_context: TenantContext,
+) -> None:
+    from viora.ai.public import AIResourceLimitError, AIResourceLimits
+
+    mock_client = MagicMock()
+    adapter = OpenAIAdapter(
+        api_key=SecretStr("mock-key"),
+        client=mock_client,
+        structured_output_mode="json_schema",
+        resource_limits=AIResourceLimits(max_input_chars=120),
+    )
+    with pytest.raises(AIResourceLimitError, match="schema size"):
+        adapter.complete_structured(
+            dummy_context,
+            [ChatMessage(role=Role.user, content="short prompt")],
+            MockOutlineSchema,
+        )
+    mock_client.chat.completions.create.assert_not_called()
+
+
+

@@ -12,8 +12,6 @@ Measures against live PostgreSQL + LocalFilesystemArtifactStore + FastAPI TestCl
 
 from __future__ import annotations
 
-import ctypes
-import ctypes.wintypes
 import io
 import json
 import os
@@ -38,9 +36,12 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
+from _common import compute_cer_wer as _cer_wer
+from _common import get_process_memory_mb
 from viora.config import AuthSettings, Settings
 from viora.database_roles import grant_application_privileges
 from viora.db import Database
@@ -63,61 +64,6 @@ from benchmarks.educational_corpus.build_corpus import (
 CORPUS_DIR = REPO_ROOT / "benchmarks" / "educational_corpus"
 GROUND_TRUTH_PATH = CORPUS_DIR / "ground_truth.json"
 PASSWORD = SecretStr("benchmark passphrase 24")
-
-
-class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-    _fields_ = [
-        ("cb", ctypes.wintypes.DWORD),
-        ("PageFaultCount", ctypes.wintypes.DWORD),
-        ("PeakWorkingSetSize", ctypes.c_size_t),
-        ("WorkingSetSize", ctypes.c_size_t),
-        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-        ("PagefileUsage", ctypes.c_size_t),
-        ("PeakPagefileUsage", ctypes.c_size_t),
-    ]
-
-
-def get_process_memory_mb() -> dict[str, float]:
-    if os.name == "nt":
-        pmc = _PROCESS_MEMORY_COUNTERS()
-        pmc.cb = ctypes.sizeof(pmc)
-        k32 = ctypes.windll.kernel32
-        k32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
-        k32.K32GetProcessMemoryInfo.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
-            ctypes.wintypes.DWORD,
-        ]
-        k32.K32GetProcessMemoryInfo.restype = ctypes.wintypes.BOOL
-        if k32.K32GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb):
-            return {
-                "rss_mb": round(pmc.WorkingSetSize / (1024 * 1024), 2),
-                "peak_rss_mb": round(pmc.PeakWorkingSetSize / (1024 * 1024), 2),
-            }
-    return {"rss_mb": 0.0, "peak_rss_mb": 0.0}
-
-
-def _levenshtein(a: str | list[str], b: str | list[str]) -> int:
-    n, m = len(a), len(b)
-    prev = list(range(m + 1))
-    for i in range(1, n + 1):
-        cur = [i] + [0] * m
-        ai = a[i - 1]
-        for j in range(1, m + 1):
-            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (0 if ai == b[j - 1] else 1))
-        prev = cur
-    return prev[m]
-
-
-def _cer_wer(ref: str, hyp: str) -> tuple[float, float]:
-    r_c, h_c = " ".join(ref.split()), " ".join(hyp.split())
-    cer = _levenshtein(r_c, h_c) / max(1, len(r_c))
-    r_w, h_w = r_c.split(), h_c.split()
-    wer = _levenshtein(r_w, h_w) / max(1, len(r_w))
-    return round(cer, 4), round(wer, 4)
 
 
 def _render_text_image(lines: list[str], *, bg: tuple[int, int, int] = (255, 255, 255), fg: tuple[int, int, int] = (15, 15, 15)) -> bytes:

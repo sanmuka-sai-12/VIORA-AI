@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, TypeVar
 from uuid import UUID
@@ -371,78 +370,8 @@ class SqlInstitutionDirectory:
         )
 
 
-def _campus_dto(row: Campus) -> CampusSummary:
-    return CampusSummary(
-        tenant_id=row.tenant_id, id=row.id, name=row.name, active=row.active
-    )
-
-
-def _department_dto(row: Department) -> DepartmentSummary:
-    return DepartmentSummary(
-        tenant_id=row.tenant_id,
-        id=row.id,
-        name=row.name,
-        campus_id=row.campus_id,
-        active=row.active,
-    )
-
-
-def _programme_dto(row: Programme) -> ProgrammeSummary:
-    return ProgrammeSummary(
-        tenant_id=row.tenant_id,
-        id=row.id,
-        name=row.name,
-        department_id=row.department_id,
-        active=row.active,
-    )
-
-
-def _year_dto(row: AcademicYear) -> AcademicYearSummary:
-    return AcademicYearSummary(
-        tenant_id=row.tenant_id, id=row.id, name=row.name, active=row.active
-    )
-
-
-def _semester_dto(row: Semester) -> SemesterSummary:
-    return SemesterSummary(
-        tenant_id=row.tenant_id,
-        id=row.id,
-        name=row.name,
-        academic_year_id=row.academic_year_id,
-        active=row.active,
-    )
-
-
-def _section_dto(row: Section) -> SectionSummary:
-    return SectionSummary(
-        tenant_id=row.tenant_id,
-        id=row.id,
-        name=row.name,
-        semester_id=row.semester_id,
-        programme_id=row.programme_id,
-        active=row.active,
-    )
-
-
-def _subject_dto(row: Subject) -> SubjectSummary:
-    return SubjectSummary(
-        tenant_id=row.tenant_id,
-        id=row.id,
-        name=row.name,
-        department_id=row.department_id,
-        active=row.active,
-    )
-
-
-def _offering_dto(row: SubjectOffering) -> SubjectOfferingSummary:
-    return SubjectOfferingSummary(
-        tenant_id=row.tenant_id,
-        id=row.id,
-        name=row.name,
-        section_id=row.section_id,
-        subject_id=row.subject_id,
-        active=row.active,
-    )
+def _dto(cls: type[T], row: Any) -> T:
+    return cls.model_validate(row, from_attributes=True)
 
 
 class SqlAcademicRepository:
@@ -489,20 +418,54 @@ class SqlAcademicRepository:
         self,
         stmt: Any,
         model: type[Any],
-        mapper: Callable[[Any], T],
+        dto_cls: type[T],
         cursor: UUID | None,
         limit: int,
+        *,
+        cursor_col: Any | None = None,
     ) -> Page[T]:
+        key_col = cursor_col or model.id
         if cursor is not None:
-            stmt = stmt.where(model.id > cursor)
-        rows = list(self.session.scalars(stmt.order_by(model.id).limit(limit + 1)))
+            stmt = stmt.where(key_col > cursor)
+        rows = list(self.session.scalars(stmt.order_by(key_col).limit(limit + 1)))
         has_more = len(rows) > limit
         page_rows = rows[:limit]
-        next_cursor = str(page_rows[-1].id) if has_more and page_rows else None
+        next_cursor = (
+            str(getattr(page_rows[-1], key_col.key))
+            if has_more and page_rows
+            else None
+        )
         return Page[T](
-            items=tuple(mapper(row) for row in page_rows),
+            items=tuple(_dto(dto_cls, row) for row in page_rows),
             next_cursor=next_cursor,
         )
+
+    def _get_dto(
+        self, model: type[Any], tenant_id: UUID, entity_id: UUID, dto_cls: type[T]
+    ) -> T | None:
+        row = self._get(model, tenant_id, entity_id)
+        return _dto(dto_cls, row) if row is not None else None
+
+    def _create_dto(self, row: Any, dto_cls: type[T]) -> T:
+        self.session.add(row)
+        self.session.flush()
+        return _dto(dto_cls, row)
+
+    def _update_dto(
+        self,
+        model: type[Any],
+        tenant_id: UUID,
+        entity_id: UUID,
+        dto_cls: type[T],
+        fields: dict[str, Any],
+    ) -> T | None:
+        row = self._get(model, tenant_id, entity_id)
+        if row is None:
+            return None
+        for attr, value in fields.items():
+            setattr(row, attr, value)
+        self.session.flush()
+        return _dto(dto_cls, row)
 
     def _set_active(
         self,
@@ -510,14 +473,9 @@ class SqlAcademicRepository:
         tenant_id: UUID,
         entity_id: UUID,
         active: bool,
-        mapper: Callable[[Any], T],
+        dto_cls: type[T],
     ) -> T | None:
-        row = self._get(model, tenant_id, entity_id)
-        if row is None:
-            return None
-        row.active = active
-        self.session.flush()
-        return mapper(row)
+        return self._update_dto(model, tenant_id, entity_id, dto_cls, {"active": active})
 
     def _has_active_child(
         self, model: type[Any], tenant_id: UUID, column: Any, parent_id: UUID
@@ -541,13 +499,7 @@ class SqlAcademicRepository:
             .where(Institution.tenant_id == tenant_id)
             .execution_options(populate_existing=True)
         )
-        return (
-            None
-            if row is None
-            else InstitutionInfo(
-                tenant_id=row.tenant_id, name=row.name, active=row.active
-            )
-        )
+        return _dto(InstitutionInfo, row) if row is not None else None
 
     def update_institution(
         self, tenant_id: UUID, *, name: str
@@ -561,9 +513,7 @@ class SqlAcademicRepository:
             return None
         row.name = name
         self.session.flush()
-        return InstitutionInfo(
-            tenant_id=row.tenant_id, name=row.name, active=row.active
-        )
+        return _dto(InstitutionInfo, row)
 
     def list_campuses(
         self,
@@ -576,35 +526,34 @@ class SqlAcademicRepository:
         stmt = select(Campus).where(Campus.tenant_id == tenant_id)
         if active is not None:
             stmt = stmt.where(Campus.active.is_(active))
-        return self._paginate(stmt, Campus, _campus_dto, cursor, limit)
+        return self._paginate(stmt, Campus, CampusSummary, cursor, limit)
 
     def get_campus(self, tenant_id: UUID, campus_id: UUID) -> CampusSummary | None:
-        row = self._get(Campus, tenant_id, campus_id)
-        return _campus_dto(row) if row else None
+        return self._get_dto(Campus, tenant_id, campus_id, CampusSummary)
 
     def create_campus(
         self, tenant_id: UUID, campus_id: UUID, name: str
     ) -> CampusSummary:
-        row = Campus(tenant_id=tenant_id, id=campus_id, name=name, active=True)
-        self.session.add(row)
-        self.session.flush()
-        return _campus_dto(row)
+        return self._create_dto(
+            Campus(tenant_id=tenant_id, id=campus_id, name=name, active=True),
+            CampusSummary,
+        )
 
     def update_campus(
         self, tenant_id: UUID, campus_id: UUID, *, name: str | None = None
     ) -> CampusSummary | None:
-        row = self._get(Campus, tenant_id, campus_id)
-        if row is None:
-            return None
-        if name is not None:
-            row.name = name
-        self.session.flush()
-        return _campus_dto(row)
+        return self._update_dto(
+            Campus,
+            tenant_id,
+            campus_id,
+            CampusSummary,
+            {"name": name} if name is not None else {},
+        )
 
     def set_campus_active(
         self, tenant_id: UUID, campus_id: UUID, active: bool
     ) -> CampusSummary | None:
-        return self._set_active(Campus, tenant_id, campus_id, active, _campus_dto)
+        return self._set_active(Campus, tenant_id, campus_id, active, CampusSummary)
 
     def has_active_campus_children(self, tenant_id: UUID, campus_id: UUID) -> bool:
         return self._has_active_child(
@@ -636,13 +585,12 @@ class SqlAcademicRepository:
             stmt = stmt.where(Department.campus_id == campus_id)
         if active is not None:
             stmt = stmt.where(Department.active.is_(active))
-        return self._paginate(stmt, Department, _department_dto, cursor, limit)
+        return self._paginate(stmt, Department, DepartmentSummary, cursor, limit)
 
     def get_department(
         self, tenant_id: UUID, department_id: UUID
     ) -> DepartmentSummary | None:
-        row = self._get(Department, tenant_id, department_id)
-        return _department_dto(row) if row else None
+        return self._get_dto(Department, tenant_id, department_id, DepartmentSummary)
 
     def create_department(
         self,
@@ -652,16 +600,16 @@ class SqlAcademicRepository:
         name: str,
         campus_id: UUID | None,
     ) -> DepartmentSummary:
-        row = Department(
-            tenant_id=tenant_id,
-            id=department_id,
-            name=name,
-            campus_id=campus_id,
-            active=True,
+        return self._create_dto(
+            Department(
+                tenant_id=tenant_id,
+                id=department_id,
+                name=name,
+                campus_id=campus_id,
+                active=True,
+            ),
+            DepartmentSummary,
         )
-        self.session.add(row)
-        self.session.flush()
-        return _department_dto(row)
 
     def update_department(
         self,
@@ -672,21 +620,20 @@ class SqlAcademicRepository:
         campus_id: UUID | None = None,
         update_campus: bool = False,
     ) -> DepartmentSummary | None:
-        row = self._get(Department, tenant_id, department_id)
-        if row is None:
-            return None
+        fields: dict[str, Any] = {}
         if name is not None:
-            row.name = name
+            fields["name"] = name
         if update_campus:
-            row.campus_id = campus_id
-        self.session.flush()
-        return _department_dto(row)
+            fields["campus_id"] = campus_id
+        return self._update_dto(
+            Department, tenant_id, department_id, DepartmentSummary, fields
+        )
 
     def set_department_active(
         self, tenant_id: UUID, department_id: UUID, active: bool
     ) -> DepartmentSummary | None:
         return self._set_active(
-            Department, tenant_id, department_id, active, _department_dto
+            Department, tenant_id, department_id, active, DepartmentSummary
         )
 
     def has_active_department_children(
@@ -733,13 +680,12 @@ class SqlAcademicRepository:
             stmt = stmt.where(Programme.department_id == department_id)
         if active is not None:
             stmt = stmt.where(Programme.active.is_(active))
-        return self._paginate(stmt, Programme, _programme_dto, cursor, limit)
+        return self._paginate(stmt, Programme, ProgrammeSummary, cursor, limit)
 
     def get_programme(
         self, tenant_id: UUID, programme_id: UUID
     ) -> ProgrammeSummary | None:
-        row = self._get(Programme, tenant_id, programme_id)
-        return _programme_dto(row) if row else None
+        return self._get_dto(Programme, tenant_id, programme_id, ProgrammeSummary)
 
     def create_programme(
         self,
@@ -749,16 +695,16 @@ class SqlAcademicRepository:
         name: str,
         department_id: UUID | None,
     ) -> ProgrammeSummary:
-        row = Programme(
-            tenant_id=tenant_id,
-            id=programme_id,
-            name=name,
-            department_id=department_id,
-            active=True,
+        return self._create_dto(
+            Programme(
+                tenant_id=tenant_id,
+                id=programme_id,
+                name=name,
+                department_id=department_id,
+                active=True,
+            ),
+            ProgrammeSummary,
         )
-        self.session.add(row)
-        self.session.flush()
-        return _programme_dto(row)
 
     def update_programme(
         self,
@@ -769,21 +715,20 @@ class SqlAcademicRepository:
         department_id: UUID | None = None,
         update_department: bool = False,
     ) -> ProgrammeSummary | None:
-        row = self._get(Programme, tenant_id, programme_id)
-        if row is None:
-            return None
+        fields: dict[str, Any] = {}
         if name is not None:
-            row.name = name
+            fields["name"] = name
         if update_department:
-            row.department_id = department_id
-        self.session.flush()
-        return _programme_dto(row)
+            fields["department_id"] = department_id
+        return self._update_dto(
+            Programme, tenant_id, programme_id, ProgrammeSummary, fields
+        )
 
     def set_programme_active(
         self, tenant_id: UUID, programme_id: UUID, active: bool
     ) -> ProgrammeSummary | None:
         return self._set_active(
-            Programme, tenant_id, programme_id, active, _programme_dto
+            Programme, tenant_id, programme_id, active, ProgrammeSummary
         )
 
     def has_active_programme_children(
@@ -804,40 +749,41 @@ class SqlAcademicRepository:
         stmt = select(AcademicYear).where(AcademicYear.tenant_id == tenant_id)
         if active is not None:
             stmt = stmt.where(AcademicYear.active.is_(active))
-        return self._paginate(stmt, AcademicYear, _year_dto, cursor, limit)
+        return self._paginate(stmt, AcademicYear, AcademicYearSummary, cursor, limit)
 
     def get_academic_year(
         self, tenant_id: UUID, academic_year_id: UUID
     ) -> AcademicYearSummary | None:
-        row = self._get(AcademicYear, tenant_id, academic_year_id)
-        return _year_dto(row) if row else None
+        return self._get_dto(
+            AcademicYear, tenant_id, academic_year_id, AcademicYearSummary
+        )
 
     def create_academic_year(
         self, tenant_id: UUID, academic_year_id: UUID, name: str
     ) -> AcademicYearSummary:
-        row = AcademicYear(
-            tenant_id=tenant_id, id=academic_year_id, name=name, active=True
+        return self._create_dto(
+            AcademicYear(
+                tenant_id=tenant_id, id=academic_year_id, name=name, active=True
+            ),
+            AcademicYearSummary,
         )
-        self.session.add(row)
-        self.session.flush()
-        return _year_dto(row)
 
     def update_academic_year(
         self, tenant_id: UUID, academic_year_id: UUID, *, name: str | None = None
     ) -> AcademicYearSummary | None:
-        row = self._get(AcademicYear, tenant_id, academic_year_id)
-        if row is None:
-            return None
-        if name is not None:
-            row.name = name
-        self.session.flush()
-        return _year_dto(row)
+        return self._update_dto(
+            AcademicYear,
+            tenant_id,
+            academic_year_id,
+            AcademicYearSummary,
+            {"name": name} if name is not None else {},
+        )
 
     def set_academic_year_active(
         self, tenant_id: UUID, academic_year_id: UUID, active: bool
     ) -> AcademicYearSummary | None:
         return self._set_active(
-            AcademicYear, tenant_id, academic_year_id, active, _year_dto
+            AcademicYear, tenant_id, academic_year_id, active, AcademicYearSummary
         )
 
     def has_active_academic_year_children(
@@ -861,13 +807,12 @@ class SqlAcademicRepository:
             stmt = stmt.where(Semester.academic_year_id == academic_year_id)
         if active is not None:
             stmt = stmt.where(Semester.active.is_(active))
-        return self._paginate(stmt, Semester, _semester_dto, cursor, limit)
+        return self._paginate(stmt, Semester, SemesterSummary, cursor, limit)
 
     def get_semester(
         self, tenant_id: UUID, semester_id: UUID
     ) -> SemesterSummary | None:
-        row = self._get(Semester, tenant_id, semester_id)
-        return _semester_dto(row) if row else None
+        return self._get_dto(Semester, tenant_id, semester_id, SemesterSummary)
 
     def create_semester(
         self,
@@ -877,16 +822,16 @@ class SqlAcademicRepository:
         name: str,
         academic_year_id: UUID,
     ) -> SemesterSummary:
-        row = Semester(
-            tenant_id=tenant_id,
-            id=semester_id,
-            name=name,
-            academic_year_id=academic_year_id,
-            active=True,
+        return self._create_dto(
+            Semester(
+                tenant_id=tenant_id,
+                id=semester_id,
+                name=name,
+                academic_year_id=academic_year_id,
+                active=True,
+            ),
+            SemesterSummary,
         )
-        self.session.add(row)
-        self.session.flush()
-        return _semester_dto(row)
 
     def update_semester(
         self,
@@ -896,21 +841,20 @@ class SqlAcademicRepository:
         name: str | None = None,
         academic_year_id: UUID | None = None,
     ) -> SemesterSummary | None:
-        row = self._get(Semester, tenant_id, semester_id)
-        if row is None:
-            return None
+        fields: dict[str, Any] = {}
         if name is not None:
-            row.name = name
+            fields["name"] = name
         if academic_year_id is not None:
-            row.academic_year_id = academic_year_id
-        self.session.flush()
-        return _semester_dto(row)
+            fields["academic_year_id"] = academic_year_id
+        return self._update_dto(
+            Semester, tenant_id, semester_id, SemesterSummary, fields
+        )
 
     def set_semester_active(
         self, tenant_id: UUID, semester_id: UUID, active: bool
     ) -> SemesterSummary | None:
         return self._set_active(
-            Semester, tenant_id, semester_id, active, _semester_dto
+            Semester, tenant_id, semester_id, active, SemesterSummary
         )
 
     def has_active_semester_children(
@@ -977,11 +921,10 @@ class SqlAcademicRepository:
             stmt = stmt.where(Section.programme_id == programme_id)
         if active is not None:
             stmt = stmt.where(Section.active.is_(active))
-        return self._paginate(stmt, Section, _section_dto, cursor, limit)
+        return self._paginate(stmt, Section, SectionSummary, cursor, limit)
 
     def get_section(self, tenant_id: UUID, section_id: UUID) -> SectionSummary | None:
-        row = self._get(Section, tenant_id, section_id)
-        return _section_dto(row) if row else None
+        return self._get_dto(Section, tenant_id, section_id, SectionSummary)
 
     def create_section(
         self,
@@ -992,17 +935,17 @@ class SqlAcademicRepository:
         semester_id: UUID,
         programme_id: UUID | None,
     ) -> SectionSummary:
-        row = Section(
-            tenant_id=tenant_id,
-            id=section_id,
-            name=name,
-            semester_id=semester_id,
-            programme_id=programme_id,
-            active=True,
+        return self._create_dto(
+            Section(
+                tenant_id=tenant_id,
+                id=section_id,
+                name=name,
+                semester_id=semester_id,
+                programme_id=programme_id,
+                active=True,
+            ),
+            SectionSummary,
         )
-        self.session.add(row)
-        self.session.flush()
-        return _section_dto(row)
 
     def update_section(
         self,
@@ -1014,22 +957,23 @@ class SqlAcademicRepository:
         programme_id: UUID | None = None,
         update_programme: bool = False,
     ) -> SectionSummary | None:
-        row = self._get(Section, tenant_id, section_id)
-        if row is None:
-            return None
+        fields: dict[str, Any] = {}
         if name is not None:
-            row.name = name
+            fields["name"] = name
         if semester_id is not None:
-            row.semester_id = semester_id
+            fields["semester_id"] = semester_id
         if update_programme:
-            row.programme_id = programme_id
-        self.session.flush()
-        return _section_dto(row)
+            fields["programme_id"] = programme_id
+        return self._update_dto(
+            Section, tenant_id, section_id, SectionSummary, fields
+        )
 
     def set_section_active(
         self, tenant_id: UUID, section_id: UUID, active: bool
     ) -> SectionSummary | None:
-        return self._set_active(Section, tenant_id, section_id, active, _section_dto)
+        return self._set_active(
+            Section, tenant_id, section_id, active, SectionSummary
+        )
 
     def has_active_section_children(self, tenant_id: UUID, section_id: UUID) -> bool:
         return self._has_active_child(
@@ -1071,11 +1015,10 @@ class SqlAcademicRepository:
             stmt = stmt.where(Subject.department_id == department_id)
         if active is not None:
             stmt = stmt.where(Subject.active.is_(active))
-        return self._paginate(stmt, Subject, _subject_dto, cursor, limit)
+        return self._paginate(stmt, Subject, SubjectSummary, cursor, limit)
 
     def get_subject(self, tenant_id: UUID, subject_id: UUID) -> SubjectSummary | None:
-        row = self._get(Subject, tenant_id, subject_id)
-        return _subject_dto(row) if row else None
+        return self._get_dto(Subject, tenant_id, subject_id, SubjectSummary)
 
     def create_subject(
         self,
@@ -1085,16 +1028,16 @@ class SqlAcademicRepository:
         name: str,
         department_id: UUID | None,
     ) -> SubjectSummary:
-        row = Subject(
-            tenant_id=tenant_id,
-            id=subject_id,
-            name=name,
-            department_id=department_id,
-            active=True,
+        return self._create_dto(
+            Subject(
+                tenant_id=tenant_id,
+                id=subject_id,
+                name=name,
+                department_id=department_id,
+                active=True,
+            ),
+            SubjectSummary,
         )
-        self.session.add(row)
-        self.session.flush()
-        return _subject_dto(row)
 
     def update_subject(
         self,
@@ -1105,20 +1048,21 @@ class SqlAcademicRepository:
         department_id: UUID | None = None,
         update_department: bool = False,
     ) -> SubjectSummary | None:
-        row = self._get(Subject, tenant_id, subject_id)
-        if row is None:
-            return None
+        fields: dict[str, Any] = {}
         if name is not None:
-            row.name = name
+            fields["name"] = name
         if update_department:
-            row.department_id = department_id
-        self.session.flush()
-        return _subject_dto(row)
+            fields["department_id"] = department_id
+        return self._update_dto(
+            Subject, tenant_id, subject_id, SubjectSummary, fields
+        )
 
     def set_subject_active(
         self, tenant_id: UUID, subject_id: UUID, active: bool
     ) -> SubjectSummary | None:
-        return self._set_active(Subject, tenant_id, subject_id, active, _subject_dto)
+        return self._set_active(
+            Subject, tenant_id, subject_id, active, SubjectSummary
+        )
 
     def has_active_subject_children(self, tenant_id: UUID, subject_id: UUID) -> bool:
         return self._has_active_child(
@@ -1224,13 +1168,14 @@ class SqlAcademicRepository:
             stmt = stmt.where(SubjectOffering.subject_id == subject_id)
         if active is not None:
             stmt = stmt.where(SubjectOffering.active.is_(active))
-        return self._paginate(stmt, SubjectOffering, _offering_dto, cursor, limit)
+        return self._paginate(stmt, SubjectOffering, SubjectOfferingSummary, cursor, limit)
 
     def get_offering(
         self, tenant_id: UUID, offering_id: UUID
     ) -> SubjectOfferingSummary | None:
-        row = self._get(SubjectOffering, tenant_id, offering_id)
-        return _offering_dto(row) if row else None
+        return self._get_dto(
+            SubjectOffering, tenant_id, offering_id, SubjectOfferingSummary
+        )
 
     def create_offering(
         self,
@@ -1241,17 +1186,17 @@ class SqlAcademicRepository:
         section_id: UUID,
         subject_id: UUID,
     ) -> SubjectOfferingSummary:
-        row = SubjectOffering(
-            tenant_id=tenant_id,
-            id=offering_id,
-            name=name,
-            section_id=section_id,
-            subject_id=subject_id,
-            active=True,
+        return self._create_dto(
+            SubjectOffering(
+                tenant_id=tenant_id,
+                id=offering_id,
+                name=name,
+                section_id=section_id,
+                subject_id=subject_id,
+                active=True,
+            ),
+            SubjectOfferingSummary,
         )
-        self.session.add(row)
-        self.session.flush()
-        return _offering_dto(row)
 
     def update_offering(
         self,
@@ -1262,23 +1207,22 @@ class SqlAcademicRepository:
         section_id: UUID | None = None,
         subject_id: UUID | None = None,
     ) -> SubjectOfferingSummary | None:
-        row = self._get(SubjectOffering, tenant_id, offering_id)
-        if row is None:
-            return None
+        fields: dict[str, Any] = {}
         if name is not None:
-            row.name = name
+            fields["name"] = name
         if section_id is not None:
-            row.section_id = section_id
+            fields["section_id"] = section_id
         if subject_id is not None:
-            row.subject_id = subject_id
-        self.session.flush()
-        return _offering_dto(row)
+            fields["subject_id"] = subject_id
+        return self._update_dto(
+            SubjectOffering, tenant_id, offering_id, SubjectOfferingSummary, fields
+        )
 
     def set_offering_active(
         self, tenant_id: UUID, offering_id: UUID, active: bool
     ) -> SubjectOfferingSummary | None:
         return self._set_active(
-            SubjectOffering, tenant_id, offering_id, active, _offering_dto
+            SubjectOffering, tenant_id, offering_id, active, SubjectOfferingSummary
         )
 
     def has_duplicate_offering(
@@ -1311,7 +1255,7 @@ class SqlAcademicRepository:
         tenant_id: UUID,
         target_col: Any,
         target_id: UUID,
-        mapper: Callable[[Any], T],
+        dto_cls: type[T],
         *,
         active: bool | None,
         cursor: UUID | None,
@@ -1322,16 +1266,7 @@ class SqlAcademicRepository:
         )
         if active is not None:
             stmt = stmt.where(model.active.is_(active))
-        if cursor is not None:
-            stmt = stmt.where(model.user_id > cursor)
-        rows = list(self.session.scalars(stmt.order_by(model.user_id).limit(limit + 1)))
-        has_more = len(rows) > limit
-        page_rows = rows[:limit]
-        next_cursor = str(page_rows[-1].user_id) if has_more and page_rows else None
-        return Page[T](
-            items=tuple(mapper(r) for r in page_rows),
-            next_cursor=next_cursor,
-        )
+        return self._paginate(stmt, model, dto_cls, cursor, limit, cursor_col=model.user_id)
 
     def _assign_member_target(
         self,
@@ -1341,7 +1276,7 @@ class SqlAcademicRepository:
         target_field: str,
         target_id: UUID,
         user_id: UUID,
-        mapper: Callable[[Any], T],
+        dto_cls: type[T],
     ) -> T:
         existing = self.session.scalar(
             select(model)
@@ -1367,7 +1302,7 @@ class SqlAcademicRepository:
             )
             self.session.add(row)
         self.session.flush()
-        return mapper(row)
+        return _dto(dto_cls, row)
 
     def _revoke_member_target(
         self,
@@ -1376,7 +1311,7 @@ class SqlAcademicRepository:
         target_col: Any,
         target_id: UUID,
         user_id: UUID,
-        mapper: Callable[[Any], T],
+        dto_cls: type[T],
     ) -> T | None:
         existing = self.session.scalar(
             select(model)
@@ -1391,247 +1326,67 @@ class SqlAcademicRepository:
             return None
         existing.active = False
         self.session.flush()
-        return mapper(existing)
+        return _dto(dto_cls, existing)
 
     def list_department_heads(
-        self,
-        tenant_id: UUID,
-        department_id: UUID,
-        *,
-        active: bool | None,
-        cursor: UUID | None,
-        limit: int,
+        self, tenant_id: UUID, department_id: UUID, *, active: bool | None, cursor: UUID | None, limit: int
     ) -> Page[DepartmentHeadSummary]:
-        return self._list_assignments(
-            DepartmentHead,
-            tenant_id,
-            DepartmentHead.department_id,
-            department_id,
-            lambda r: DepartmentHeadSummary(
-                tenant_id=r.tenant_id,
-                department_id=r.department_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-            active=active,
-            cursor=cursor,
-            limit=limit,
-        )
+        return self._list_assignments(DepartmentHead, tenant_id, DepartmentHead.department_id, department_id, DepartmentHeadSummary, active=active, cursor=cursor, limit=limit)
 
     def assign_department_head(
         self, tenant_id: UUID, department_id: UUID, user_id: UUID
     ) -> DepartmentHeadSummary:
-        return self._assign_member_target(
-            DepartmentHead,
-            tenant_id,
-            DepartmentHead.department_id,
-            "department_id",
-            department_id,
-            user_id,
-            lambda r: DepartmentHeadSummary(
-                tenant_id=r.tenant_id,
-                department_id=r.department_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._assign_member_target(DepartmentHead, tenant_id, DepartmentHead.department_id, "department_id", department_id, user_id, DepartmentHeadSummary)
 
     def revoke_department_head(
         self, tenant_id: UUID, department_id: UUID, user_id: UUID
     ) -> DepartmentHeadSummary | None:
-        return self._revoke_member_target(
-            DepartmentHead,
-            tenant_id,
-            DepartmentHead.department_id,
-            department_id,
-            user_id,
-            lambda r: DepartmentHeadSummary(
-                tenant_id=r.tenant_id,
-                department_id=r.department_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._revoke_member_target(DepartmentHead, tenant_id, DepartmentHead.department_id, department_id, user_id, DepartmentHeadSummary)
 
     def list_section_coordinators(
-        self,
-        tenant_id: UUID,
-        section_id: UUID,
-        *,
-        active: bool | None,
-        cursor: UUID | None,
-        limit: int,
+        self, tenant_id: UUID, section_id: UUID, *, active: bool | None, cursor: UUID | None, limit: int
     ) -> Page[ClassCoordinatorSummary]:
-        return self._list_assignments(
-            ClassCoordinator,
-            tenant_id,
-            ClassCoordinator.section_id,
-            section_id,
-            lambda r: ClassCoordinatorSummary(
-                tenant_id=r.tenant_id,
-                section_id=r.section_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-            active=active,
-            cursor=cursor,
-            limit=limit,
-        )
+        return self._list_assignments(ClassCoordinator, tenant_id, ClassCoordinator.section_id, section_id, ClassCoordinatorSummary, active=active, cursor=cursor, limit=limit)
 
     def assign_section_coordinator(
         self, tenant_id: UUID, section_id: UUID, user_id: UUID
     ) -> ClassCoordinatorSummary:
-        return self._assign_member_target(
-            ClassCoordinator,
-            tenant_id,
-            ClassCoordinator.section_id,
-            "section_id",
-            section_id,
-            user_id,
-            lambda r: ClassCoordinatorSummary(
-                tenant_id=r.tenant_id,
-                section_id=r.section_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._assign_member_target(ClassCoordinator, tenant_id, ClassCoordinator.section_id, "section_id", section_id, user_id, ClassCoordinatorSummary)
 
     def revoke_section_coordinator(
         self, tenant_id: UUID, section_id: UUID, user_id: UUID
     ) -> ClassCoordinatorSummary | None:
-        return self._revoke_member_target(
-            ClassCoordinator,
-            tenant_id,
-            ClassCoordinator.section_id,
-            section_id,
-            user_id,
-            lambda r: ClassCoordinatorSummary(
-                tenant_id=r.tenant_id,
-                section_id=r.section_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._revoke_member_target(ClassCoordinator, tenant_id, ClassCoordinator.section_id, section_id, user_id, ClassCoordinatorSummary)
 
     def list_offering_teachers(
-        self,
-        tenant_id: UUID,
-        offering_id: UUID,
-        *,
-        active: bool | None,
-        cursor: UUID | None,
-        limit: int,
+        self, tenant_id: UUID, offering_id: UUID, *, active: bool | None, cursor: UUID | None, limit: int
     ) -> Page[OfferingAssignmentSummary]:
-        return self._list_assignments(
-            TeacherAssignment,
-            tenant_id,
-            TeacherAssignment.offering_id,
-            offering_id,
-            lambda r: OfferingAssignmentSummary(
-                tenant_id=r.tenant_id,
-                offering_id=r.offering_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-            active=active,
-            cursor=cursor,
-            limit=limit,
-        )
+        return self._list_assignments(TeacherAssignment, tenant_id, TeacherAssignment.offering_id, offering_id, OfferingAssignmentSummary, active=active, cursor=cursor, limit=limit)
 
     def assign_offering_teacher(
         self, tenant_id: UUID, offering_id: UUID, user_id: UUID
     ) -> OfferingAssignmentSummary:
-        return self._assign_member_target(
-            TeacherAssignment,
-            tenant_id,
-            TeacherAssignment.offering_id,
-            "offering_id",
-            offering_id,
-            user_id,
-            lambda r: OfferingAssignmentSummary(
-                tenant_id=r.tenant_id,
-                offering_id=r.offering_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._assign_member_target(TeacherAssignment, tenant_id, TeacherAssignment.offering_id, "offering_id", offering_id, user_id, OfferingAssignmentSummary)
 
     def revoke_offering_teacher(
         self, tenant_id: UUID, offering_id: UUID, user_id: UUID
     ) -> OfferingAssignmentSummary | None:
-        return self._revoke_member_target(
-            TeacherAssignment,
-            tenant_id,
-            TeacherAssignment.offering_id,
-            offering_id,
-            user_id,
-            lambda r: OfferingAssignmentSummary(
-                tenant_id=r.tenant_id,
-                offering_id=r.offering_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._revoke_member_target(TeacherAssignment, tenant_id, TeacherAssignment.offering_id, offering_id, user_id, OfferingAssignmentSummary)
 
     def list_offering_enrolments(
-        self,
-        tenant_id: UUID,
-        offering_id: UUID,
-        *,
-        active: bool | None,
-        cursor: UUID | None,
-        limit: int,
+        self, tenant_id: UUID, offering_id: UUID, *, active: bool | None, cursor: UUID | None, limit: int
     ) -> Page[OfferingAssignmentSummary]:
-        return self._list_assignments(
-            StudentEnrolment,
-            tenant_id,
-            StudentEnrolment.offering_id,
-            offering_id,
-            lambda r: OfferingAssignmentSummary(
-                tenant_id=r.tenant_id,
-                offering_id=r.offering_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-            active=active,
-            cursor=cursor,
-            limit=limit,
-        )
+        return self._list_assignments(StudentEnrolment, tenant_id, StudentEnrolment.offering_id, offering_id, OfferingAssignmentSummary, active=active, cursor=cursor, limit=limit)
 
     def enrol_student(
         self, tenant_id: UUID, offering_id: UUID, user_id: UUID
     ) -> OfferingAssignmentSummary:
-        return self._assign_member_target(
-            StudentEnrolment,
-            tenant_id,
-            StudentEnrolment.offering_id,
-            "offering_id",
-            offering_id,
-            user_id,
-            lambda r: OfferingAssignmentSummary(
-                tenant_id=r.tenant_id,
-                offering_id=r.offering_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._assign_member_target(StudentEnrolment, tenant_id, StudentEnrolment.offering_id, "offering_id", offering_id, user_id, OfferingAssignmentSummary)
 
     def withdraw_student(
         self, tenant_id: UUID, offering_id: UUID, user_id: UUID
     ) -> OfferingAssignmentSummary | None:
-        return self._revoke_member_target(
-            StudentEnrolment,
-            tenant_id,
-            StudentEnrolment.offering_id,
-            offering_id,
-            user_id,
-            lambda r: OfferingAssignmentSummary(
-                tenant_id=r.tenant_id,
-                offering_id=r.offering_id,
-                user_id=r.user_id,
-                active=r.active,
-            ),
-        )
+        return self._revoke_member_target(StudentEnrolment, tenant_id, StudentEnrolment.offering_id, offering_id, user_id, OfferingAssignmentSummary)
 
     @staticmethod
     def _guardian_dto(row: GuardianLink) -> GuardianLinkSummary:

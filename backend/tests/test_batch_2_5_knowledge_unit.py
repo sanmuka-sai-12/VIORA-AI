@@ -604,3 +604,22 @@ def test_prerequisite_dag_cycle_detection_and_structured_lesson_outline() -> Non
     assert outline.modules[0].steps[0].concept_name == "Displacement"
     assert outline.modules[-1].steps[0].concept_name == "Acceleration"
     assert outline.estimated_total_minutes > 0
+
+
+def test_concept_extractor_counts_schema_overhead_in_json_schema_mode() -> None:
+    from viora.ai.public import AIRequestConfig, AIResourceLimitError, AIResourceLimits
+    from viora.knowledge.extractor import _SCHEMA_OVERHEAD_CHARS
+
+    _, md_derived = _load_corpus_doc("01_markdown_notes")
+    ctx = TenantContext(actor_id=uuid4(), tenant_id=uuid4(), roles=frozenset({"subject_teacher"}))
+    gw = FakeAIGateway()
+    gw.structured_output_mode = "json_schema"  # type: ignore[attr-defined]
+    tight_cfg = AIRequestConfig(
+        resource_limits=AIResourceLimits(max_input_chars=_SCHEMA_OVERHEAD_CHARS + 50)
+    )
+    with pytest.raises(AIResourceLimitError, match="Prompt \\+ schema size"):
+        ConceptExtractor(gw, request_config=tight_cfg).extract_concepts(
+            context=ctx, derived=md_derived, force_mode="single_pass"
+        )
+    assert PROMPT_VERSION != "concept_prompt:1.0"
+

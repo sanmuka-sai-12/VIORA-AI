@@ -12,7 +12,7 @@ from ..contracts import Contract, Digest, JobState
 from ..sources.public import SourceInputFormat
 
 CHUNK_ALGORITHM_VERSION = "struct_chunk:1.0"
-PROMPT_VERSION = "concept_prompt:1.0"
+PROMPT_VERSION = "concept_prompt:1.1"
 CONCEPT_SCHEMA_VERSION = "1.0"
 
 ChunkingMode = Literal["single_pass", "hierarchical"]

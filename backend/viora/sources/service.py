@@ -343,40 +343,87 @@ class SourceIngestionService:
             after_db_commit_hook=after_db_commit_hook,
         )
 
-    def _register_new_source_core(
+    def _ingest_version_core(
         self,
         *,
         access: TransactionalAccess,
         repo_factory: Callable[[Any], SourceIngestionRepository],
         bearer: str | None,
         tenant_id: UUID,
-        offering_id: UUID,
-        offering_ref: ResourceRef,
-        action: str,
-        title: str,
-        origin_kind: str,
-        visibility: SourceVisibility,
+        scope_action: str,
+        scope_ref: ResourceRef,
+        tracker_name: str,
+        idempotency_operation: str,
+        audit_event: str,
+        verify_action: str,
+        verify_ref: ResourceRef,
         idempotency_key: str | None,
         prepare_payload: Callable[[], tuple[SourceInputFormat, bytes, str, str | None]],
         async_extraction: bool,
         before_db_persist_hook: Callable[[], None] | None,
         after_db_commit_hook: Callable[[], None] | None,
+        offering_id: UUID | None = None,
+        source_id: UUID | None = None,
+        title: str | None = None,
+        origin_kind: str | None = None,
+        visibility: SourceVisibility | None = None,
+        handle_idempotency_race: bool = False,
     ) -> SourceRegistrationResult:
-        tracker = OperationTracker("source.register", tenant_id=tenant_id)
+        tracker = OperationTracker(tracker_name, tenant_id=tenant_id)
         stored_context: TenantContext | None = None
         stored_ref: ArtifactVersionRef | None = None
         attempted_version_id: UUID | None = None
         captured_actor_id: UUID | None = None
         captured_req_digest: str | None = None
+        captured_offering_id: UUID | None = offering_id
         persist_attempted = False
         committed = False
         orphans_cleaned = 0
 
         try:
-            with access.transaction(bearer, action, offering_ref) as scope:
+            with access.transaction(bearer, scope_action, scope_ref) as scope:
                 repo = repo_factory(scope.session)
                 actor_id = scope.context.actor_id
                 captured_actor_id = actor_id
+
+                if source_id is not None:
+                    locked = repo.get_source_access(tenant_id, source_id, lock=True)
+                    if locked is None or locked.offering_id is None:
+                        raise AccessError(404, "source_missing", "Source unavailable")
+                    if locked.lifecycle_state != "active":
+                        raise AccessError(
+                            409,
+                            "source_archived",
+                            "Cannot create a new version on an archived source",
+                        )
+                    source_summary = repo.find(tenant_id, source_id)
+                    if source_summary is None:
+                        raise AccessError(404, "source_missing", "Source unavailable")
+                    effective_offering_id = locked.offering_id
+                    captured_offering_id = effective_offering_id
+                    effective_origin = locked.origin_kind
+                    effective_owner_id = locked.owner_user_id or actor_id
+                    effective_title = source_summary.title
+                    target_source_id = source_id
+                    target_scope_id = source_id
+                    version_number = source_summary.latest_version_number + 1
+                    digest_fields: dict[str, str | None] = {"source_id": str(source_id)}
+                else:
+                    assert offering_id is not None and title is not None
+                    assert origin_kind is not None and visibility is not None
+                    effective_offering_id = offering_id
+                    effective_origin = origin_kind
+                    effective_owner_id = actor_id
+                    effective_title = title
+                    target_source_id = uuid4()
+                    target_scope_id = offering_id
+                    version_number = 1
+                    digest_fields = {
+                        "offering_id": str(offering_id),
+                        "origin_kind": origin_kind,
+                        "visibility": visibility,
+                        "title": title,
+                    }
 
                 with tracker.stage("validate_and_sniff") as st_val:
                     resolved_format, raw_bytes, content_sha256, safe_filename = (
@@ -386,11 +433,8 @@ class SourceIngestionService:
                     st_val.output_bytes = len(raw_bytes)
 
                 req_digest = _canonical_request_digest(
-                    operation="create_source",
-                    offering_id=str(offering_id),
-                    origin_kind=origin_kind,
-                    visibility=visibility,
-                    title=title,
+                    operation=idempotency_operation,
+                    **digest_fields,
                     input_format=resolved_format,
                     filename=safe_filename,
                     content_sha256=content_sha256,
@@ -400,29 +444,43 @@ class SourceIngestionService:
                     if idempotency_key is not None:
                         replay = repo.lookup_idempotency(
                             tenant_id=tenant_id,
-                            offering_id=offering_id,
+                            offering_id=effective_offering_id,
                             actor_id=actor_id,
-                            target_scope_id=offering_id,
-                            operation_kind="create_source",
+                            target_scope_id=target_scope_id,
+                            operation_kind=idempotency_operation,
                             idempotency_key=idempotency_key,
                             request_digest=req_digest,
                         )
                         if replay is not None:
                             return replay
 
+                    if source_id is not None and repo.has_version_digest(
+                        tenant_id=tenant_id,
+                        source_id=source_id,
+                        content_sha256=content_sha256,
+                    ):
+                        raise AccessError(
+                            409,
+                            "duplicate_version",
+                            "This source already has an immutable version with identical content",
+                        )
+
                     dedupe_key = build_active_dedupe_key(
-                        offering_id, origin_kind, actor_id, content_sha256
+                        effective_offering_id,
+                        effective_origin,
+                        effective_owner_id,
+                        content_sha256,
                     )
                     if repo.has_active_dedupe_key(
                         tenant_id=tenant_id, active_dedupe_key=dedupe_key
                     ):
-                        raise AccessError(
-                            409,
-                            "duplicate_source",
-                            "Identical active source content already exists in this scope",
+                        msg = (
+                            "Another active source in this scope already matches this content"
+                            if source_id is not None
+                            else "Identical active source content already exists in this scope"
                         )
+                        raise AccessError(409, "duplicate_source", msg)
 
-                source_id = uuid4()
                 version_id = uuid4()
                 attempted_version_id = version_id
                 extracted_doc: ExtractedDocument | None = None
@@ -443,12 +501,12 @@ class SourceIngestionService:
                         _extract_and_validate_document(
                             extractor=self.extractor,
                             tenant_id=tenant_id,
-                            source_id=source_id,
+                            source_id=target_source_id,
                             version_id=version_id,
-                            source_version=1,
+                            source_version=version_number,
                             source_sha256=content_sha256,
                             input_format=resolved_format,
-                            title=title,
+                            title=effective_title,
                             raw_bytes=raw_bytes,
                             limits=self.limits,
                         )
@@ -466,15 +524,16 @@ class SourceIngestionService:
                             scope.context,
                             raw_bytes,
                             kind="source_input",
-                            resource_id=source_id,
+                            resource_id=target_source_id,
                             content_type=content_type,
-                            artifact_id=source_id,
+                            artifact_id=target_source_id,
                             version_id=version_id,
                             max_bytes=self.limits.max_bytes,
                         )
                     except StorageError:
                         logger.warning(
-                            "Artifact storage rejected source write for tenant=%s",
+                            "Artifact storage rejected %s write for tenant=%s",
+                            "version" if source_id is not None else "source",
                             tenant_id,
                         )
                         raise AccessError(
@@ -491,41 +550,48 @@ class SourceIngestionService:
 
                 now = datetime.now(UTC)
                 with tracker.stage("db_persist"):
-                    scope.recheck(action, offering_ref)
+                    scope.recheck(scope_action, scope_ref)
                     persist_attempted = True
-                    src_summary, ver_summary, job_id = repo.create_source_and_version(
-                        tenant_id=tenant_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        offering_id=offering_id,
-                        actor_id=actor_id,
-                        title=title,
-                        origin_kind=origin_kind,
-                        visibility=visibility,
-                        input_format=resolved_format,
-                        original_filename=safe_filename,
-                        content_sha256=content_sha256,
-                        size_bytes=len(raw_bytes),
-                        active_dedupe_key=dedupe_key,
-                        storage_ref=stored.metadata.ref,
-                        processing_status=proc_status,
-                        extractor_id=extractor_id_val,
-                        contract_version=contract_version_val,
-                        extraction_ms=extract_ms,
-                        char_count=char_count_val,
-                        page_count=page_count_val,
-                        warning_count=warning_count_val,
-                        processing_metadata=proc_meta,
-                        extracted_document=extracted_doc,
-                        now=now,
-                        idempotency_key=idempotency_key,
-                        request_digest=req_digest if idempotency_key else None,
-                        enqueue_extraction_job=async_extraction,
-                    )
+                    common_persist: dict[str, Any] = {
+                        "tenant_id": tenant_id,
+                        "source_id": target_source_id,
+                        "version_id": version_id,
+                        "offering_id": effective_offering_id,
+                        "actor_id": actor_id,
+                        "input_format": resolved_format,
+                        "original_filename": safe_filename,
+                        "content_sha256": content_sha256,
+                        "size_bytes": len(raw_bytes),
+                        "active_dedupe_key": dedupe_key,
+                        "storage_ref": stored.metadata.ref,
+                        "processing_status": proc_status,
+                        "extractor_id": extractor_id_val,
+                        "contract_version": contract_version_val,
+                        "extraction_ms": extract_ms,
+                        "char_count": char_count_val,
+                        "page_count": page_count_val,
+                        "warning_count": warning_count_val,
+                        "processing_metadata": proc_meta,
+                        "extracted_document": extracted_doc,
+                        "now": now,
+                        "idempotency_key": idempotency_key,
+                        "request_digest": req_digest if idempotency_key else None,
+                        "enqueue_extraction_job": async_extraction,
+                    }
+                    if source_id is not None:
+                        src_summary, ver_summary, job_id = repo.append_version(**common_persist)
+                    else:
+                        assert title is not None and origin_kind is not None and visibility is not None
+                        src_summary, ver_summary, job_id = repo.create_source_and_version(
+                            title=title,
+                            origin_kind=origin_kind,
+                            visibility=visibility,
+                            **common_persist,
+                        )
                     scope.audit.change(
                         scope.context,
-                        f"{action}.registered",
-                        ResourceRef(tenant_id=tenant_id, kind="source", resource_id=source_id),
+                        audit_event,
+                        ResourceRef(tenant_id=tenant_id, kind="source", resource_id=target_source_id),
                     )
             if after_db_commit_hook is not None:
                 after_db_commit_hook()
@@ -542,24 +608,26 @@ class SourceIngestionService:
                     bearer=bearer,
                     tenant_id=tenant_id,
                     version_id=attempted_version_id,
-                    verify_action="source.offering.list",
-                    verify_ref=offering_ref,
+                    verify_action=verify_action,
+                    verify_ref=verify_ref,
                     stored_context=stored_context,
                     stored_ref=stored_ref,
                     persist_attempted=True,
                 )
             if (
-                idempotency_key is not None
+                handle_idempotency_race
+                and idempotency_key is not None
                 and captured_actor_id is not None
                 and captured_req_digest is not None
+                and captured_offering_id is not None
             ):
-                with access.transaction(bearer, action, offering_ref) as replay_scope:
+                with access.transaction(bearer, scope_action, scope_ref) as replay_scope:
                     replay = repo_factory(replay_scope.session).lookup_idempotency(
                         tenant_id=tenant_id,
-                        offering_id=offering_id,
+                        offering_id=captured_offering_id,
                         actor_id=captured_actor_id,
-                        target_scope_id=offering_id,
-                        operation_kind="create_source",
+                        target_scope_id=captured_offering_id,
+                        operation_kind=idempotency_operation,
                         idempotency_key=idempotency_key,
                         request_digest=captured_req_digest,
                     )
@@ -585,8 +653,8 @@ class SourceIngestionService:
                     bearer=bearer,
                     tenant_id=tenant_id,
                     version_id=attempted_version_id,
-                    verify_action="source.offering.list",
-                    verify_ref=offering_ref,
+                    verify_action=verify_action,
+                    verify_ref=verify_ref,
                     stored_context=stored_context,
                     stored_ref=stored_ref,
                     persist_attempted=persist_attempted,
@@ -594,7 +662,7 @@ class SourceIngestionService:
             raise
 
         op_metrics = tracker.finish()
-        logger.info("source.register", extra=tracker.to_log_dict())
+        logger.info(tracker_name, extra=tracker.to_log_dict())
         return SourceRegistrationResult(
             source=src_summary,
             version=ver_summary,
@@ -604,6 +672,49 @@ class SourceIngestionService:
             idempotent_replay=False,
             orphans_cleaned=orphans_cleaned,
             registration_ms=op_metrics.total_duration_ms,
+        )
+
+    def _register_new_source_core(
+        self,
+        *,
+        access: TransactionalAccess,
+        repo_factory: Callable[[Any], SourceIngestionRepository],
+        bearer: str | None,
+        tenant_id: UUID,
+        offering_id: UUID,
+        offering_ref: ResourceRef,
+        action: str,
+        title: str,
+        origin_kind: str,
+        visibility: SourceVisibility,
+        idempotency_key: str | None,
+        prepare_payload: Callable[[], tuple[SourceInputFormat, bytes, str, str | None]],
+        async_extraction: bool,
+        before_db_persist_hook: Callable[[], None] | None,
+        after_db_commit_hook: Callable[[], None] | None,
+    ) -> SourceRegistrationResult:
+        return self._ingest_version_core(
+            access=access,
+            repo_factory=repo_factory,
+            bearer=bearer,
+            tenant_id=tenant_id,
+            scope_action=action,
+            scope_ref=offering_ref,
+            tracker_name="source.register",
+            idempotency_operation="create_source",
+            audit_event=f"{action}.registered",
+            verify_action="source.offering.list",
+            verify_ref=offering_ref,
+            idempotency_key=idempotency_key,
+            prepare_payload=prepare_payload,
+            async_extraction=async_extraction,
+            before_db_persist_hook=before_db_persist_hook,
+            after_db_commit_hook=after_db_commit_hook,
+            offering_id=offering_id,
+            title=title,
+            origin_kind=origin_kind,
+            visibility=visibility,
+            handle_idempotency_race=True,
         )
 
     def create_text_version(
@@ -695,226 +806,27 @@ class SourceIngestionService:
         before_db_persist_hook: Callable[[], None] | None,
         after_db_commit_hook: Callable[[], None] | None,
     ) -> SourceRegistrationResult:
-        tracker = OperationTracker("source.version.create", tenant_id=tenant_id)
         source_ref = ResourceRef(
             tenant_id=tenant_id, kind="source", resource_id=source_id
         )
-        stored_context: TenantContext | None = None
-        stored_ref: ArtifactVersionRef | None = None
-        attempted_version_id: UUID | None = None
-        persist_attempted = False
-        committed = False
-        orphans_cleaned = 0
-
-        try:
-            with access.transaction(bearer, "source.version.create", source_ref) as scope:
-                repo = repo_factory(scope.session)
-                actor_id = scope.context.actor_id
-                locked = repo.get_source_access(tenant_id, source_id, lock=True)
-                if locked is None or locked.offering_id is None:
-                    raise AccessError(404, "source_missing", "Source unavailable")
-                if locked.lifecycle_state != "active":
-                    raise AccessError(
-                        409,
-                        "source_archived",
-                        "Cannot create a new version on an archived source",
-                    )
-
-                source_summary = repo.find(tenant_id, source_id)
-                if source_summary is None:
-                    raise AccessError(404, "source_missing", "Source unavailable")
-
-                with tracker.stage("validate_and_sniff") as st_val:
-                    resolved_format, raw_bytes, content_sha256, safe_filename = (
-                        prepare_payload()
-                    )
-                    st_val.input_bytes = len(raw_bytes)
-                    st_val.output_bytes = len(raw_bytes)
-
-                req_digest = _canonical_request_digest(
-                    operation="create_version",
-                    source_id=str(source_id),
-                    input_format=resolved_format,
-                    filename=safe_filename,
-                    content_sha256=content_sha256,
-                )
-                with tracker.stage("idempotency_and_dedupe"):
-                    if idempotency_key is not None:
-                        replay = repo.lookup_idempotency(
-                            tenant_id=tenant_id,
-                            offering_id=locked.offering_id,
-                            actor_id=actor_id,
-                            target_scope_id=source_id,
-                            operation_kind="create_version",
-                            idempotency_key=idempotency_key,
-                            request_digest=req_digest,
-                        )
-                        if replay is not None:
-                            return replay
-
-                    if repo.has_version_digest(
-                        tenant_id=tenant_id,
-                        source_id=source_id,
-                        content_sha256=content_sha256,
-                    ):
-                        raise AccessError(
-                            409,
-                            "duplicate_version",
-                            "This source already has an immutable version with identical content",
-                        )
-
-                    next_dedupe_key = build_active_dedupe_key(
-                        locked.offering_id,
-                        locked.origin_kind,
-                        locked.owner_user_id or actor_id,
-                        content_sha256,
-                    )
-                    if repo.has_active_dedupe_key(
-                        tenant_id=tenant_id, active_dedupe_key=next_dedupe_key
-                    ):
-                        raise AccessError(
-                            409,
-                            "duplicate_source",
-                            "Another active source in this scope already matches this content",
-                        )
-
-                version_id = uuid4()
-                attempted_version_id = version_id
-                next_ver_num = source_summary.latest_version_number + 1
-                extracted_doc: ExtractedDocument | None = None
-                if async_extraction:
-                    proc_status: SourceProcessingStatus = "pending"
-                    extract_ms = 0.0
-                    proc_meta: dict[str, str | int | float | bool] = {
-                        "queued_for_worker": True,
-                        "input_format": resolved_format,
-                    }
-                    extractor_id_val = "pending"
-                    contract_version_val = "extracted_document.v1"
-                    char_count_val = 0
-                    page_count_val = 1
-                    warning_count_val = 0
-                else:
-                    extracted_doc, proc_status, extract_ms, proc_meta = (
-                        _extract_and_validate_document(
-                            extractor=self.extractor,
-                            tenant_id=tenant_id,
-                            source_id=source_id,
-                            version_id=version_id,
-                            source_version=next_ver_num,
-                            source_sha256=content_sha256,
-                            input_format=resolved_format,
-                            title=source_summary.title,
-                            raw_bytes=raw_bytes,
-                            limits=self.limits,
-                        )
-                    )
-                    extractor_id_val = extracted_doc.provenance.extractor_id
-                    contract_version_val = extracted_doc.schema_version
-                    char_count_val = len(extracted_doc.normalized_text)
-                    page_count_val = max(1, extracted_doc.quality.total_pages)
-                    warning_count_val = extracted_doc.quality.warning_count
-
-                content_type = _content_type_for_format(resolved_format)
-                with tracker.stage("artifact_store_put", input_bytes=len(raw_bytes)) as st_put:
-                    try:
-                        stored = self.artifact_store.put_bytes(
-                            scope.context,
-                            raw_bytes,
-                            kind="source_input",
-                            resource_id=source_id,
-                            content_type=content_type,
-                            artifact_id=source_id,
-                            version_id=version_id,
-                            max_bytes=self.limits.max_bytes,
-                        )
-                    except StorageError:
-                        logger.warning(
-                            "Artifact storage rejected version write for tenant=%s",
-                            tenant_id,
-                        )
-                        raise AccessError(
-                            503,
-                            "storage_unavailable",
-                            "Failed to store source artifact safely",
-                        ) from None
-                    stored_context = scope.context
-                    stored_ref = stored.metadata.ref
-                    st_put.output_bytes = stored.metadata.byte_size
-
-                if before_db_persist_hook is not None:
-                    before_db_persist_hook()
-
-                now = datetime.now(UTC)
-                with tracker.stage("db_persist"):
-                    scope.recheck("source.version.create", source_ref)
-                    persist_attempted = True
-                    src_summary, ver_summary, job_id = repo.append_version(
-                        tenant_id=tenant_id,
-                        source_id=source_id,
-                        version_id=version_id,
-                        offering_id=locked.offering_id,
-                        actor_id=actor_id,
-                        input_format=resolved_format,
-                        original_filename=safe_filename,
-                        content_sha256=content_sha256,
-                        size_bytes=len(raw_bytes),
-                        active_dedupe_key=next_dedupe_key,
-                        storage_ref=stored.metadata.ref,
-                        processing_status=proc_status,
-                        extractor_id=extractor_id_val,
-                        contract_version=contract_version_val,
-                        extraction_ms=extract_ms,
-                        char_count=char_count_val,
-                        page_count=page_count_val,
-                        warning_count=warning_count_val,
-                        processing_metadata=proc_meta,
-                        extracted_document=extracted_doc,
-                        now=now,
-                        idempotency_key=idempotency_key,
-                        request_digest=req_digest if idempotency_key else None,
-                        enqueue_extraction_job=async_extraction,
-                    )
-                    scope.audit.change(
-                        scope.context,
-                        "source.version.created",
-                        source_ref,
-                    )
-            if after_db_commit_hook is not None:
-                after_db_commit_hook()
-            committed = True
-        except Exception:
-            if (
-                stored_ref is not None
-                and stored_context is not None
-                and attempted_version_id is not None
-                and not committed
-            ):
-                orphans_cleaned += self._safe_compensate_uncommitted(
-                    access=access,
-                    repo_factory=repo_factory,
-                    bearer=bearer,
-                    tenant_id=tenant_id,
-                    version_id=attempted_version_id,
-                    verify_action="source.read",
-                    verify_ref=source_ref,
-                    stored_context=stored_context,
-                    stored_ref=stored_ref,
-                    persist_attempted=persist_attempted,
-                )
-            raise
-
-        op_metrics = tracker.finish()
-        logger.info("source.version.create", extra=tracker.to_log_dict())
-        return SourceRegistrationResult(
-            source=src_summary,
-            version=ver_summary,
-            quality=extracted_doc.quality if extracted_doc is not None else None,
-            job_id=job_id,
-            job_state=JobState.queued if job_id is not None else None,
-            idempotent_replay=False,
-            orphans_cleaned=orphans_cleaned,
-            registration_ms=op_metrics.total_duration_ms,
+        return self._ingest_version_core(
+            access=access,
+            repo_factory=repo_factory,
+            bearer=bearer,
+            tenant_id=tenant_id,
+            scope_action="source.version.create",
+            scope_ref=source_ref,
+            tracker_name="source.version.create",
+            idempotency_operation="create_version",
+            audit_event="source.version.created",
+            verify_action="source.read",
+            verify_ref=source_ref,
+            idempotency_key=idempotency_key,
+            prepare_payload=prepare_payload,
+            async_extraction=async_extraction,
+            before_db_persist_hook=before_db_persist_hook,
+            after_db_commit_hook=after_db_commit_hook,
+            source_id=source_id,
         )
 
     @staticmethod

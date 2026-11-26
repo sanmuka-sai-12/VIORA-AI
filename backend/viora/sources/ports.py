@@ -5,7 +5,7 @@ from typing import Protocol
 from uuid import UUID
 
 from ..contracts import ArtifactVersionRef, Page
-from .document_contracts import ExtractedDocument
+from .document_contracts import ExtractedDocument, SourceDocumentFormat
 from .schemas import (
     OfferingSourcePolicyInfo,
     SourceAccessInfo,
@@ -197,7 +197,7 @@ class DocumentExtractor(Protocol):
         version_id: UUID,
         source_version: int,
         source_sha256: str,
-        input_format: SourceInputFormat,
+        input_format: SourceDocumentFormat,
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,

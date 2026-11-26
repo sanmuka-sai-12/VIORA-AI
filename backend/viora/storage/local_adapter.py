@@ -27,6 +27,7 @@ from .schemas import (
 )
 
 O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+O_BINARY = getattr(os, "O_BINARY", 0)
 _IS_JUNCTION = getattr(os.path, "isjunction", lambda _p: False)
 _REPARSE_ATTR = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
 
@@ -231,7 +232,9 @@ class LocalFilesystemArtifactStore(ArtifactStore):
 
         try:
             blob_fd = os.open(
-                tmp_blob, os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW, 0o600
+                tmp_blob,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW | O_BINARY,
+                0o600,
             )
             for chunk in chunks:
                 if not isinstance(chunk, (bytes, bytearray)):
@@ -285,7 +288,9 @@ class LocalFilesystemArtifactStore(ArtifactStore):
                 sort_keys=True,
             ).encode("utf-8")
             meta_fd = os.open(
-                tmp_meta, os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW, 0o600
+                tmp_meta,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW | O_BINARY,
+                0o600,
             )
             mview = memoryview(meta_bytes)
             mwritten = 0
@@ -332,7 +337,7 @@ class LocalFilesystemArtifactStore(ArtifactStore):
         if not blob_path.exists():
             raise ArtifactMissingError()
         try:
-            fd = os.open(blob_path, os.O_RDONLY | O_NOFOLLOW)
+            fd = os.open(blob_path, os.O_RDONLY | O_NOFOLLOW | O_BINARY)
         except FileNotFoundError:
             raise ArtifactMissingError() from None
         except OSError as exc:

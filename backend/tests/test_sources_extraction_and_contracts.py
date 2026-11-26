@@ -351,7 +351,7 @@ def test_adaptive_pdf_triage_routes_digital_multicolumn_table_ocr_and_images() -
     assert small_doc.pages[0].classification == "digital_text"
     assert corpus.small_pdf_markers[0] in small_doc.normalized_text
 
-    # 2) Multi-column PDF -> must NOT claim reliable pypdf reading order
+    # 2) Multi-column PDF -> adaptive spatial reconstruction separates columns cleanly
     multi_doc = extractor.extract(
         tenant_id=tenant,
         source_id=uuid4(),
@@ -365,11 +365,29 @@ def test_adaptive_pdf_triage_routes_digital_multicolumn_table_ocr_and_images() -
     )
     assert multi_doc.quality.pages_needing_layout >= 1
     assert multi_doc.pages[0].classification == "needs_layout"
-    assert multi_doc.pages[0].reading_order_reliable is False
-    assert multi_doc.quality.reading_order_verified is False
-    assert any(w.code == "layout_reconstruction_required" for w in multi_doc.warnings)
+    assert multi_doc.pages[0].reading_order_reliable is True
+    assert multi_doc.quality.reading_order_verified is True
+    last_left_idx = max(multi_doc.normalized_text.find(m) for m in corpus.multicolumn_left_markers)
+    first_right_idx = min(multi_doc.normalized_text.find(m) for m in corpus.multicolumn_right_markers)
+    assert 0 <= last_left_idx < first_right_idx
 
-    # 3) Table PDF -> detected_unparsed TableBlock + warning
+    # Fast-triage-only mode (layout fallback disabled) still flags unreliable pypdf reading order
+    triage_only = AdaptiveDocumentExtractor(enable_layout_fallback=False)
+    triage_multi = triage_only.extract(
+        tenant_id=tenant,
+        source_id=uuid4(),
+        version_id=uuid4(),
+        source_version=1,
+        source_sha256="c" * 64,
+        input_format="digital_pdf",
+        title="MultiColTriage",
+        raw_bytes=corpus.multicolumn_pdf,
+        limits=limits,
+    )
+    assert triage_multi.pages[0].reading_order_reliable is False
+    assert any(w.code == "layout_reconstruction_required" for w in triage_multi.warnings)
+
+    # 3) Table PDF -> structured parsed TableBlock with headers, rows, and pdf_points bbox
     tbl_doc = extractor.extract(
         tenant_id=tenant,
         source_id=uuid4(),
@@ -382,8 +400,10 @@ def test_adaptive_pdf_triage_routes_digital_multicolumn_table_ocr_and_images() -
         limits=limits,
     )
     assert tbl_doc.pages[0].classification == "needs_table"
-    assert tbl_doc.tables and tbl_doc.tables[0].extraction_state == "detected_unparsed"
-    assert any(w.code == "table_extraction_required" for w in tbl_doc.warnings)
+    assert tbl_doc.tables and tbl_doc.tables[0].extraction_state == "parsed"
+    assert tbl_doc.tables[0].headers == tuple(corpus.table_rows[0])
+    assert tbl_doc.tables[0].rows == tuple(tuple(r) for r in corpus.table_rows[1:])
+    assert tbl_doc.tables[0].bbox is not None
 
     # 4) Scanned/no-text PDF with embedded raster image -> needs_ocr, zero fabricated OCR
     scanned_pdf = _make_pdf_bytes(num_pages=1, with_image_on_page=0)

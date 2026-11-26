@@ -12,6 +12,7 @@ from ..storage.public import ArtifactStore
 from . import models
 from .document_contracts import (
     BoundingBox,
+    DerivedExtractionRecord,
     DocumentPage,
     EvidenceReference,
     ExtractedDocument,
@@ -26,6 +27,7 @@ from .document_contracts import (
     TextBlock,
 )
 from .extraction import AdaptiveDocumentExtractor
+from .ocr import OcrBackend, OcrUnavailableError, RapidOcrBackend
 from .ports import DocumentExtractor, SourceDirectory
 from .repository import SqlSourceDirectory, SqlSourceRepository
 from .router import build_protected_router, build_router
@@ -44,6 +46,7 @@ from .service import SourceIngestionService
 __all__ = [
     "AdaptiveDocumentExtractor",
     "BoundingBox",
+    "DerivedExtractionRecord",
     "DocumentExtractor",
     "DocumentPage",
     "EvidenceReference",
@@ -53,7 +56,10 @@ __all__ = [
     "ExtractionWarning",
     "FigureReference",
     "FormulaReference",
+    "OcrBackend",
+    "OcrUnavailableError",
     "OfferingSourcePolicyInfo",
+    "RapidOcrBackend",
     "SourceAccessInfo",
     "SourceDirectory",
     "SourceIngestionLimits",

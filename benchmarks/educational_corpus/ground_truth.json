@@ -1,0 +1,427 @@
+{
+  "corpus_version": "batch_2_3.v1",
+  "license": "CC0-1.0 (originally authored synthetic/representative educational samples)",
+  "document_count": 16,
+  "documents": [
+    {
+      "doc_id": "01_markdown_notes",
+      "filename": "01_markdown_notes.md",
+      "relative_path": "samples/01_markdown_notes.md",
+      "category": "plain_text_and_markdown",
+      "input_format": "typed_notes",
+      "size_bytes": 470,
+      "sha256": "90d714e2de3ca32860a7dac4b8b1e7af1912911af473ebf1b4e14319d2f7ca61",
+      "ground_truth": {
+        "expected_headings": [
+          "Classical Kinematics",
+          "Equations of Constant Acceleration",
+          "Simulation Snippet"
+        ],
+        "expected_formulas": [
+          "v = u + at",
+          "\\Delta x = v_0 t + \\frac{1}{2} a t^2"
+        ],
+        "expected_code_markers": [
+          "def position(x0: float, v0: float, a: float, t: float) -> float:"
+        ],
+        "expected_ordered_markers": [
+          "Classical Kinematics",
+          "Kinematics describes motion",
+          "Equations of Constant Acceleration",
+          "v = u + at",
+          "def position",
+          "SI unit of velocity"
+        ],
+        "expected_classifications": [
+          "digital_text"
+        ]
+      }
+    },
+    {
+      "doc_id": "02_single_column_textbook",
+      "filename": "02_single_column_textbook.pdf",
+      "relative_path": "samples/02_single_column_textbook.pdf",
+      "category": "single_column_textbook",
+      "input_format": "digital_pdf",
+      "size_bytes": 3024,
+      "sha256": "083205f90444092ab1c12e4263b2e43e26b8f968d53eee5577e2c47c775b6a3f",
+      "ground_truth": {
+        "expected_headings": [
+          "Chapter 3: Wave Optics and Interference"
+        ],
+        "expected_repeated_headers_footers": [
+          "VIORA Open Physics - Chapter 3: Optics",
+          "Open Physics Textbook - Page 1",
+          "Open Physics Textbook - Page 2"
+        ],
+        "expected_ordered_markers": [
+          "Chapter 3: Wave Optics and Interference",
+          "Light exhibits both wave and particle properties",
+          "Huygens Wavefront Principle",
+          "Young Double-Slit Experiment",
+          "Diffraction limits optical resolution"
+        ],
+        "expected_classifications": [
+          "digital_text",
+          "digital_text"
+        ]
+      }
+    },
+    {
+      "doc_id": "03_multicolumn_scientific",
+      "filename": "03_multicolumn_scientific.pdf",
+      "relative_path": "samples/03_multicolumn_scientific.pdf",
+      "category": "multi_column_scientific",
+      "input_format": "digital_pdf",
+      "size_bytes": 2734,
+      "sha256": "12bbc4ace27fa4f9ceed7f20ae338d2cccb172c2bf2265e9520f06e1836addba",
+      "ground_truth": {
+        "expected_headings": [
+          "Spatial Document Understanding in Educational Corpora"
+        ],
+        "expected_ordered_markers": [
+          "Spatial Document Understanding in Educational Corpora",
+          "Abstract: Accurate reading-order reconstruction",
+          "1. Introduction",
+          "Spatial column clustering restores",
+          "2. Experimental Method",
+          "Latency stays under 50 ms."
+        ],
+        "expected_classifications": [
+          "needs_layout"
+        ]
+      }
+    },
+    {
+      "doc_id": "04_code_blocks",
+      "filename": "04_code_blocks.pdf",
+      "relative_path": "samples/04_code_blocks.pdf",
+      "category": "programming_code_blocks",
+      "input_format": "digital_pdf",
+      "size_bytes": 2419,
+      "sha256": "ec3f4c4c606410b77d0c8937dae7b5943f38e6085f39e3b7c83ec02e9475dec2",
+      "ground_truth": {
+        "expected_code_markers": [
+          "def binary_search(nums, target):",
+          "    lo, hi = 0, len(nums) - 1",
+          "        mid = (lo + hi) // 2"
+        ],
+        "expected_ordered_markers": [
+          "CS102: Binary Search Implementation",
+          "def binary_search(nums, target):",
+          "Always verify loop invariants"
+        ]
+      }
+    },
+    {
+      "doc_id": "05_tables_bordered_and_borderless",
+      "filename": "05_tables_bordered_and_borderless.pdf",
+      "relative_path": "samples/05_tables_bordered_and_borderless.pdf",
+      "category": "bordered_and_borderless_tables",
+      "input_format": "digital_pdf",
+      "size_bytes": 3578,
+      "sha256": "3e9f6e7fbee6228ef424056dcee3cb68e79f03fbc447c82668d8c493496d0fec",
+      "ground_truth": {
+        "tables": [
+          {
+            "page": 1,
+            "kind": "bordered",
+            "headers": [
+              "Gas",
+              "MolarMass",
+              "Cv_J_molK",
+              "Gamma"
+            ],
+            "rows": [
+              [
+                "Helium",
+                "4.00",
+                "12.47",
+                "1.67"
+              ],
+              [
+                "Nitrogen",
+                "28.01",
+                "20.80",
+                "1.40"
+              ],
+              [
+                "Oxygen",
+                "32.00",
+                "21.05",
+                "1.40"
+              ],
+              [
+                "CO2",
+                "44.01",
+                "28.46",
+                "1.30"
+              ]
+            ],
+            "caption_contains": "Table 1"
+          },
+          {
+            "page": 2,
+            "kind": "borderless",
+            "headers": [
+              "Algorithm",
+              "BestCase",
+              "WorstCase",
+              "Space"
+            ],
+            "rows": [
+              [
+                "QuickSort",
+                "O(nlogn)",
+                "O(n^2)",
+                "O(logn)"
+              ],
+              [
+                "MergeSort",
+                "O(nlogn)",
+                "O(nlogn)",
+                "O(n)"
+              ],
+              [
+                "HeapSort",
+                "O(nlogn)",
+                "O(nlogn)",
+                "O(1)"
+              ],
+              [
+                "BinarySearch",
+                "O(1)",
+                "O(logn)",
+                "O(1)"
+              ]
+            ],
+            "caption_contains": "Table 2"
+          }
+        ],
+        "expected_classifications": [
+          "needs_table",
+          "needs_table"
+        ]
+      }
+    },
+    {
+      "doc_id": "06_math_equations",
+      "filename": "06_math_equations.pdf",
+      "relative_path": "samples/06_math_equations.pdf",
+      "category": "mathematical_equations",
+      "input_format": "digital_pdf",
+      "size_bytes": 2139,
+      "sha256": "7290967e82464cedeaf201a7d4c2bcc1469e403a33bd0d240bc108dfc377549a",
+      "ground_truth": {
+        "expected_unicode_symbols": [
+          "∫",
+          "∑",
+          "≈",
+          "Δ",
+          "≥",
+          "∂",
+          "≤"
+        ],
+        "expected_latex": [
+          "E = mc^2",
+          "x = \\sqrt{a^2 + b^2}"
+        ]
+      }
+    },
+    {
+      "doc_id": "07_scanned_printed_page_png",
+      "filename": "07_scanned_printed_page.png",
+      "relative_path": "samples/07_scanned_printed_page.png",
+      "category": "scanned_printed_page",
+      "input_format": "png",
+      "size_bytes": 192149,
+      "sha256": "01622000b9c858a0ae7358063f95beb1881f57d16f6f6904175fbf7c337cd807",
+      "ground_truth": {
+        "expected_text": "Chapter 4: Conservation of Mechanical Energy\nIn a closed system without non-conservative forces such as friction,\nthe total mechanical energy E remains constant over time.\nKinetic energy is defined as K = 0.5 * m * v^2 and potential energy\nnear Earth's surface is U = m * g * h.\nTherefore, K_initial + U_initial = K_final + U_final.\nWorked Example: A 2.0 kg block slides down a frictionless ramp\nfrom height 5.0 m. Its speed at the bottom is 9.90 m/s.",
+        "expected_markers": [
+          "Conservation of Mechanical Energy",
+          "K_initial + U_initial"
+        ]
+      }
+    },
+    {
+      "doc_id": "07_scanned_printed_page_pdf",
+      "filename": "07_scanned_printed_page.pdf",
+      "relative_path": "samples/07_scanned_printed_page.pdf",
+      "category": "scanned_printed_page",
+      "input_format": "digital_pdf",
+      "size_bytes": 85237,
+      "sha256": "cd3cd4b566c589be04782753f2b9523791c71d2ae6ed5f970832311cefdfc37b",
+      "ground_truth": {
+        "expected_text": "Chapter 4: Conservation of Mechanical Energy\nIn a closed system without non-conservative forces such as friction,\nthe total mechanical energy E remains constant over time.\nKinetic energy is defined as K = 0.5 * m * v^2 and potential energy\nnear Earth's surface is U = m * g * h.\nTherefore, K_initial + U_initial = K_final + U_final.\nWorked Example: A 2.0 kg block slides down a frictionless ramp\nfrom height 5.0 m. Its speed at the bottom is 9.90 m/s.",
+        "expected_markers": [
+          "Conservation of Mechanical Energy",
+          "K_initial + U_initial"
+        ],
+        "expected_classifications": [
+          "needs_ocr"
+        ]
+      }
+    },
+    {
+      "doc_id": "08_photographed_notes",
+      "filename": "08_photographed_notes.jpg",
+      "relative_path": "samples/08_photographed_notes.jpg",
+      "category": "photographed_notes",
+      "input_format": "jpeg",
+      "size_bytes": 41323,
+      "sha256": "32957e64ce708fd9ca07888e5c6b301ad1fb20f2bf6e82b7ae14e0d27ee5acba",
+      "ground_truth": {
+        "expected_text": "Biology Revision: Cellular Respiration\n1. Glycolysis occurs in the cytoplasm and produces 2 ATP.\n2. Citric acid cycle runs inside the mitochondrial matrix.\n3. Oxidative phosphorylation generates roughly 30 to 32 ATP.",
+        "expected_markers": [
+          "Cellular Respiration",
+          "Glycolysis",
+          "Oxidative phosphorylation"
+        ]
+      }
+    },
+    {
+      "doc_id": "09_handwritten_sample",
+      "filename": "09_handwritten_sample.png",
+      "relative_path": "samples/09_handwritten_sample.png",
+      "category": "handwritten_sample",
+      "input_format": "png",
+      "size_bytes": 32877,
+      "sha256": "3be46834de2b520832fae66c7dca15c569eb1aea845c3a3b6ce9c2afdf62969d",
+      "ground_truth": {
+        "expected_text": "Physics Lab Notes\nMomentum p = m * v\nImpulse J = F * dt\nCheck graph slope",
+        "expected_kind": "handwriting_region"
+      }
+    },
+    {
+      "doc_id": "10_diagrams_charts_graphs_pdf",
+      "filename": "10_diagrams_charts_graphs.pdf",
+      "relative_path": "samples/10_diagrams_charts_graphs.pdf",
+      "category": "diagrams_charts_and_graphs",
+      "input_format": "digital_pdf",
+      "size_bytes": 30909,
+      "sha256": "e563418425a503bc0a9ec1ee91d119204c612d573725a132a0a92350d2d4b751",
+      "ground_truth": {
+        "expected_figures": [
+          {
+            "page": 1,
+            "kind": "vector_diagram",
+            "caption_contains": "Figure 1"
+          },
+          {
+            "page": 2,
+            "kind": "raster_image",
+            "caption_contains": "Figure 2"
+          }
+        ]
+      }
+    },
+    {
+      "doc_id": "10_chart_png",
+      "filename": "10_chart.png",
+      "relative_path": "samples/10_chart.png",
+      "category": "diagrams_charts_and_graphs",
+      "input_format": "png",
+      "size_bytes": 11275,
+      "sha256": "d1f04fc099a90a0552b46e691d72f4ec5473292afdb0181b8551b1110817ff46",
+      "ground_truth": {
+        "expected_labels": [
+          "Activation Energy by Catalyst",
+          "Uncatalyzed",
+          "Enzyme A",
+          "Enzyme B",
+          "kJ/mol"
+        ]
+      }
+    },
+    {
+      "doc_id": "11_mixed_digital_scanned",
+      "filename": "11_mixed_digital_scanned.pdf",
+      "relative_path": "samples/11_mixed_digital_scanned.pdf",
+      "category": "mixed_digital_scanned_pdf",
+      "input_format": "digital_pdf",
+      "size_bytes": 86642,
+      "sha256": "ef3e62ce9feecb846774a3850abb130c5b2c7f29b81d8fc9d04907ad8cf37992",
+      "ground_truth": {
+        "expected_classifications": [
+          "needs_table",
+          "needs_ocr",
+          "needs_layout"
+        ],
+        "expected_digital_markers": [
+          "Unit 5: Thermodynamics Mixed Packet",
+          "Isothermal",
+          "Left Column: First Law states",
+          "Right Column: Second Law defines"
+        ],
+        "expected_ocr_markers": [
+          "Conservation of Mechanical Energy"
+        ],
+        "expected_table": {
+          "page": 1,
+          "headers": [
+            "Process",
+            "Invariant"
+          ],
+          "rows": [
+            [
+              "Isothermal",
+              "Temperature"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "doc_id": "12_multilingual_md",
+      "filename": "12_multilingual_samples.md",
+      "relative_path": "samples/12_multilingual_samples.md",
+      "category": "multilingual",
+      "input_format": "typed_notes",
+      "size_bytes": 398,
+      "sha256": "d00303d9fe49a99e1436376ca859105b90743b3dc371a21964bc778a78f42315",
+      "ground_truth": {
+        "expected_languages": [
+          "en",
+          "es",
+          "fr",
+          "hi"
+        ],
+        "expected_markers": [
+          "Kinetic energy equals half",
+          "Introducción a la Cinemática",
+          "Énergie cinétique",
+          "ऊर्जा संरक्षण का नियम"
+        ]
+      }
+    },
+    {
+      "doc_id": "12_multilingual_pdf",
+      "filename": "12_multilingual_samples.pdf",
+      "relative_path": "samples/12_multilingual_samples.pdf",
+      "category": "multilingual",
+      "input_format": "digital_pdf",
+      "size_bytes": 1772,
+      "sha256": "fc76fe6fd9279298f33c64161baddbd014a1c4ba7611891cac4aed69fd42a26b",
+      "ground_truth": {
+        "expected_markers": [
+          "Conservation of momentum",
+          "Introducción a la Cinemática",
+          "Énergie cinétique"
+        ]
+      }
+    },
+    {
+      "doc_id": "12_multilingual_png",
+      "filename": "12_multilingual_scanned.png",
+      "relative_path": "samples/12_multilingual_scanned.png",
+      "category": "multilingual",
+      "input_format": "png",
+      "size_bytes": 22435,
+      "sha256": "cd1e052f2e1fef3d1ab2955c63e77a1af24867b5ce8daa15558323ad6874b909",
+      "ground_truth": {
+        "expected_text": "Multilingual Physics Summary\nEnglish: Energy is conserved in isolated systems.\nSpanish: La energia se conserva en sistemas aislados.\nHindi: ऊर्जा संरक्षण का नियम महत्वपूर्ण है।"
+      }
+    }
+  ]
+}

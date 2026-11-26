@@ -40,6 +40,8 @@ SourceDocumentFormat = Literal[
     "digital_pdf",
     "docx",
     "scanned_pdf",
+    "png",
+    "jpeg",
 ]
 
 
@@ -93,6 +95,8 @@ class ExtractionWarning(Contract):
     warning_id: str = Field(min_length=1, max_length=64)
     code: Literal[
         "ocr_required",
+        "ocr_unavailable",
+        "ocr_fallback_applied",
         "layout_reconstruction_required",
         "table_extraction_required",
         "visual_content_detected",
@@ -145,7 +149,7 @@ class TableBlock(Contract):
     headers: tuple[str, ...] = ()
     rows: tuple[tuple[str, ...], ...] = ()
     raw_text_fallback: str | None = None
-    extraction_state: Literal["parsed", "detected_unparsed"] = "detected_unparsed"
+    extraction_state: Literal["parsed", "partial", "detected_unparsed"] = "detected_unparsed"
     provenance: ExtractionProvenance
 
 
@@ -272,4 +276,18 @@ class ExtractedDocument(Contract):
     warnings: tuple[ExtractionWarning, ...] = ()
     quality: ExtractionQualityReport
     provenance: ExtractionProvenance
+    created_at: datetime
+
+
+class DerivedExtractionRecord(Contract):
+    """Versioned derived extraction result stored independently of immutable source_versions."""
+
+    extraction_id: UUID
+    tenant_id: UUID
+    source_id: UUID
+    version_id: UUID
+    source_sha256: Digest
+    extraction_version: int = Field(ge=1)
+    supersedes_extraction_id: UUID | None = None
+    document: ExtractedDocument
     created_at: datetime

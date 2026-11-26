@@ -1,0 +1,104 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [9 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 415 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+8 beginbfchar
+<44> <0394>
+<53> <2211>
+<49> <222B>
+<52> <221A>
+<41> <2248>
+<4C> <2264>
+<47> <2265>
+<50> <2202>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode 6 0 R >>
+endobj
+8 0 obj
+<< /Length 1295 >>
+stream
+BT
+/F2 14.0 Tf
+1 0 0 1 64.0 732.0 Tm (Spatial Document Understanding in Educational Corpora) Tj
+ET
+BT
+/F1 10.0 Tf
+1 0 0 1 64.0 702.0 Tm (Abstract: Accurate reading-order reconstruction prevents cross-column sentence) Tj
+1 0 0 1 64.0 688.0 Tm (corruption before educational concept extraction and retrieval indexing.) Tj
+ET
+BT /F1 10.0 Tf
+1 0 0 1 56 640.0 Tm (1. Introduction) Tj
+1 0 0 1 322 640.0 Tm (2. Experimental Method) Tj
+1 0 0 1 56 622.0 Tm (Neural retrieval systems require) Tj
+1 0 0 1 322 622.0 Tm (We evaluate reading order across) Tj
+1 0 0 1 56 604.0 Tm (faithful document segmentation.) Tj
+1 0 0 1 322 604.0 Tm (educational PDFs with headers,) Tj
+1 0 0 1 56 586.0 Tm (When academic papers use two) Tj
+1 0 0 1 322 586.0 Tm (tables, and multi-column prose.) Tj
+1 0 0 1 56 568.0 Tm (columns, naive text extraction) Tj
+1 0 0 1 322 568.0 Tm (Each block records PDF point) Tj
+1 0 0 1 56 550.0 Tm (interleaves left and right lines.) Tj
+1 0 0 1 322 550.0 Tm (bounding boxes so downstream) Tj
+1 0 0 1 56 532.0 Tm (Spatial column clustering restores) Tj
+1 0 0 1 322 532.0 Tm (citations remain verifiable.) Tj
+1 0 0 1 56 514.0 Tm (the author reading sequence.) Tj
+1 0 0 1 322 514.0 Tm (Latency stays under 50 ms.) Tj
+ET
+BT
+/F1 9.0 Tf
+1 0 0 1 225.0 34.0 Tm (VIORA Benchmark Paper - Page 1) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 8 0 R >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000415 00000 n 
+0000000881 00000 n 
+0000000965 00000 n 
+0000002312 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+2468
+%%EOF

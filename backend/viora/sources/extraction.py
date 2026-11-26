@@ -5,6 +5,7 @@ import hashlib
 import io
 import re
 import time
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 from uuid import UUID
 
+import pdfplumber
 import pypdf
 from pypdf.errors import (
     EmptyFileError,
@@ -24,6 +26,7 @@ from pypdf.errors import (
 
 from ..security import AccessError
 from .document_contracts import (
+    BoundingBox,
     DocumentPage,
     EvidenceReference,
     ExtractedDocument,
@@ -34,17 +37,33 @@ from .document_contracts import (
     FormulaReference,
     PageClassification,
     RecommendedProcessor,
+    SourceDocumentFormat,
     SourcePositionSpan,
     SourceSection,
     TableBlock,
     TextBlock,
 )
+from .ocr import (
+    OcrBackend,
+    OcrPageResult,
+    decode_bounded_image,
+    render_pdf_page_to_rgb,
+)
 from .schemas import SourceIngestionLimits, SourceInputFormat, TextInputFormat
+from .spatial_layout import (
+    SPATIAL_EXTRACTOR_ID,
+    SPATIAL_EXTRACTOR_VERSION,
+    SpatialPageResult,
+    analyze_page_spatial,
+    normalize_header_footer_template,
+)
 
 NATIVE_EXTRACTOR_ID = "viora.sources.native_text"
 NATIVE_EXTRACTOR_VERSION = "1.0"
 PYPDF_EXTRACTOR_ID = "viora.sources.pypdf_triage"
 PYPDF_EXTRACTOR_VERSION = "1.0"
+ADAPTIVE_EXTRACTOR_ID = "viora.sources.adaptive_extractor"
+ADAPTIVE_EXTRACTOR_VERSION = "2.0"
 
 _BINARY_SIGNATURES: tuple[tuple[bytes, str], ...] = (
     (b"%PDF-", "pdf"),
@@ -103,6 +122,14 @@ _LATEX_DISPLAY_RE = re.compile(r"\$\$(.+?)\$\$", re.DOTALL)
 _LATEX_INLINE_RE = re.compile(r"(?<!\$)\$([^$\n]{2,200})(?<!\$)\$")
 _UNICODE_MATH_RE = re.compile(r"[∫∑∏√∞≈≠≤≥±∂∇∈∉∪∩→⇒∀∃]")
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+_CODE_FENCE_RE = re.compile(r"^\s*```")
+_CAPTION_LINE_RE = re.compile(
+    r"^(?:figure|fig\.?|table|chart|diagram)\s+\d+(?:\.\d+)?[:.\-]?\s*",
+    re.IGNORECASE,
+)
+_TABLE_CAPTION_RE = re.compile(r"^table\s+\d+(?:\.\d+)?[:.\-]?\s*", re.IGNORECASE)
+_CODE_HINT_RE = re.compile(r"^(?:\s{4,}\S|def\s+\w+|class\s+\w+|return\s+|import\s+|for\s+.+:\s*$)")
+_CID_GARBLE_RE = re.compile(r"\(cid:\d+\)")
 
 _PYPDF_READ_ERRORS = (
     PyPdfError,
@@ -486,6 +513,71 @@ def _extract_formulas_from_text(
 
 
 @dataclass
+class _TriagePage:
+    page_no: int
+    page_width: float | None
+    page_height: float | None
+    page_text: str
+    image_count: int
+    has_vectors: bool
+    page_error: bool
+    limit_reached: bool
+    layout_fell_back: bool
+    high_garble: bool
+    low_text: bool
+    suspected_table: bool
+    suspected_multicolumn: bool
+    suspected_code: bool
+    suspected_figure: bool
+    top_template: str | None
+    bottom_template: str | None
+    raw_table_rows: tuple[str, ...]
+
+
+def _page_has_vector_graphics(page_obj: Any) -> bool:
+    """Quickly detect vector rect/line drawing operators without full geometry parsing."""
+    try:
+        contents = page_obj.get_contents()
+        if contents is None:
+            return False
+        data = contents.get_data()
+        if not data or len(data) > 512_000:
+            return False
+        re_hits = data.count(b" re\n") + data.count(b" re ")
+        line_hits = data.count(b" l\n") + data.count(b" l ")
+        return re_hits >= 2 or line_hits >= 3
+    except (*_PYPDF_READ_ERRORS, AttributeError):
+        return False
+
+
+def _scale_ocr_bbox_to_pdf(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    img_w: int,
+    img_h: int,
+    pdf_w: float,
+    pdf_h: float,
+) -> BoundingBox:
+    sx = pdf_w / max(1, img_w)
+    sy = pdf_h / max(1, img_h)
+    bx0 = max(0.0, min(x0 * sx, pdf_w))
+    by0 = max(0.0, min(y0 * sy, pdf_h))
+    bx1 = max(bx0, min(x1 * sx, pdf_w))
+    by1 = max(by0, min(y1 * sy, pdf_h))
+    return BoundingBox(
+        x0=round(bx0, 2),
+        y0=round(by0, 2),
+        x1=round(bx1, 2),
+        y1=round(by1, 2),
+        coordinate_space="pdf_points",
+        page_width=round(pdf_w, 2),
+        page_height=round(pdf_h, 2),
+    )
+
+
+@dataclass
 class _PdfAssemblyState:
     source_id: UUID
     version_id: UUID
@@ -568,7 +660,26 @@ class _PdfAssemblyState:
 
 
 class AdaptiveDocumentExtractor:
-    """Initial adaptive router: native text normalization + fast pypdf digital triage."""
+    """Quality-aware adaptive extractor: native text, pypdf fast path, pdfplumber spatial, and optional OCR."""
+
+    def __init__(
+        self,
+        *,
+        ocr_backend: OcrBackend | None = None,
+        enable_layout_fallback: bool = True,
+        enable_table_extraction: bool = True,
+        max_fallback_pages: int = 50,
+        max_ocr_pages: int = 10,
+        ocr_dpi: int = 150,
+        preprocess_for_ocr: bool = False,
+    ) -> None:
+        self.ocr_backend = ocr_backend
+        self.enable_layout_fallback = enable_layout_fallback
+        self.enable_table_extraction = enable_table_extraction
+        self.max_fallback_pages = max(0, max_fallback_pages)
+        self.max_ocr_pages = max(0, max_ocr_pages)
+        self.ocr_dpi = max(72, min(ocr_dpi, 300))
+        self.preprocess_for_ocr = preprocess_for_ocr
 
     def extract(
         self,
@@ -578,18 +689,31 @@ class AdaptiveDocumentExtractor:
         version_id: UUID,
         source_version: int,
         source_sha256: str,
-        input_format: SourceInputFormat,
+        input_format: SourceDocumentFormat,
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,
     ) -> ExtractedDocument:
-        if input_format == "digital_pdf":
+        if input_format in {"digital_pdf", "scanned_pdf"}:
             return self._extract_digital_pdf(
                 tenant_id=tenant_id,
                 source_id=source_id,
                 version_id=version_id,
                 source_version=source_version,
                 source_sha256=source_sha256,
+                input_format=input_format,
+                title=title,
+                raw_bytes=raw_bytes,
+                limits=limits,
+            )
+        if input_format in {"png", "jpeg"}:
+            return self._extract_image(
+                tenant_id=tenant_id,
+                source_id=source_id,
+                version_id=version_id,
+                source_version=source_version,
+                source_sha256=source_sha256,
+                input_format=input_format,
                 title=title,
                 raw_bytes=raw_bytes,
                 limits=limits,
@@ -614,7 +738,7 @@ class AdaptiveDocumentExtractor:
         version_id: UUID,
         source_version: int,
         source_sha256: str,
-        input_format: SourceInputFormat,
+        input_format: SourceDocumentFormat,
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,
@@ -702,6 +826,68 @@ class AdaptiveDocumentExtractor:
                 idx += 1
                 continue
 
+            if _CODE_FENCE_RE.match(line_txt):
+                fence_start = idx
+                idx += 1
+                code_inner: list[tuple[int, int, int, int, int, str]] = []
+                while idx < len(line_spans) and not _CODE_FENCE_RE.match(line_spans[idx][5]):
+                    code_inner.append(line_spans[idx])
+                    idx += 1
+                fence_end = idx if idx < len(line_spans) else len(line_spans) - 1
+                if idx < len(line_spans):
+                    idx += 1
+                raw_span_start = line_spans[fence_start][0]
+                raw_span_end = line_spans[fence_end][1]
+                byte_span_start = line_spans[fence_start][2]
+                byte_span_end = line_spans[fence_end][3]
+                c_raw = decoded[raw_span_start:raw_span_end]
+                c_norm = "\n".join(item[5].rstrip() for item in code_inner) or c_raw
+                cur_sec = section_stack[-1]
+                cur_sec_id = str(cur_sec["section_id"])
+                norm_start, norm_end = append_norm_piece(c_norm)
+                for ancestor in section_stack:
+                    ancestor["norm_end"] = norm_end
+                block_id = f"blk-{len(blocks) + 1}"
+                span = SourcePositionSpan(
+                    source_start_offset=raw_span_start,
+                    source_end_offset=raw_span_end,
+                    source_byte_start=byte_span_start,
+                    source_byte_end=byte_span_end,
+                    source_line_start=line_spans[fence_start][4],
+                    source_line_end=line_spans[fence_end][4],
+                    normalized_start_offset=norm_start,
+                    normalized_end_offset=norm_end,
+                )
+                blocks.append(
+                    TextBlock(
+                        block_id=block_id,
+                        kind="code",
+                        page_number=1,
+                        reading_order=reading_order,
+                        section_id=cur_sec_id,
+                        raw_text=c_raw,
+                        normalized_text=c_norm,
+                        span=span,
+                        provenance=provenance,
+                    )
+                )
+                cur_sec["block_ids"].append(block_id)  # type: ignore[attr-defined]
+                evidence_refs.append(
+                    EvidenceReference(
+                        evidence_id=f"ev-{len(evidence_refs) + 1}",
+                        source_id=source_id,
+                        version_id=version_id,
+                        source_sha256=source_sha256,
+                        section_id=cur_sec_id,
+                        block_id=block_id,
+                        page_number=1,
+                        span=span,
+                        excerpt=c_norm[:1000],
+                    )
+                )
+                reading_order += 1
+                continue
+
             md_match = _MARKDOWN_HEADING_RE.match(norm_line)
             num_match = _NUMBERED_HEADING_RE.match(norm_line) if not md_match else None
             if md_match or num_match:
@@ -781,6 +967,7 @@ class AdaptiveDocumentExtractor:
                 nxt_norm = _normalize_line(nxt[5])
                 if (
                     not nxt_norm
+                    or _CODE_FENCE_RE.match(nxt[5])
                     or _MARKDOWN_HEADING_RE.match(nxt_norm)
                     or _NUMBERED_HEADING_RE.match(nxt_norm)
                 ):
@@ -1026,6 +1213,244 @@ class AdaptiveDocumentExtractor:
         state.reading_order += 1
         return len(p_norm)
 
+    def _extract_image(
+        self,
+        *,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        source_version: int,
+        source_sha256: str,
+        input_format: SourceDocumentFormat,
+        title: str,
+        raw_bytes: bytes,
+        limits: SourceIngestionLimits,
+    ) -> ExtractedDocument:
+        if not raw_bytes:
+            raise AccessError(422, "empty_input", "Image input is empty")
+        if len(raw_bytes) > limits.max_bytes:
+            raise AccessError(
+                413,
+                "payload_too_large",
+                f"Image exceeds byte limit of {limits.max_bytes} bytes",
+            )
+        try:
+            img = decode_bounded_image(raw_bytes)
+        except (OSError, ValueError) as exc:
+            raise AccessError(
+                422,
+                "malformed_image",
+                f"Could not decode image payload safely: {exc}",
+            ) from None
+
+        iw, ih = float(img.width), float(img.height)
+        fig_bbox = BoundingBox(
+            x0=0.0,
+            y0=0.0,
+            x1=iw,
+            y1=ih,
+            coordinate_space="pixels",
+            page_width=iw,
+            page_height=ih,
+        )
+        base_prov = ExtractionProvenance(
+            extractor_id=ADAPTIVE_EXTRACTOR_ID,
+            extractor_version=ADAPTIVE_EXTRACTOR_VERSION,
+            method="ocr" if self.ocr_backend is not None else "deferred",
+            confidence=None,
+            raw_locator=f"image:{input_format}:{img.width}x{img.height}",
+        )
+        warnings: list[ExtractionWarning] = []
+        blocks: list[TextBlock] = []
+        evidence_refs: list[EvidenceReference] = []
+        formulas: list[FormulaReference] = []
+        norm_parts: list[str] = []
+        norm_cursor = 0
+
+        fig_ref = FigureReference(
+            figure_id="fig-1",
+            page_number=1,
+            reading_order=0,
+            section_id="sec-1",
+            bbox=fig_bbox,
+            kind="raster_image",
+            image_count_on_page=1,
+            alt_text_or_description=None,
+            interpretation_status="not_interpreted_visual_deferred",
+            provenance=ExtractionProvenance(
+                extractor_id=ADAPTIVE_EXTRACTOR_ID,
+                extractor_version=ADAPTIVE_EXTRACTOR_VERSION,
+                method="deferred",
+                raw_locator=f"image_region={img.width}x{img.height}",
+            ),
+        )
+
+        ocr_res: OcrPageResult | None = None
+        if self.ocr_backend is not None and self.ocr_backend.is_available():
+            ocr_res = self.ocr_backend.recognize_image(
+                img, preprocess=self.preprocess_for_ocr
+            )
+            ocr_prov = ExtractionProvenance(
+                extractor_id=ocr_res.engine_id,
+                extractor_version=ocr_res.engine_version,
+                method="ocr",
+                confidence=ocr_res.mean_confidence,
+                raw_locator=f"image_ocr:{img.width}x{img.height}",
+            )
+            base_prov = ocr_prov
+            for idx, ln in enumerate(ocr_res.lines):
+                if norm_parts:
+                    norm_cursor += 2
+                n_start = norm_cursor
+                norm_parts.append(ln.text)
+                norm_cursor += len(ln.text)
+                n_end = norm_cursor
+                bbox = BoundingBox(
+                    x0=round(min(ln.x0, iw), 2),
+                    y0=round(min(ln.y0, ih), 2),
+                    x1=round(min(ln.x1, iw), 2),
+                    y1=round(min(ln.y1, ih), 2),
+                    coordinate_space="pixels",
+                    page_width=iw,
+                    page_height=ih,
+                )
+                span = SourcePositionSpan(
+                    source_start_offset=0,
+                    source_end_offset=0,
+                    normalized_start_offset=n_start,
+                    normalized_end_offset=n_end,
+                )
+                blk_id = f"blk-{idx + 1}"
+                blocks.append(
+                    TextBlock(
+                        block_id=blk_id,
+                        kind="paragraph",
+                        page_number=1,
+                        reading_order=idx + 1,
+                        section_id="sec-1",
+                        bbox=bbox,
+                        raw_text=ln.text,
+                        normalized_text=ln.text,
+                        span=span,
+                        provenance=ocr_prov,
+                    )
+                )
+                evidence_refs.append(
+                    EvidenceReference(
+                        evidence_id=f"ev-{idx + 1}",
+                        source_id=source_id,
+                        version_id=version_id,
+                        source_sha256=source_sha256,
+                        section_id="sec-1",
+                        block_id=blk_id,
+                        page_number=1,
+                        bbox=bbox,
+                        span=span,
+                        excerpt=ln.text[:1000],
+                    )
+                )
+            warnings.append(
+                ExtractionWarning(
+                    warning_id="warn-1",
+                    code="ocr_fallback_applied",
+                    severity="info",
+                    message=(
+                        f"Printed-text OCR applied via {ocr_res.engine_id} "
+                        f"(mean confidence {ocr_res.mean_confidence:.2f}); visual/handwriting understanding remains deferred."
+                    ),
+                    page_number=1,
+                )
+            )
+        else:
+            code = "ocr_unavailable" if self.ocr_backend is not None else "ocr_required"
+            warnings.append(
+                ExtractionWarning(
+                    warning_id="warn-1",
+                    code=code,  # type: ignore[arg-type]
+                    severity="blocking_for_auto_publish",
+                    message="Image requires printed-text OCR or multimodal analysis; no OCR backend is active.",
+                    page_number=1,
+                    deferred_stage="batch_2_4_ocr_worker",
+                )
+            )
+
+        full_norm = "\n\n".join(norm_parts)
+        usable = len(full_norm.strip()) >= limits.min_text_chars
+        classification: PageClassification = "visual_content" if usable else "needs_ocr"
+        overall_status = (
+            "partial_with_warnings" if usable else "ocr_required"
+        )
+        page = DocumentPage(
+            page_number=1,
+            width=iw,
+            height=ih,
+            classification=classification,
+            recommended_processors=("visual",) if usable else ("ocr", "visual"),
+            confidence=ocr_res.mean_confidence if ocr_res is not None else 0.25,
+            reading_order_reliable=usable and (
+                ocr_res is not None and ocr_res.mean_confidence >= 0.65
+            ),
+            raw_char_count=len(full_norm),
+            normalized_char_count=len(full_norm),
+            image_count=1,
+            text_block_ids=tuple(b.block_id for b in blocks),
+            figure_ids=("fig-1",),
+            warning_ids=tuple(w.warning_id for w in warnings),
+            provenance=base_prov,
+        )
+        section = SourceSection(
+            section_id="sec-1",
+            parent_section_id=None,
+            title=title,
+            level=1,
+            reading_order=0,
+            page_start=1,
+            page_end=1,
+            block_ids=tuple(b.block_id for b in blocks),
+            figure_ids=("fig-1",),
+            normalized_start_offset=0,
+            normalized_end_offset=len(full_norm),
+        )
+        quality = ExtractionQualityReport(
+            overall_status=overall_status,  # type: ignore[arg-type]
+            usable_for_digital_ingestion=usable,
+            reading_order_verified=page.reading_order_reliable,
+            total_pages=1,
+            digital_text_pages=0,
+            pages_needing_layout=0,
+            pages_needing_table=0,
+            pages_needing_ocr=0 if usable else 1,
+            pages_with_visuals=1,
+            pages_uncertain=0,
+            total_raw_chars=len(full_norm),
+            total_normalized_chars=len(full_norm),
+            warning_count=len(warnings),
+            notes=(
+                "Image extraction executed at extractor level; diagram/handwriting interpretation remains deferred.",
+            ),
+        )
+        return ExtractedDocument(
+            tenant_id=tenant_id,
+            source_id=source_id,
+            version_id=version_id,
+            source_version=source_version,
+            source_sha256=source_sha256,
+            input_format=input_format,
+            title=title,
+            normalized_text=full_norm,
+            pages=(page,),
+            sections=(section,),
+            text_blocks=tuple(blocks),
+            tables=(),
+            figures=(fig_ref,),
+            formulas=tuple(formulas),
+            evidence_references=tuple(evidence_refs),
+            warnings=tuple(warnings),
+            quality=quality,
+            provenance=base_prov,
+            created_at=datetime.now(UTC),
+        )
+
     def _extract_digital_pdf(
         self,
         *,
@@ -1034,6 +1459,7 @@ class AdaptiveDocumentExtractor:
         version_id: UUID,
         source_version: int,
         source_sha256: str,
+        input_format: SourceDocumentFormat,
         title: str,
         raw_bytes: bytes,
         limits: SourceIngestionLimits,
@@ -1050,9 +1476,504 @@ class AdaptiveDocumentExtractor:
                 version_id=version_id,
                 source_version=source_version,
                 source_sha256=source_sha256,
+                input_format=input_format,
                 title=title,
+                raw_bytes=raw_bytes,
                 limits=limits,
             )
+
+    def _triage_pdf_pages(
+        self,
+        *,
+        reader: pypdf.PdfReader,
+        page_count: int,
+        started_at: float,
+        limits: SourceIngestionLimits,
+    ) -> tuple[list[_TriagePage], int, frozenset[str], frozenset[str]]:
+        triage_pages: list[_TriagePage] = []
+        total_raw_chars = 0
+        top_counts: Counter[str] = Counter()
+        bot_counts: Counter[str] = Counter()
+
+        for page_index in range(page_count):
+            if (time.monotonic() - started_at) > MAX_PDF_EXTRACTION_SECONDS:
+                raise AccessError(
+                    422,
+                    "extraction_timeout",
+                    "PDF extraction exceeded per-request CPU time budget",
+                )
+            page_no = page_index + 1
+            page_obj = reader.pages[page_index]
+            page_width: float | None = None
+            page_height: float | None = None
+            with contextlib.suppress(AttributeError, TypeError, ValueError):
+                box = page_obj.mediabox
+                w, h = float(box.width), float(box.height)
+                if w > 0 and h > 0:
+                    page_width, page_height = w, h
+
+            page_error = False
+            limit_reached = False
+            layout_fell_back = False
+            try:
+                page_text = page_obj.extract_text(extraction_mode="layout") or ""
+            except LimitReachedError:
+                page_text = ""
+                page_error = True
+                limit_reached = True
+            except _PYPDF_READ_ERRORS:
+                try:
+                    page_text = page_obj.extract_text() or ""
+                    layout_fell_back = True
+                except _PYPDF_READ_ERRORS:
+                    page_text = ""
+                    page_error = True
+
+            total_raw_chars += len(page_text)
+            if total_raw_chars > limits.max_text_chars:
+                raise AccessError(
+                    413,
+                    "text_limit_exceeded",
+                    f"Extracted PDF text exceeds limit of {limits.max_text_chars} characters",
+                )
+
+            image_count = _count_page_images_safely(page_obj)
+            has_vectors = False if limit_reached else _page_has_vector_graphics(page_obj)
+
+            stripped = page_text.strip()
+            lines = page_text.splitlines()
+            non_empty = [_normalize_line(ln) for ln in lines if _normalize_line(ln)]
+            top_tmpl = (
+                normalize_header_footer_template(non_empty[0])
+                if non_empty
+                and 2 < len(non_empty[0]) <= 80
+                and not _NUMBERED_HEADING_RE.match(non_empty[0])
+                else None
+            )
+            bot_tmpl = (
+                normalize_header_footer_template(non_empty[-1])
+                if non_empty and 2 < len(non_empty[-1]) <= 80
+                else None
+            )
+            if top_tmpl:
+                top_counts[top_tmpl] += 1
+            if bot_tmpl:
+                bot_counts[bot_tmpl] += 1
+
+            table_rows: list[str] = []
+            two_col_hits = 0
+            code_hits = 0
+            caption_hits = 0
+            has_table_caption = False
+            for ln in lines:
+                ln_stripped = ln.strip()
+                if not ln_stripped:
+                    continue
+                if _CAPTION_LINE_RE.match(ln_stripped):
+                    caption_hits += 1
+                    if _TABLE_CAPTION_RE.match(ln_stripped):
+                        has_table_caption = True
+                if _CODE_HINT_RE.match(ln.rstrip()):
+                    code_hits += 1
+                if _PIPE_ROW_RE.match(ln_stripped):
+                    table_rows.append(ln_stripped)
+                    continue
+                segments = [seg for seg in _WIDE_SPLIT_RE.split(ln_stripped) if seg]
+                if len(segments) >= 3:
+                    table_rows.append(ln_stripped)
+                elif len(segments) == 2 and _MULTICOLUMN_GAP_RE.search(ln_stripped):
+                    two_col_hits += 1
+
+            cid_chars = sum(len(m.group(0)) for m in _CID_GARBLE_RE.finditer(stripped))
+            garbled_chars = sum(1 for ch in stripped if ch == "\ufffd") + cid_chars
+            high_garble = len(stripped) > 0 and (garbled_chars / len(stripped)) > 0.15
+            low_text = len(stripped) < 20
+            suspected_table = len(table_rows) >= 2 or (has_table_caption and has_vectors)
+            suspected_multicolumn = two_col_hits >= 2 and not suspected_table
+            suspected_code = code_hits >= 2
+            suspected_figure = image_count > 0 or has_vectors or caption_hits > 0
+
+            triage_pages.append(
+                _TriagePage(
+                    page_no=page_no,
+                    page_width=page_width,
+                    page_height=page_height,
+                    page_text=page_text,
+                    image_count=image_count,
+                    has_vectors=has_vectors,
+                    page_error=page_error,
+                    limit_reached=limit_reached,
+                    layout_fell_back=layout_fell_back,
+                    high_garble=high_garble,
+                    low_text=low_text,
+                    suspected_table=suspected_table,
+                    suspected_multicolumn=suspected_multicolumn,
+                    suspected_code=suspected_code,
+                    suspected_figure=suspected_figure,
+                    top_template=top_tmpl,
+                    bottom_template=bot_tmpl,
+                    raw_table_rows=tuple(table_rows),
+                )
+            )
+
+        min_repeat = 2 if page_count >= 2 else 999
+        repeated_headers = frozenset(k for k, v in top_counts.items() if v >= min_repeat)
+        repeated_footers = frozenset(k for k, v in bot_counts.items() if v >= min_repeat)
+        return triage_pages, total_raw_chars, repeated_headers, repeated_footers
+
+    def _emit_spatial_page(
+        self,
+        state: _PdfAssemblyState,
+        *,
+        triage: _TriagePage,
+        spatial: SpatialPageResult,
+        page_block_ids: list[str],
+        page_table_ids: list[str],
+        page_figure_ids: list[str],
+        page_formula_ids: list[str],
+        page_warn_ids: list[str],
+    ) -> int:
+        page_no = triage.page_no
+        spatial_prov = ExtractionProvenance(
+            extractor_id=SPATIAL_EXTRACTOR_ID,
+            extractor_version=SPATIAL_EXTRACTOR_VERSION,
+            method="layout_aware_pdf",
+            confidence=0.92 if spatial.reading_order_reliable else 0.65,
+            raw_locator=f"pdfplumber_page={page_no};cols={spatial.column_count}",
+        )
+        page_norm_chars = 0
+
+        for warn_code, warn_sev, warn_msg in spatial.warnings:
+            page_warn_ids.append(
+                state.add_warning(warn_code, warn_sev, warn_msg, page_number=page_no)
+            )
+
+        for stbl in spatial.tables:
+            state.tbl_seq += 1
+            tid = f"tbl-{state.tbl_seq}"
+            tbl_prov = ExtractionProvenance(
+                extractor_id=SPATIAL_EXTRACTOR_ID,
+                extractor_version=SPATIAL_EXTRACTOR_VERSION,
+                method="table_parser",
+                confidence=0.9 if stbl.strategy == "lines" else 0.78,
+                raw_locator=f"page={page_no};strategy={stbl.strategy}",
+            )
+            tbl_text_lines = []
+            if stbl.headers:
+                tbl_text_lines.append(" | ".join(stbl.headers))
+            for row in stbl.rows:
+                tbl_text_lines.append(" | ".join(row))
+            fallback_txt = "\n".join(tbl_text_lines) if tbl_text_lines else None
+            state.tables.append(
+                TableBlock(
+                    table_id=tid,
+                    page_number=page_no,
+                    reading_order=state.reading_order,
+                    section_id=str(state.current_section["section_id"]),
+                    bbox=stbl.bbox,
+                    caption=stbl.caption,
+                    headers=stbl.headers,
+                    rows=stbl.rows,
+                    raw_text_fallback=fallback_txt[:4000] if fallback_txt else None,
+                    extraction_state=stbl.extraction_state,  # type: ignore[arg-type]
+                    provenance=tbl_prov,
+                )
+            )
+            page_table_ids.append(tid)
+            state.current_section["table_ids"].append(tid)  # type: ignore[attr-defined]
+            if fallback_txt:
+                n_start, n_end = state.append_norm_piece(fallback_txt)
+                state.sections_work[0]["norm_end"] = state.norm_cursor
+                state.current_section["norm_end"] = state.norm_cursor
+                page_norm_chars += len(fallback_txt)
+                state.evidence_refs.append(
+                    EvidenceReference(
+                        evidence_id=f"ev-{len(state.evidence_refs) + 1}",
+                        source_id=state.source_id,
+                        version_id=state.version_id,
+                        source_sha256=state.source_sha256,
+                        section_id=str(state.current_section["section_id"]),
+                        block_id=None,
+                        page_number=page_no,
+                        bbox=stbl.bbox,
+                        span=SourcePositionSpan(
+                            source_start_offset=0,
+                            source_end_offset=0,
+                            normalized_start_offset=n_start,
+                            normalized_end_offset=n_end,
+                        ),
+                        excerpt=fallback_txt[:1000],
+                    )
+                )
+            state.reading_order += 1
+
+        for sfig in spatial.figures:
+            state.fig_seq += 1
+            fid = f"fig-{state.fig_seq}"
+            interp = "caption_only" if sfig.caption else "not_interpreted_visual_deferred"
+            state.figures.append(
+                FigureReference(
+                    figure_id=fid,
+                    page_number=page_no,
+                    reading_order=state.reading_order,
+                    section_id=str(state.current_section["section_id"]),
+                    bbox=sfig.bbox,
+                    caption=sfig.caption,
+                    kind=sfig.kind,  # type: ignore[arg-type]
+                    image_count_on_page=triage.image_count or None,
+                    alt_text_or_description=None,
+                    interpretation_status=interp,  # type: ignore[arg-type]
+                    provenance=ExtractionProvenance(
+                        extractor_id=SPATIAL_EXTRACTOR_ID,
+                        extractor_version=SPATIAL_EXTRACTOR_VERSION,
+                        method="deferred",
+                        raw_locator=f"page={page_no};kind={sfig.kind}",
+                    ),
+                )
+            )
+            page_figure_ids.append(fid)
+            state.current_section["figure_ids"].append(fid)  # type: ignore[attr-defined]
+            page_warn_ids.append(
+                state.add_warning(
+                    "visual_content_detected",
+                    "info",
+                    f"Page {page_no} contains {sfig.kind} region; visual interpretation remains deferred.",
+                    page_number=page_no,
+                    deferred_stage="batch_2_4_multimodal_visual",
+                )
+            )
+            state.reading_order += 1
+
+        for sblk in spatial.blocks:
+            if sblk.kind == "heading":
+                state.sec_seq += 1
+                h_level = sblk.heading_level or 2
+                h_title = sblk.text[:300]
+                new_sec_id = f"sec-{state.sec_seq}"
+                n_start, n_end = state.append_norm_piece(h_title)
+                page_norm_chars += len(h_title)
+                new_sec: dict[str, object] = {
+                    "section_id": new_sec_id,
+                    "parent_section_id": "sec-1",
+                    "title": h_title,
+                    "level": min(h_level, 6),
+                    "reading_order": state.reading_order,
+                    "page_start": page_no,
+                    "page_end": page_no,
+                    "block_ids": [],
+                    "table_ids": [],
+                    "figure_ids": [],
+                    "formula_ids": [],
+                    "child_section_ids": [],
+                    "norm_start": n_start,
+                    "norm_end": n_end,
+                }
+                root = state.sections_work[0]
+                root["child_section_ids"].append(new_sec_id)  # type: ignore[attr-defined]
+                root["norm_end"] = state.norm_cursor
+                state.sections_work.append(new_sec)
+                state.current_section = new_sec
+                sec_id = new_sec_id
+                blk_text = h_title
+            else:
+                sec_id = str(state.current_section["section_id"])
+                blk_text = sblk.text
+                n_start, n_end = state.append_norm_piece(blk_text)
+                state.sections_work[0]["norm_end"] = state.norm_cursor
+                state.current_section["norm_end"] = state.norm_cursor
+                state.current_section["page_end"] = page_no
+                page_norm_chars += len(blk_text)
+
+            blk_id = f"blk-{len(state.blocks) + 1}"
+            span = SourcePositionSpan(
+                source_start_offset=0,
+                source_end_offset=0,
+                normalized_start_offset=n_start,
+                normalized_end_offset=n_end,
+            )
+            state.blocks.append(
+                TextBlock(
+                    block_id=blk_id,
+                    kind=sblk.kind,  # type: ignore[arg-type]
+                    page_number=page_no,
+                    reading_order=state.reading_order,
+                    section_id=sec_id,
+                    bbox=sblk.bbox,
+                    raw_text=sblk.raw_text,
+                    normalized_text=blk_text,
+                    span=span,
+                    heading_level=sblk.heading_level if sblk.kind == "heading" else None,
+                    provenance=spatial_prov,
+                )
+            )
+            page_block_ids.append(blk_id)
+            state.current_section["block_ids"].append(blk_id)  # type: ignore[attr-defined]
+            new_formulas, state.frm_seq = _extract_formulas_from_text(
+                text=blk_text,
+                page_number=page_no,
+                section_id=sec_id,
+                start_order=state.reading_order,
+                formula_counter_start=state.frm_seq,
+                provenance=spatial_prov,
+            )
+            for frm in new_formulas:
+                state.formulas.append(frm)
+                page_formula_ids.append(frm.formula_id)
+                state.current_section["formula_ids"].append(frm.formula_id)  # type: ignore[attr-defined]
+            state.evidence_refs.append(
+                EvidenceReference(
+                    evidence_id=f"ev-{len(state.evidence_refs) + 1}",
+                    source_id=state.source_id,
+                    version_id=state.version_id,
+                    source_sha256=state.source_sha256,
+                    section_id=sec_id,
+                    block_id=blk_id,
+                    page_number=page_no,
+                    bbox=sblk.bbox,
+                    span=span,
+                    excerpt=blk_text[:1000],
+                )
+            )
+            state.reading_order += 1
+
+        return page_norm_chars
+
+    def _emit_ocr_page(
+        self,
+        state: _PdfAssemblyState,
+        *,
+        triage: _TriagePage,
+        ocr_res: OcrPageResult,
+        page_block_ids: list[str],
+        page_figure_ids: list[str],
+        page_formula_ids: list[str],
+        page_warn_ids: list[str],
+    ) -> int:
+        page_no = triage.page_no
+        pw = float(triage.page_width or 612.0)
+        ph = float(triage.page_height or 792.0)
+        ocr_prov = ExtractionProvenance(
+            extractor_id=ocr_res.engine_id,
+            extractor_version=ocr_res.engine_version,
+            method="ocr",
+            confidence=ocr_res.mean_confidence,
+            raw_locator=f"page={page_no};ocr_dpi={self.ocr_dpi}",
+        )
+        if triage.image_count > 0:
+            state.fig_seq += 1
+            fid = f"fig-{state.fig_seq}"
+            state.figures.append(
+                FigureReference(
+                    figure_id=fid,
+                    page_number=page_no,
+                    reading_order=state.reading_order,
+                    section_id=str(state.current_section["section_id"]),
+                    bbox=BoundingBox(
+                        x0=0.0,
+                        y0=0.0,
+                        x1=round(pw, 2),
+                        y1=round(ph, 2),
+                        coordinate_space="pdf_points",
+                        page_width=round(pw, 2),
+                        page_height=round(ph, 2),
+                    ),
+                    kind="raster_image",
+                    image_count_on_page=triage.image_count,
+                    alt_text_or_description=None,
+                    interpretation_status="not_interpreted_visual_deferred",
+                    provenance=ExtractionProvenance(
+                        extractor_id=ocr_res.engine_id,
+                        extractor_version=ocr_res.engine_version,
+                        method="deferred",
+                        raw_locator=f"page={page_no};images={triage.image_count}",
+                    ),
+                )
+            )
+            page_figure_ids.append(fid)
+            state.current_section["figure_ids"].append(fid)  # type: ignore[attr-defined]
+            state.reading_order += 1
+
+        page_norm_chars = 0
+        sec_id = str(state.current_section["section_id"])
+        for ln in ocr_res.lines:
+            n_start, n_end = state.append_norm_piece(ln.text)
+            state.sections_work[0]["norm_end"] = state.norm_cursor
+            state.current_section["norm_end"] = state.norm_cursor
+            state.current_section["page_end"] = page_no
+            page_norm_chars += len(ln.text)
+            bbox = _scale_ocr_bbox_to_pdf(
+                ln.x0,
+                ln.y0,
+                ln.x1,
+                ln.y1,
+                ocr_res.image_width,
+                ocr_res.image_height,
+                pw,
+                ph,
+            )
+            span = SourcePositionSpan(
+                source_start_offset=0,
+                source_end_offset=0,
+                normalized_start_offset=n_start,
+                normalized_end_offset=n_end,
+            )
+            blk_id = f"blk-{len(state.blocks) + 1}"
+            state.blocks.append(
+                TextBlock(
+                    block_id=blk_id,
+                    kind="paragraph",
+                    page_number=page_no,
+                    reading_order=state.reading_order,
+                    section_id=sec_id,
+                    bbox=bbox,
+                    raw_text=ln.text,
+                    normalized_text=ln.text,
+                    span=span,
+                    provenance=ocr_prov,
+                )
+            )
+            page_block_ids.append(blk_id)
+            state.current_section["block_ids"].append(blk_id)  # type: ignore[attr-defined]
+            new_formulas, state.frm_seq = _extract_formulas_from_text(
+                text=ln.text,
+                page_number=page_no,
+                section_id=sec_id,
+                start_order=state.reading_order,
+                formula_counter_start=state.frm_seq,
+                provenance=ocr_prov,
+            )
+            for frm in new_formulas:
+                state.formulas.append(frm)
+                page_formula_ids.append(frm.formula_id)
+                state.current_section["formula_ids"].append(frm.formula_id)  # type: ignore[attr-defined]
+            state.evidence_refs.append(
+                EvidenceReference(
+                    evidence_id=f"ev-{len(state.evidence_refs) + 1}",
+                    source_id=state.source_id,
+                    version_id=state.version_id,
+                    source_sha256=state.source_sha256,
+                    section_id=sec_id,
+                    block_id=blk_id,
+                    page_number=page_no,
+                    bbox=bbox,
+                    span=span,
+                    excerpt=ln.text[:1000],
+                )
+            )
+            state.reading_order += 1
+
+        page_warn_ids.append(
+            state.add_warning(
+                "ocr_fallback_applied",
+                "info",
+                (
+                    f"Page {page_no} processed with {ocr_res.engine_id} "
+                    f"(mean confidence {ocr_res.mean_confidence:.2f})."
+                ),
+                page_number=page_no,
+            )
+        )
+        return page_norm_chars
 
     def _extract_digital_pdf_pages(
         self,
@@ -1065,39 +1986,128 @@ class AdaptiveDocumentExtractor:
         version_id: UUID,
         source_version: int,
         source_sha256: str,
+        input_format: SourceDocumentFormat,
         title: str,
+        raw_bytes: bytes,
         limits: SourceIngestionLimits,
     ) -> ExtractedDocument:
-        provenance = ExtractionProvenance(
-            extractor_id=PYPDF_EXTRACTOR_ID,
-            extractor_version=PYPDF_EXTRACTOR_VERSION,
-            method="digital_pdf_text",
-            confidence=None,
-            raw_locator=f"pypdf_pages={page_count}",
+        triage_pages, total_raw_chars, repeated_headers, repeated_footers = (
+            self._triage_pdf_pages(
+                reader=reader,
+                page_count=page_count,
+                started_at=started_at,
+                limits=limits,
+            )
         )
+
+        spatial_targets: list[int] = []
+        ocr_targets: list[int] = []
+        for idx, tp in enumerate(triage_pages):
+            has_images = tp.image_count > 0
+            is_ocr_candidate = (
+                (tp.low_text and has_images)
+                or tp.page_error
+                or tp.high_garble
+                or (tp.low_text and not has_images)
+            )
+            if is_ocr_candidate:
+                ocr_targets.append(idx)
+                continue
+            if self.enable_layout_fallback and (
+                tp.suspected_table
+                or tp.suspected_multicolumn
+                or tp.suspected_code
+                or tp.suspected_figure
+            ):
+                spatial_targets.append(idx)
+
+        spatial_results: dict[int, SpatialPageResult] = {}
+        spatial_overflow: set[int] = set()
+        if spatial_targets:
+            capped_spatial = spatial_targets[: self.max_fallback_pages]
+            spatial_overflow = set(spatial_targets[self.max_fallback_pages :])
+            with pdfplumber.open(io.BytesIO(raw_bytes)) as plumber_pdf:
+                for idx in capped_spatial:
+                    if (time.monotonic() - started_at) > MAX_PDF_EXTRACTION_SECONDS:
+                        raise AccessError(
+                            422,
+                            "extraction_timeout",
+                            "Spatial PDF layout reconstruction exceeded CPU time budget",
+                        )
+                    res = analyze_page_spatial(
+                        plumber_pdf.pages[idx],
+                        repeated_header_templates=repeated_headers,
+                        repeated_footer_templates=repeated_footers,
+                        extract_tables=self.enable_table_extraction,
+                        allow_borderless_tables=triage_pages[idx].suspected_table,
+                    )
+                    # If spatial inspection finds only full-page raster image with no text/tables, route to OCR
+                    if (
+                        not res.blocks
+                        and not res.tables
+                        and any(f.kind == "raster_image" for f in res.figures)
+                    ):
+                        ocr_targets.append(idx)
+                    else:
+                        spatial_results[idx] = res
+
+        ocr_results: dict[int, OcrPageResult] = {}
+        ocr_overflow: set[int] = set()
+        ocr_ready = (
+            self.ocr_backend is not None and self.ocr_backend.is_available()
+        )
+        if ocr_targets and ocr_ready and self.ocr_backend is not None:
+            ocr_ordered = sorted(set(ocr_targets))
+            capped_ocr = ocr_ordered[: self.max_ocr_pages]
+            ocr_overflow = set(ocr_ordered[self.max_ocr_pages :])
+            for idx in capped_ocr:
+                if (time.monotonic() - started_at) > (MAX_PDF_EXTRACTION_SECONDS * 2.5):
+                    ocr_overflow.add(idx)
+                    continue
+                img = render_pdf_page_to_rgb(raw_bytes, idx, dpi=self.ocr_dpi)
+                ocr_results[idx] = self.ocr_backend.recognize_image(
+                    img, preprocess=self.preprocess_for_ocr
+                )
+
+        if ocr_results and not spatial_results:
+            doc_prov = ExtractionProvenance(
+                extractor_id=ADAPTIVE_EXTRACTOR_ID,
+                extractor_version=ADAPTIVE_EXTRACTOR_VERSION,
+                method="ocr",
+                confidence=None,
+                raw_locator=f"adaptive_pages={page_count};ocr={len(ocr_results)}",
+            )
+        elif spatial_results or ocr_results:
+            doc_prov = ExtractionProvenance(
+                extractor_id=ADAPTIVE_EXTRACTOR_ID,
+                extractor_version=ADAPTIVE_EXTRACTOR_VERSION,
+                method="layout_aware_pdf",
+                confidence=None,
+                raw_locator=(
+                    f"adaptive_pages={page_count};spatial={len(spatial_results)};ocr={len(ocr_results)}"
+                ),
+            )
+        else:
+            doc_prov = ExtractionProvenance(
+                extractor_id=PYPDF_EXTRACTOR_ID,
+                extractor_version=PYPDF_EXTRACTOR_VERSION,
+                method="digital_pdf_text",
+                confidence=None,
+                raw_locator=f"pypdf_pages={page_count}",
+            )
+
         state = _PdfAssemblyState(
             source_id=source_id,
             version_id=version_id,
             source_sha256=source_sha256,
-            provenance=provenance,
+            provenance=doc_prov,
             page_count=page_count,
             title=title,
         )
 
         pages: list[DocumentPage] = []
-        total_raw_chars = 0
-        first_lines: list[str] = []
-        last_lines: list[str] = []
-
-        for page_index in range(page_count):
-            if (time.monotonic() - started_at) > MAX_PDF_EXTRACTION_SECONDS:
-                raise AccessError(
-                    422,
-                    "extraction_timeout",
-                    "PDF extraction exceeded per-request CPU time budget",
-                )
-            page_no = page_index + 1
-            page_obj = reader.pages[page_index]
+        for idx, tp in enumerate(triage_pages):
+            page_no = tp.page_no
             page_warn_ids: list[str] = []
             page_block_ids: list[str] = []
             page_table_ids: list[str] = []
@@ -1105,95 +2115,169 @@ class AdaptiveDocumentExtractor:
             page_formula_ids: list[str] = []
             recommended: list[RecommendedProcessor] = []
 
-            page_width: float | None = None
-            page_height: float | None = None
-            with contextlib.suppress(AttributeError, TypeError, ValueError):
-                box = page_obj.mediabox
-                w, h = float(box.width), float(box.height)
-                if w > 0 and h > 0:
-                    page_width, page_height = w, h
+            if idx in ocr_results:
+                ocr_res = ocr_results[idx]
+                page_norm_chars = self._emit_ocr_page(
+                    state,
+                    triage=tp,
+                    ocr_res=ocr_res,
+                    page_block_ids=page_block_ids,
+                    page_figure_ids=page_figure_ids,
+                    page_formula_ids=page_formula_ids,
+                    page_warn_ids=page_warn_ids,
+                )
+                total_raw_chars += page_norm_chars
+                if total_raw_chars > limits.max_text_chars:
+                    raise AccessError(
+                        413,
+                        "text_limit_exceeded",
+                        f"Extracted PDF text exceeds limit of {limits.max_text_chars} characters",
+                    )
+                reading_reliable = bool(ocr_res.lines) and ocr_res.mean_confidence >= 0.65
+                if not reading_reliable:
+                    state.reading_order_verified = False
+                classification: PageClassification = (
+                    "visual_content" if page_norm_chars >= 20 else "needs_ocr"
+                )
+                pages.append(
+                    DocumentPage(
+                        page_number=page_no,
+                        width=tp.page_width,
+                        height=tp.page_height,
+                        classification=classification,
+                        recommended_processors=("ocr",) if classification == "needs_ocr" else ("visual",),
+                        confidence=ocr_res.mean_confidence,
+                        reading_order_reliable=reading_reliable,
+                        raw_char_count=page_norm_chars,
+                        normalized_char_count=page_norm_chars,
+                        image_count=tp.image_count,
+                        suspected_multicolumn=False,
+                        suspected_table=False,
+                        suspected_formula=bool(page_formula_ids),
+                        text_block_ids=tuple(page_block_ids),
+                        table_ids=(),
+                        figure_ids=tuple(page_figure_ids),
+                        formula_ids=tuple(page_formula_ids),
+                        warning_ids=tuple(page_warn_ids),
+                        provenance=ExtractionProvenance(
+                            extractor_id=ocr_res.engine_id,
+                            extractor_version=ocr_res.engine_version,
+                            method="ocr",
+                            confidence=ocr_res.mean_confidence,
+                            raw_locator=f"page={page_no}",
+                        ),
+                    )
+                )
+                continue
 
-            page_error = False
-            try:
-                page_text = page_obj.extract_text(extraction_mode="layout") or ""
-            except LimitReachedError:
-                page_text = ""
-                page_error = True
+            if idx in spatial_results:
+                sp = spatial_results[idx]
+                page_norm_chars = self._emit_spatial_page(
+                    state,
+                    triage=tp,
+                    spatial=sp,
+                    page_block_ids=page_block_ids,
+                    page_table_ids=page_table_ids,
+                    page_figure_ids=page_figure_ids,
+                    page_formula_ids=page_formula_ids,
+                    page_warn_ids=page_warn_ids,
+                )
+                if not sp.reading_order_reliable:
+                    state.reading_order_verified = False
+                if sp.suspected_multicolumn:
+                    classification = "needs_layout"
+                    recommended.append("layout")
+                elif sp.tables:
+                    classification = "needs_table"
+                    recommended.append("table")
+                elif sp.figures:
+                    classification = "visual_content"
+                    recommended.append("visual")
+                else:
+                    classification = "digital_text"
+                if sp.figures and "visual" not in recommended:
+                    recommended.append("visual")
+                pages.append(
+                    DocumentPage(
+                        page_number=page_no,
+                        width=sp.width,
+                        height=sp.height,
+                        classification=classification,
+                        recommended_processors=tuple(recommended),
+                        confidence=0.92 if sp.reading_order_reliable else 0.65,
+                        reading_order_reliable=sp.reading_order_reliable,
+                        raw_char_count=len(tp.page_text),
+                        normalized_char_count=page_norm_chars,
+                        image_count=tp.image_count,
+                        suspected_multicolumn=sp.suspected_multicolumn,
+                        suspected_table=bool(sp.tables),
+                        suspected_formula=bool(page_formula_ids),
+                        text_block_ids=tuple(page_block_ids),
+                        table_ids=tuple(page_table_ids),
+                        figure_ids=tuple(page_figure_ids),
+                        formula_ids=tuple(page_formula_ids),
+                        warning_ids=tuple(page_warn_ids),
+                        provenance=ExtractionProvenance(
+                            extractor_id=SPATIAL_EXTRACTOR_ID,
+                            extractor_version=SPATIAL_EXTRACTOR_VERSION,
+                            method="layout_aware_pdf",
+                            confidence=0.92 if sp.reading_order_reliable else 0.65,
+                            raw_locator=f"page={page_no};cols={sp.column_count}",
+                        ),
+                    )
+                )
+                continue
+
+            # Fast pypdf path (either clean single-column page, or layout disabled / overflow / OCR unavailable)
+            fast_prov = ExtractionProvenance(
+                extractor_id=PYPDF_EXTRACTOR_ID,
+                extractor_version=PYPDF_EXTRACTOR_VERSION,
+                method="digital_pdf_text",
+                confidence=None,
+                raw_locator=f"pypdf_page={page_no}",
+            )
+            if tp.limit_reached:
                 page_warn_ids.append(
                     state.add_warning(
                         "partial_page_error",
                         "warning",
                         f"Page {page_no} exceeded bounded PDF decompression/work limit.",
                         page_number=page_no,
-                        deferred_stage="batch_2_3_layout_ocr",
+                        deferred_stage="batch_2_4_layout_ocr",
                     )
                 )
-            except _PYPDF_READ_ERRORS:
-                try:
-                    page_text = page_obj.extract_text() or ""
-                    page_warn_ids.append(
-                        state.add_warning(
-                            "reading_order_uncertain",
-                            "warning",
-                            f"Page {page_no} layout mode fell back to plain pypdf stream; reading order may be unreliable.",
-                            page_number=page_no,
-                            deferred_stage="batch_2_3_layout_aware",
-                        )
+            elif tp.page_error:
+                page_warn_ids.append(
+                    state.add_warning(
+                        "partial_page_error",
+                        "warning",
+                        f"Page {page_no} content stream failed during fast pypdf text extraction.",
+                        page_number=page_no,
+                        deferred_stage="batch_2_4_layout_ocr",
                     )
-                except _PYPDF_READ_ERRORS:
-                    page_text = ""
-                    page_error = True
-                    page_warn_ids.append(
-                        state.add_warning(
-                            "partial_page_error",
-                            "warning",
-                            f"Page {page_no} content stream failed during fast pypdf text extraction.",
-                            page_number=page_no,
-                            deferred_stage="batch_2_3_layout_ocr",
-                        )
+                )
+            elif tp.layout_fell_back:
+                page_warn_ids.append(
+                    state.add_warning(
+                        "reading_order_uncertain",
+                        "warning",
+                        f"Page {page_no} layout mode fell back to plain pypdf stream; reading order may be unreliable.",
+                        page_number=page_no,
+                        deferred_stage="batch_2_3_layout_aware",
                     )
-
-            total_raw_chars += len(page_text)
-            if total_raw_chars > limits.max_text_chars:
-                raise AccessError(
-                    413,
-                    "text_limit_exceeded",
-                    f"Extracted PDF text exceeds limit of {limits.max_text_chars} characters",
                 )
 
-            image_count = _count_page_images_safely(page_obj)
+            if idx in spatial_overflow:
+                page_warn_ids.append(
+                    state.add_warning(
+                        "truncation_warning",
+                        "warning",
+                        f"Page {page_no} exceeded max_fallback_pages={self.max_fallback_pages} budget; retained fast-path text.",
+                        page_number=page_no,
+                    )
+                )
 
-            stripped = page_text.strip()
-            lines = page_text.splitlines()
-            non_empty_lines = [
-                _normalize_line(ln) for ln in lines if _normalize_line(ln)
-            ]
-            if non_empty_lines:
-                first_lines.append(non_empty_lines[0])
-                last_lines.append(non_empty_lines[-1])
-
-            table_rows: list[str] = []
-            two_col_hits = 0
-            for ln in lines:
-                ln_stripped = ln.strip()
-                if not ln_stripped:
-                    continue
-                if _PIPE_ROW_RE.match(ln_stripped):
-                    table_rows.append(ln_stripped)
-                    continue
-                segments = [seg for seg in _WIDE_SPLIT_RE.split(ln_stripped) if seg]
-                if len(segments) >= 3:
-                    table_rows.append(ln_stripped)
-                elif len(segments) == 2 and _MULTICOLUMN_GAP_RE.search(ln_stripped):
-                    two_col_hits += 1
-
-            garbled_chars = sum(1 for ch in stripped if ch == "\ufffd")
-            high_garble = len(stripped) > 0 and (garbled_chars / len(stripped)) > 0.15
-
-            suspected_table = len(table_rows) >= 2
-            suspected_multicolumn = two_col_hits >= 2 and not suspected_table
-            has_images = image_count > 0
-
+            has_images = tp.image_count > 0
             if has_images:
                 state.fig_seq += 1
                 fid = f"fig-{state.fig_seq}"
@@ -1204,14 +2288,14 @@ class AdaptiveDocumentExtractor:
                         reading_order=state.reading_order,
                         section_id=str(state.current_section["section_id"]),
                         kind="raster_image",
-                        image_count_on_page=image_count,
+                        image_count_on_page=tp.image_count,
                         alt_text_or_description=None,
                         interpretation_status="not_interpreted_visual_deferred",
                         provenance=ExtractionProvenance(
                             extractor_id=PYPDF_EXTRACTOR_ID,
                             extractor_version=PYPDF_EXTRACTOR_VERSION,
                             method="deferred",
-                            raw_locator=f"page={page_no};images={image_count}",
+                            raw_locator=f"page={page_no};images={tp.image_count}",
                         ),
                     )
                 )
@@ -1223,18 +2307,18 @@ class AdaptiveDocumentExtractor:
                     state.add_warning(
                         "visual_content_detected",
                         "info",
-                        f"Page {page_no} contains {image_count} embedded image(s); visual interpretation deferred to Batch 2.3.",
+                        f"Page {page_no} contains {tp.image_count} embedded image(s); visual interpretation deferred.",
                         page_number=page_no,
-                        deferred_stage="batch_2_3_multimodal_visual",
+                        deferred_stage="batch_2_4_multimodal_visual",
                     )
                 )
 
-            if suspected_table:
+            if tp.suspected_table:
                 if "table" not in recommended:
                     recommended.append("table")
                 state.tbl_seq += 1
                 tid = f"tbl-{state.tbl_seq}"
-                raw_table_lines = "\n".join(table_rows)
+                raw_table_lines = "\n".join(tp.raw_table_rows)
                 state.tables.append(
                     TableBlock(
                         table_id=tid,
@@ -1260,13 +2344,13 @@ class AdaptiveDocumentExtractor:
                     state.add_warning(
                         "table_extraction_required",
                         "warning",
-                        f"Page {page_no} appears to contain tabular data; structured table parsing deferred to Batch 2.3.",
+                        f"Page {page_no} appears to contain tabular data; structured table parsing deferred.",
                         page_number=page_no,
                         deferred_stage="batch_2_3_table_parser",
                     )
                 )
 
-            if suspected_multicolumn:
+            if tp.suspected_multicolumn:
                 if "layout" not in recommended:
                     recommended.append("layout")
                 state.reading_order_verified = False
@@ -1274,34 +2358,43 @@ class AdaptiveDocumentExtractor:
                     state.add_warning(
                         "layout_reconstruction_required",
                         "warning",
-                        f"Page {page_no} exhibits wide horizontal column gaps; pypdf reading order is unreliable and layout reconstruction is required.",
+                        f"Page {page_no} exhibits wide horizontal column gaps; pypdf reading order is unreliable.",
                         page_number=page_no,
                         deferred_stage="batch_2_3_layout_aware",
                     )
                 )
 
-            low_text = len(stripped) < 20
-            if low_text and has_images:
-                classification: PageClassification = "needs_ocr"
+            if tp.low_text and has_images:
+                classification = "needs_ocr"
                 if "ocr" not in recommended:
                     recommended.insert(0, "ocr")
                 confidence = 0.25
                 reading_order_reliable = False
                 state.reading_order_verified = False
+                warn_code = (
+                    "ocr_unavailable"
+                    if (self.ocr_backend is not None and not ocr_ready)
+                    else "ocr_required"
+                )
+                msg = (
+                    f"Page {page_no} exceeded max_ocr_pages={self.max_ocr_pages} OCR budget."
+                    if idx in ocr_overflow
+                    else f"Page {page_no} contains embedded image(s) with minimal extractable text; printed-text OCR required."
+                )
                 page_warn_ids.append(
                     state.add_warning(
-                        "ocr_required",
+                        warn_code,
                         "blocking_for_auto_publish",
-                        f"Page {page_no} contains embedded image(s) with minimal extractable text; OCR is deferred to Batch 2.3.",
+                        msg,
                         page_number=page_no,
-                        deferred_stage="batch_2_3_ocr",
+                        deferred_stage="batch_2_4_ocr_worker",
                     )
                 )
-            elif page_error or high_garble or (low_text and not has_images):
+            elif tp.page_error or tp.high_garble or (tp.low_text and not has_images):
                 classification = "uncertain"
                 if "ocr" not in recommended:
                     recommended.append("ocr")
-                confidence = 0.2 if (page_error or high_garble) else 0.4
+                confidence = 0.2 if (tp.page_error or tp.high_garble) else 0.4
                 reading_order_reliable = False
                 state.reading_order_verified = False
                 page_warn_ids.append(
@@ -1310,21 +2403,21 @@ class AdaptiveDocumentExtractor:
                         "warning",
                         f"Page {page_no} yielded little or garbled extractable text; classification is uncertain.",
                         page_number=page_no,
-                        deferred_stage="batch_2_3_ocr",
+                        deferred_stage="batch_2_4_ocr_worker",
                     )
                 )
-            elif suspected_multicolumn:
+            elif tp.suspected_multicolumn:
                 classification = "needs_layout"
                 confidence = 0.55
                 reading_order_reliable = False
-            elif suspected_table:
+            elif tp.suspected_table:
                 classification = "needs_table"
                 confidence = 0.65
                 reading_order_reliable = False
             elif has_images:
                 classification = "visual_content"
                 confidence = 0.75
-                reading_order_reliable = not suspected_multicolumn
+                reading_order_reliable = not tp.suspected_multicolumn
             else:
                 classification = "digital_text"
                 confidence = 0.9
@@ -1333,8 +2426,17 @@ class AdaptiveDocumentExtractor:
             page_norm_chars = 0
             page_cursor = 0
             paragraph_buf: list[tuple[int, int, int, str]] = []
+            hf_lines_on_page: list[tuple[int, int, int, str]] = []
+            non_empty_indices = [
+                i
+                for i, raw_ln in enumerate(tp.page_text.splitlines())
+                if _normalize_line(raw_ln)
+            ]
+            first_ne_idx = non_empty_indices[0] if non_empty_indices else -1
+            last_ne_idx = non_empty_indices[-1] if non_empty_indices else -1
 
-            for line_no, raw_ln in enumerate(page_text.splitlines(keepends=True), start=1):
+            for line_idx, raw_ln in enumerate(tp.page_text.splitlines(keepends=True)):
+                line_no = line_idx + 1
                 stripped_ln = raw_ln.rstrip("\r\n")
                 l_start = page_cursor
                 l_end = page_cursor + len(stripped_ln)
@@ -1344,21 +2446,35 @@ class AdaptiveDocumentExtractor:
                     page_norm_chars += self._commit_pdf_paragraph(
                         state,
                         paragraph_buf=paragraph_buf,
-                        page_text=page_text,
+                        page_text=tp.page_text,
                         page_no=page_no,
                         page_block_ids=page_block_ids,
                         page_formula_ids=page_formula_ids,
                         page_warn_ids=page_warn_ids,
                     )
                     continue
-
+                tmpl = normalize_header_footer_template(norm_ln)
+                if (line_idx == first_ne_idx and tmpl in repeated_headers) or (
+                    line_idx == last_ne_idx and tmpl in repeated_footers
+                ):
+                    page_norm_chars += self._commit_pdf_paragraph(
+                        state,
+                        paragraph_buf=paragraph_buf,
+                        page_text=tp.page_text,
+                        page_no=page_no,
+                        page_block_ids=page_block_ids,
+                        page_formula_ids=page_formula_ids,
+                        page_warn_ids=page_warn_ids,
+                    )
+                    hf_lines_on_page.append((l_start, l_end, line_no, stripped_ln))
+                    continue
                 num_match = _NUMBERED_HEADING_RE.match(norm_ln)
                 md_match = _MARKDOWN_HEADING_RE.match(norm_ln)
                 if md_match or num_match:
                     page_norm_chars += self._commit_pdf_paragraph(
                         state,
                         paragraph_buf=paragraph_buf,
-                        page_text=page_text,
+                        page_text=tp.page_text,
                         page_no=page_no,
                         page_block_ids=page_block_ids,
                         page_formula_ids=page_formula_ids,
@@ -1370,7 +2486,7 @@ class AdaptiveDocumentExtractor:
                     new_sec_id = f"sec-{state.sec_seq}"
                     n_start, n_end = state.append_norm_piece(h_title)
                     page_norm_chars += len(h_title)
-                    new_sec: dict[str, object] = {
+                    new_sec = {
                         "section_id": new_sec_id,
                         "parent_section_id": "sec-1",
                         "title": h_title,
@@ -1411,7 +2527,7 @@ class AdaptiveDocumentExtractor:
                             normalized_text=h_title,
                             span=span,
                             heading_level=min(h_level, 6),
-                            provenance=provenance,
+                            provenance=fast_prov,
                         )
                     )
                     page_block_ids.append(blk_id)
@@ -1431,56 +2547,98 @@ class AdaptiveDocumentExtractor:
                     )
                     state.reading_order += 1
                     continue
-
                 paragraph_buf.append((l_start, l_end, line_no, stripped_ln))
 
             page_norm_chars += self._commit_pdf_paragraph(
                 state,
                 paragraph_buf=paragraph_buf,
-                page_text=page_text,
+                page_text=tp.page_text,
                 page_no=page_no,
                 page_block_ids=page_block_ids,
                 page_formula_ids=page_formula_ids,
                 page_warn_ids=page_warn_ids,
             )
-
+            for hf_start, hf_end, hf_lno, hf_raw in hf_lines_on_page:
+                hf_norm = _normalize_line(hf_raw)
+                sec_id = str(state.current_section["section_id"])
+                n_start, n_end = state.append_norm_piece(hf_norm)
+                state.sections_work[0]["norm_end"] = state.norm_cursor
+                state.current_section["norm_end"] = state.norm_cursor
+                page_norm_chars += len(hf_norm)
+                blk_id = f"blk-{len(state.blocks) + 1}"
+                span = SourcePositionSpan(
+                    source_start_offset=hf_start,
+                    source_end_offset=hf_end,
+                    source_line_start=hf_lno,
+                    source_line_end=hf_lno,
+                    normalized_start_offset=n_start,
+                    normalized_end_offset=n_end,
+                )
+                state.blocks.append(
+                    TextBlock(
+                        block_id=blk_id,
+                        kind="header_or_footer",
+                        page_number=page_no,
+                        reading_order=state.reading_order,
+                        section_id=sec_id,
+                        raw_text=hf_raw,
+                        normalized_text=hf_norm,
+                        span=span,
+                        provenance=fast_prov,
+                    )
+                )
+                page_block_ids.append(blk_id)
+                state.current_section["block_ids"].append(blk_id)  # type: ignore[attr-defined]
+                state.evidence_refs.append(
+                    EvidenceReference(
+                        evidence_id=f"ev-{len(state.evidence_refs) + 1}",
+                        source_id=source_id,
+                        version_id=version_id,
+                        source_sha256=source_sha256,
+                        section_id=sec_id,
+                        block_id=blk_id,
+                        page_number=page_no,
+                        span=span,
+                        excerpt=hf_norm[:1000],
+                    )
+                )
+                state.reading_order += 1
             pages.append(
                 DocumentPage(
                     page_number=page_no,
-                    width=page_width,
-                    height=page_height,
+                    width=tp.page_width,
+                    height=tp.page_height,
                     classification=classification,
                     recommended_processors=tuple(recommended),
                     confidence=confidence,
                     reading_order_reliable=reading_order_reliable,
-                    raw_char_count=len(page_text),
+                    raw_char_count=len(tp.page_text),
                     normalized_char_count=page_norm_chars,
-                    image_count=image_count,
-                    suspected_multicolumn=suspected_multicolumn,
-                    suspected_table=suspected_table,
+                    image_count=tp.image_count,
+                    suspected_multicolumn=tp.suspected_multicolumn,
+                    suspected_table=tp.suspected_table,
                     suspected_formula=bool(page_formula_ids),
                     text_block_ids=tuple(page_block_ids),
                     table_ids=tuple(page_table_ids),
                     figure_ids=tuple(page_figure_ids),
                     formula_ids=tuple(page_formula_ids),
                     warning_ids=tuple(page_warn_ids),
-                    provenance=provenance,
+                    provenance=fast_prov,
                 )
             )
 
-        if page_count >= 3 and first_lines:
-            if len(set(first_lines)) == 1 and len(first_lines[0]) > 2:
-                state.add_warning(
-                    "repeated_header_footer_suspected",
-                    "info",
-                    "Identical top line detected across pages; repeated header retained rather than discarded.",
-                )
-            elif len(set(last_lines)) == 1 and len(last_lines[0]) > 2:
-                state.add_warning(
-                    "repeated_header_footer_suspected",
-                    "info",
-                    "Identical bottom line detected across pages; repeated footer retained rather than discarded.",
-                )
+        if repeated_headers:
+            state.add_warning(
+                "repeated_header_footer_suspected",
+                "info",
+                "Repeated top header detected across pages and isolated as header_or_footer blocks.",
+            )
+        if repeated_footers:
+            state.add_warning(
+                "repeated_header_footer_suspected",
+                "info",
+                "Repeated bottom footer detected across pages and isolated as header_or_footer blocks.",
+            )
 
         sections = tuple(
             SourceSection(
@@ -1523,11 +2681,11 @@ class AdaptiveDocumentExtractor:
             overall_status = "complete"
 
         notes: list[str] = [
-            "Fast pypdf triage executed; multi-column/table/OCR/visual follow-up deferred to Batch 2.3."
+            f"Adaptive extraction completed: fast_path={page_count - len(spatial_results) - len(ocr_results)}, spatial={len(spatial_results)}, ocr={len(ocr_results)}."
         ]
-        if c_layout or c_table:
+        if not state.reading_order_verified:
             notes.append(
-                "Complex layout or tables detected; reading order is not guaranteed."
+                "One or more pages have uncertain reading order or deferred OCR/visual content."
             )
 
         quality = ExtractionQualityReport(
@@ -1552,7 +2710,7 @@ class AdaptiveDocumentExtractor:
             version_id=version_id,
             source_version=source_version,
             source_sha256=source_sha256,
-            input_format="digital_pdf",
+            input_format=input_format,
             title=title,
             normalized_text=full_normalized,
             pages=tuple(pages),
@@ -1564,6 +2722,6 @@ class AdaptiveDocumentExtractor:
             evidence_references=tuple(state.evidence_refs),
             warnings=tuple(state.warnings),
             quality=quality,
-            provenance=provenance,
+            provenance=doc_prov,
             created_at=datetime.now(UTC),
         )

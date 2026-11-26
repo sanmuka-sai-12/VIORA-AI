@@ -1423,7 +1423,7 @@ export interface components {
              * Input Format
              * @enum {string}
              */
-            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "docx" | "scanned_pdf";
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "docx" | "scanned_pdf" | "png" | "jpeg";
             /** Normalized Text */
             normalized_text: string;
             /**
@@ -1542,7 +1542,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "ocr_required" | "layout_reconstruction_required" | "table_extraction_required" | "visual_content_detected" | "formula_detected_unparsed" | "reading_order_uncertain" | "blank_or_low_text_page" | "repeated_header_footer_suspected" | "encoding_normalized" | "truncation_warning" | "partial_page_error";
+            code: "ocr_required" | "ocr_unavailable" | "ocr_fallback_applied" | "layout_reconstruction_required" | "table_extraction_required" | "visual_content_detected" | "formula_detected_unparsed" | "reading_order_uncertain" | "blank_or_low_text_page" | "repeated_header_footer_suspected" | "encoding_normalized" | "truncation_warning" | "partial_page_error";
             /** Deferred Stage */
             deferred_stage?: string | null;
             /** Message */
@@ -2483,7 +2483,7 @@ export interface components {
              * @default detected_unparsed
              * @enum {string}
              */
-            extraction_state: "parsed" | "detected_unparsed";
+            extraction_state: "parsed" | "partial" | "detected_unparsed";
             /**
              * Headers
              * @default []

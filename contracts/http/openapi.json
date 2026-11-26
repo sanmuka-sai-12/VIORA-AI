@@ -905,7 +905,9 @@
               "topic_description",
               "digital_pdf",
               "docx",
-              "scanned_pdf"
+              "scanned_pdf",
+              "png",
+              "jpeg"
             ],
             "title": "Input Format",
             "type": "string"
@@ -1194,6 +1196,8 @@
           "code": {
             "enum": [
               "ocr_required",
+              "ocr_unavailable",
+              "ocr_fallback_applied",
               "layout_reconstruction_required",
               "table_extraction_required",
               "visual_content_detected",
@@ -3907,6 +3911,7 @@
             "default": "detected_unparsed",
             "enum": [
               "parsed",
+              "partial",
               "detected_unparsed"
             ],
             "title": "Extraction State",

@@ -1,0 +1,100 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [9 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 415 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+8 beginbfchar
+<44> <0394>
+<53> <2211>
+<49> <222B>
+<52> <221A>
+<41> <2248>
+<4C> <2264>
+<47> <2265>
+<50> <2202>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode 6 0 R >>
+endobj
+8 0 obj
+<< /Length 981 >>
+stream
+BT
+/F2 14.0 Tf
+1 0 0 1 60.0 730.0 Tm (CS102: Binary Search Implementation) Tj
+ET
+BT
+/F1 10.5 Tf
+1 0 0 1 60.0 695.0 Tm (Binary search locates a target value inside a sorted array in) Tj
+1 0 0 1 60.0 679.0 Tm (O\(log n\) worst-case comparisons by halving the search interval.) Tj
+ET
+BT
+/F3 10.0 Tf
+1 0 0 1 76.0 635.0 Tm (def binary_search\(nums, target\):) Tj
+1 0 0 1 76.0 620.0 Tm (    lo, hi = 0, len\(nums\) - 1) Tj
+1 0 0 1 76.0 605.0 Tm (    while lo <= hi:) Tj
+1 0 0 1 76.0 590.0 Tm (        mid = \(lo + hi\) // 2) Tj
+1 0 0 1 76.0 575.0 Tm (        if nums[mid] == target:) Tj
+1 0 0 1 76.0 560.0 Tm (            return mid) Tj
+1 0 0 1 76.0 545.0 Tm (        if nums[mid] < target:) Tj
+1 0 0 1 76.0 530.0 Tm (            lo = mid + 1) Tj
+1 0 0 1 76.0 515.0 Tm (        else:) Tj
+1 0 0 1 76.0 500.0 Tm (            hi = mid - 1) Tj
+1 0 0 1 76.0 485.0 Tm (    return -1) Tj
+ET
+BT
+/F1 10.5 Tf
+1 0 0 1 60.0 445.0 Tm (Always verify loop invariants when modifying index bounds.) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 8 0 R >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000415 00000 n 
+0000000881 00000 n 
+0000000965 00000 n 
+0000001997 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+2153
+%%EOF

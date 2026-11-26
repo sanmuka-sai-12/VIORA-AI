@@ -1,0 +1,155 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [9 0 R 11 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 415 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+8 beginbfchar
+<44> <0394>
+<53> <2211>
+<49> <222B>
+<52> <221A>
+<41> <2248>
+<4C> <2264>
+<47> <2265>
+<50> <2202>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode 6 0 R >>
+endobj
+8 0 obj
+<< /Length 1026 >>
+stream
+BT
+/F2 11.5 Tf
+1 0 0 1 60.0 690.0 Tm (Table 1: Thermodynamic Properties of Gases) Tj
+ET
+0.75 w
+60 660 m 520 660 l S
+60 632 m 520 632 l S
+60 604 m 520 604 l S
+60 576 m 520 576 l S
+60 548 m 520 548 l S
+60 520 m 520 520 l S
+60 660 m 60 520 l S
+175 660 m 175 520 l S
+290 660 m 290 520 l S
+415 660 m 415 520 l S
+520 660 m 520 520 l S
+BT /F1 10.0 Tf
+1 0 0 1 68 641 Tm (Gas) Tj
+1 0 0 1 183 641 Tm (MolarMass) Tj
+1 0 0 1 298 641 Tm (Cv_J_molK) Tj
+1 0 0 1 423 641 Tm (Gamma) Tj
+1 0 0 1 68 613 Tm (Helium) Tj
+1 0 0 1 183 613 Tm (4.00) Tj
+1 0 0 1 298 613 Tm (12.47) Tj
+1 0 0 1 423 613 Tm (1.67) Tj
+1 0 0 1 68 585 Tm (Nitrogen) Tj
+1 0 0 1 183 585 Tm (28.01) Tj
+1 0 0 1 298 585 Tm (20.80) Tj
+1 0 0 1 423 585 Tm (1.40) Tj
+1 0 0 1 68 557 Tm (Oxygen) Tj
+1 0 0 1 183 557 Tm (32.00) Tj
+1 0 0 1 298 557 Tm (21.05) Tj
+1 0 0 1 423 557 Tm (1.40) Tj
+1 0 0 1 68 529 Tm (CO2) Tj
+1 0 0 1 183 529 Tm (44.01) Tj
+1 0 0 1 298 529 Tm (28.46) Tj
+1 0 0 1 423 529 Tm (1.30) Tj
+ET
+BT
+/F1 10.5 Tf
+1 0 0 1 60.0 490.0 Tm (Values measured at 298 K and 1 atm.) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 856 >>
+stream
+BT
+/F2 11.5 Tf
+1 0 0 1 60.0 690.0 Tm (Table 2: Algorithm Complexity Comparison) Tj
+ET
+BT /F1 10.0 Tf
+1 0 0 1 60 650 Tm (Algorithm) Tj
+1 0 0 1 195 650 Tm (BestCase) Tj
+1 0 0 1 315 650 Tm (WorstCase) Tj
+1 0 0 1 435 650 Tm (Space) Tj
+1 0 0 1 60 626 Tm (QuickSort) Tj
+1 0 0 1 195 626 Tm (O\(nlogn\)) Tj
+1 0 0 1 315 626 Tm (O\(n^2\)) Tj
+1 0 0 1 435 626 Tm (O\(logn\)) Tj
+1 0 0 1 60 602 Tm (MergeSort) Tj
+1 0 0 1 195 602 Tm (O\(nlogn\)) Tj
+1 0 0 1 315 602 Tm (O\(nlogn\)) Tj
+1 0 0 1 435 602 Tm (O\(n\)) Tj
+1 0 0 1 60 578 Tm (HeapSort) Tj
+1 0 0 1 195 578 Tm (O\(nlogn\)) Tj
+1 0 0 1 315 578 Tm (O\(nlogn\)) Tj
+1 0 0 1 435 578 Tm (O\(1\)) Tj
+1 0 0 1 60 554 Tm (BinarySearch) Tj
+1 0 0 1 195 554 Tm (O\(1\)) Tj
+1 0 0 1 315 554 Tm (O\(logn\)) Tj
+1 0 0 1 435 554 Tm (O\(1\)) Tj
+ET
+BT
+/F1 10.5 Tf
+1 0 0 1 60.0 495.0 Tm (All bounds assume comparison-based sorting.) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 10 0 R >>
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000128 00000 n 
+0000000225 00000 n 
+0000000327 00000 n 
+0000000422 00000 n 
+0000000888 00000 n 
+0000000972 00000 n 
+0000002050 00000 n 
+0000002206 00000 n 
+0000003114 00000 n 
+trailer
+<< /Size 12 /Root 1 0 R >>
+startxref
+3272
+%%EOF

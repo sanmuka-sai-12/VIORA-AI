@@ -10,6 +10,7 @@ export type AppRouteId =
   | "academics-sections"
   | "academics-subjects"
   | "academics-offerings"
+  | "sources"
   | "memberships"
   | "guardians"
   | "account-password"
@@ -39,6 +40,7 @@ export const INSTITUTION_SCOPED_ROUTES = new Set<AppRouteId>([
   "academics-sections",
   "academics-subjects",
   "academics-offerings",
+  "sources",
   "memberships",
   "guardians",
 ]);
@@ -121,6 +123,7 @@ const PATH_TO_ROUTE: Record<string, AppRouteId> = {
   "/academics/sections": "academics-sections",
   "/academics/subjects": "academics-subjects",
   "/academics/offerings": "academics-offerings",
+  "/sources": "sources",
   "/memberships": "memberships",
   "/guardians": "guardians",
   "/account/password": "account-password",
@@ -137,6 +140,7 @@ const ROUTE_TO_PATH: Record<AppRouteId, string> = {
   "academics-sections": "/academics/sections",
   "academics-subjects": "/academics/subjects",
   "academics-offerings": "/academics/offerings",
+  sources: "/sources",
   memberships: "/memberships",
   guardians: "/guardians",
   "account-password": "/account/password",

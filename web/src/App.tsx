@@ -23,6 +23,7 @@ import { GuardiansPage } from "./features/guardians/GuardiansPage";
 import { SystemHealthDashboard } from "./features/health/SystemHealthDashboard";
 import { InstitutionOverviewPage } from "./features/institution/InstitutionOverviewPage";
 import { MembershipsPage } from "./features/memberships/MembershipsPage";
+import { SourcesPage } from "./features/sources/SourcesPage";
 import { TenantProvider, useTenant } from "./tenant/TenantContext";
 
 function PortalRouter() {
@@ -137,6 +138,9 @@ function PortalRouter() {
     }
     if (activeRoute === "academics-offerings") {
       return <OfferingsPage />;
+    }
+    if (activeRoute === "sources") {
+      return <SourcesPage />;
     }
     if (activeRoute === "memberships") {
       return <MembershipsPage />;

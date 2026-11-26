@@ -173,6 +173,18 @@ export function buildNavigationItems(
         });
       }
 
+      if (flags.isSubjectTeacher || flags.isStudent) {
+        items.push({
+          id: "sources",
+          label:
+            flags.isSubjectTeacher
+              ? "Resources & Curriculum"
+              : "Lessons & Notes",
+          section: "academics",
+          route: "sources",
+        });
+      }
+
       if (flags.isStudent || flags.isGuardian) {
         items.push({
           id: "guardians",
@@ -196,13 +208,6 @@ export function buildNavigationItems(
       label: "System Health",
       section: "account",
       route: "health",
-    },
-    {
-      id: "future-sources",
-      label: "Knowledge Sources",
-      section: "future",
-      disabled: true,
-      badge: "Phase 2",
     },
     {
       id: "future-tutor",

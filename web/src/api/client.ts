@@ -26,6 +26,16 @@ export type SubjectOfferingSummary = ApiSchema<"SubjectOfferingSummary">;
 export type OfferingAssignmentSummary = ApiSchema<"OfferingAssignmentSummary">;
 export type GuardianLinkSummary = ApiSchema<"GuardianLinkSummary">;
 export type StudentSummary = ApiSchema<"StudentSummary">;
+export type OfferingSourcePolicyInfo = ApiSchema<"OfferingSourcePolicyInfo">;
+export type SourceSummary = ApiSchema<"SourceSummary">;
+export type SourceRegistrationResult = ApiSchema<"SourceRegistrationResult">;
+export type SourceVersionSummary = ApiSchema<"SourceVersionSummary">;
+export type WorkflowJobSummary = ApiSchema<"WorkflowJobSummary">;
+export type DerivedExtractionRecord = ApiSchema<"DerivedExtractionRecord">;
+export type ConceptExtractionRecord = ApiSchema<"ConceptExtractionRecord">;
+export type KnowledgePublicationState = ApiSchema<"KnowledgePublicationState">;
+export type KnowledgeReviewRecord = ApiSchema<"KnowledgeReviewRecord">;
+export type PublishedLessonPackage = ApiSchema<"PublishedLessonPackage">;
 
 export interface NormalizedApiError {
   status: number;

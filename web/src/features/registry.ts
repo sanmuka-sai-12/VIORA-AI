@@ -12,7 +12,7 @@ export interface FeatureRegistry {
 export const featureRegistry: FeatureRegistry = {
   identity: { enabled: false },
   institutions: { enabled: false },
-  sources: { enabled: false },
+  sources: { enabled: true },
   tutor: { enabled: false },
   lessons: { enabled: false },
   assessments: { enabled: false },

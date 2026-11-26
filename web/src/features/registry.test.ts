@@ -17,8 +17,8 @@ test("featureRegistry contains required modular domain lanes", () => {
     assert.ok(feature in featureRegistry, `Missing feature lane: ${feature}`);
     assert.strictEqual(
       featureRegistry[feature as keyof typeof featureRegistry].enabled,
-      false,
-      `Feature ${feature} should be disabled by default`
+      feature === "sources",
+      `Unexpected enabled state for ${feature}`
     );
   }
 });

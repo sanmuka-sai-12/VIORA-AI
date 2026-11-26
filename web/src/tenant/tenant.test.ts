@@ -103,19 +103,22 @@ test("buildNavigationItems tailors navigation per role and keeps Phase 2 modules
 
   const teacherNav = buildNavigationItems(["subject_teacher"], true);
   assert.ok(teacherNav.some((i) => i.route === "academics-offerings"));
+  assert.ok(teacherNav.some((i) => i.route === "sources"));
   assert.equal(teacherNav.some((i) => i.route === "memberships"), false);
   assert.equal(teacherNav.some((i) => i.route === "academics-campuses"), false);
 
   const studentNav = buildNavigationItems(["student"], true);
   assert.ok(studentNav.some((i) => i.route === "academics-offerings"));
+  assert.ok(studentNav.some((i) => i.route === "sources"));
   assert.ok(studentNav.some((i) => i.route === "guardians"));
 
   const guardianNav = buildNavigationItems(["guardian"], true);
   assert.ok(guardianNav.some((i) => i.route === "guardians"));
   assert.equal(guardianNav.some((i) => i.route === "academics-offerings"), false);
+  assert.equal(guardianNav.some((i) => i.route === "sources"), false);
 
   const futureModules = adminNav.filter((i) => i.section === "future");
-  assert.equal(futureModules.length, 5);
+  assert.equal(futureModules.length, 4);
   for (const mod of futureModules) {
     assert.equal(mod.disabled, true);
   }
@@ -161,4 +164,41 @@ test("Validation and pagination state helpers validate inputs and maintain curso
   const back1 = rewindCursorPage(p2);
   assert.equal(back1.currentCursor, "cursor-1");
   assert.deepEqual(back1.history, [null]);
+});
+
+import {
+  canOwnerStudentProcess,
+  canTeacherManageSource,
+  groundingTone,
+  reviewTone,
+} from "../features/sources/sourceHelpers.ts";
+
+test("Source authorization and badge helpers enforce role boundaries", () => {
+  assert.equal(
+    canTeacherManageSource(true, { origin_kind: "teacher_resource", lifecycle_state: "active" }),
+    true,
+  );
+  assert.equal(
+    canTeacherManageSource(true, { origin_kind: "student_submission", lifecycle_state: "active" }),
+    false,
+  );
+  assert.equal(
+    canOwnerStudentProcess(
+      "u1",
+      { origin_kind: "student_submission", owner_user_id: "u1", lifecycle_state: "active" },
+      { offering_id: "o1", tenant_id: TENANT_A, student_submissions_enabled: true, teachers_can_view_student_submissions: true, updated_at: "2026-01-01T00:00:00Z", updated_by_user_id: null },
+    ),
+    true,
+  );
+  assert.equal(
+    canOwnerStudentProcess(
+      "u1",
+      { origin_kind: "student_submission", owner_user_id: "u1", lifecycle_state: "active" },
+      { offering_id: "o1", tenant_id: TENANT_A, student_submissions_enabled: false, teachers_can_view_student_submissions: false, updated_at: "2026-01-01T00:00:00Z", updated_by_user_id: null },
+    ),
+    false,
+  );
+  assert.equal(groundingTone("source_supported"), "success");
+  assert.equal(groundingTone("learning_request"), "warning");
+  assert.equal(reviewTone("approved"), "success");
 });

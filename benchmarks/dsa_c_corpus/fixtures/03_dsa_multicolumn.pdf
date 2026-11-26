@@ -1,0 +1,74 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [9 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 415 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+8 beginbfchar
+<44> <0394>
+<53> <2211>
+<49> <222B>
+<52> <221A>
+<41> <2248>
+<4C> <2264>
+<47> <2265>
+<50> <2202>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode 6 0 R >>
+endobj
+8 0 obj
+<< /Length 649 >>
+stream
+BT /F2 13 Tf 1 0 0 1 54 745 Tm (Data Structure Comparison Sheet) Tj /F1 10 Tf 1 0 0 1 54 700 Tm (Left: Bounded Stack LIFO) Tj 1 0 0 1 320 700 Tm (Right: Open-Address Hash Table) Tj 1 0 0 1 54 680 Tm (Initialize top = -1.) Tj 1 0 0 1 320 680 Tm (Compute initial slot = hash\(key\) % CAP.) Tj 1 0 0 1 54 660 Tm (Push increments top before write.) Tj 1 0 0 1 320 660 Tm (Probe forward across occupied slots.) Tj 1 0 0 1 54 640 Tm (Pop reads items[top] then decrements.) Tj 1 0 0 1 320 640 Tm (Deleted slots store HT_TOMBSTONE.) Tj 1 0 0 1 54 620 Tm (Guards top < 0 against underflow.) Tj 1 0 0 1 320 620 Tm (Stop lookups immediately on HT_EMPTY.) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 8 0 R >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000415 00000 n 
+0000000881 00000 n 
+0000000965 00000 n 
+0000001665 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1821
+%%EOF

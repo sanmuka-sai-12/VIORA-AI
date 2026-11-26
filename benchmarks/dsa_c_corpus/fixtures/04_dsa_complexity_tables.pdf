@@ -1,0 +1,85 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [9 0 R 11 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 415 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+8 beginbfchar
+<44> <0394>
+<53> <2211>
+<49> <222B>
+<52> <221A>
+<41> <2248>
+<4C> <2264>
+<47> <2265>
+<50> <2202>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode 6 0 R >>
+endobj
+8 0 obj
+<< /Length 691 >>
+stream
+BT /F2 12 Tf 1 0 0 1 54 750 Tm (Table 1: Worst-Case Time and Auxiliary Space) Tj ET 0.75 w 54 730 m 540 730 l S 54 702 m 540 702 l S 54 674 m 540 674 l S 54 646 m 540 646 l S 54 618 m 540 618 l S 54 730 m 54 618 l S 210 730 m 210 618 l S 370 730 m 370 618 l S 540 730 m 540 618 l S BT /F2 10 Tf 1 0 0 1 62 712 Tm (Structure) Tj 1 0 0 1 218 712 Tm (Search) Tj 1 0 0 1 378 712 Tm (AuxSpace) Tj /F1 10 Tf 1 0 0 1 62 684 Tm (SortedArray) Tj 1 0 0 1 218 684 Tm (O(log n)) Tj 1 0 0 1 378 684 Tm (O(1)) Tj 1 0 0 1 62 656 Tm (MergeSort) Tj 1 0 0 1 218 656 Tm (Theta(n log n)) Tj 1 0 0 1 378 656 Tm (O(n)) Tj 1 0 0 1 62 628 Tm (MinHeap) Tj 1 0 0 1 218 628 Tm (O(n)) Tj 1 0 0 1 378 628 Tm (O(1)) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 470 >>
+stream
+BT /F2 12 Tf 1 0 0 1 54 745 Tm (Table 2: Graph Traversal Summary) Tj /F2 10 Tf 1 0 0 1 60 708 Tm (Representation) Tj 1 0 0 1 230 708 Tm (BFS_Time) Tj 1 0 0 1 390 708 Tm (Space) Tj /F1 10 Tf 1 0 0 1 60 684 Tm (AdjList) Tj 1 0 0 1 230 684 Tm (O(V+E)) Tj 1 0 0 1 390 684 Tm (O(V)) Tj 1 0 0 1 60 660 Tm (AdjMatrix) Tj 1 0 0 1 230 660 Tm (O(V^2)) Tj 1 0 0 1 390 660 Tm (O(V^2)) Tj 1 0 0 1 60 636 Tm (EdgeList) Tj 1 0 0 1 230 636 Tm (O(V*E)) Tj 1 0 0 1 390 636 Tm (O(E)) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 10 0 R >>
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000128 00000 n 
+0000000225 00000 n 
+0000000327 00000 n 
+0000000422 00000 n 
+0000000888 00000 n 
+0000000972 00000 n 
+0000001714 00000 n 
+0000001870 00000 n 
+0000002392 00000 n 
+trailer
+<< /Size 12 /Root 1 0 R >>
+startxref
+2550
+%%EOF

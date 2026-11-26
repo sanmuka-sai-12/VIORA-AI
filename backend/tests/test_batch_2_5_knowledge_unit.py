@@ -322,6 +322,30 @@ def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request()
     # Hallucinated evidence ID turned physics "Work" into unsupported + needs_review=True
     assert any(w.grounding == "unsupported" and w.needs_review for w in work)
 
+    # Valid evidence ID with semantically unrelated claim MUST NOT become source_supported
+    mismatch_gw = _ScriptedGateway(
+        [
+            RawConceptExtractionBatch(
+                section_summary="Hallucinated claim on valid ev id",
+                concepts=[
+                    RawConceptCandidate(
+                        name="Cellular Mitosis",
+                        canonical_summary="Eukaryotic nuclear chromosome division phase.",
+                        grounding="source_explicit",
+                        evidence_ids=[valid_eid],
+                    )
+                ],
+            )
+        ]
+    )
+    mismatch_kg = ConceptExtractor(mismatch_gw).extract_concepts(
+        context=ctx, derived=md_derived, force_mode="single_pass"
+    ).knowledge
+    assert mismatch_kg.concepts[0].grounding == "uncertain"
+    assert mismatch_kg.concepts[0].needs_review is True
+    assert mismatch_kg.validation.source_supported_count == 0
+    assert mismatch_kg.validation.uncertain_count == 1
+
     # Topic description input_format -> strictly learning_request, NEVER factual proof
     topic_doc = AdaptiveDocumentExtractor().extract(
         tenant_id=ctx.tenant_id,
@@ -622,4 +646,52 @@ def test_concept_extractor_counts_schema_overhead_in_json_schema_mode() -> None:
             context=ctx, derived=md_derived, force_mode="single_pass"
         )
     assert PROMPT_VERSION != "concept_prompt:1.0"
+
+
+def test_semantic_screening_flags_contradictions_and_generic_false_positives() -> None:
+    from viora.knowledge.extractor import _claim_semantically_aligned
+    from viora.knowledge.schemas import ConceptEvidenceBinding
+
+    sid, vid, eid = uuid4(), uuid4(), uuid4()
+    b = ConceptEvidenceBinding(
+        evidence_id="ev-1",
+        source_id=sid,
+        version_id=vid,
+        source_sha256="a" * 64,
+        extraction_id=eid,
+        page_number=1,
+        section_id="sec-1",
+        verified=True,
+        excerpt="A binary search requires a sorted array and runs in logarithmic time.",
+    )
+    # 1. Generic boilerplate overlap + single weak word must not pass a long mismatched claim
+    assert (
+        _claim_semantically_aligned(
+            ["Hash Tables", "A concept method value using buckets for collision chaining."],
+            [b],
+            {"binary", "search", "requires", "sorted", "array", "logarithmic", "time"},
+            b.excerpt,
+        )
+        is False
+    )
+    # 2. Negation / antonym contradiction despite high keyword overlap must be flagged
+    assert (
+        _claim_semantically_aligned(
+            ["Binary Search", "Binary search does not require a sorted array and works on unsorted data."],
+            [b],
+            {"binary", "search", "requires", "sorted", "array", "logarithmic", "time"},
+            b.excerpt,
+        )
+        is False
+    )
+    # 3. Genuine aligned claim passes screening heuristic (still requires teacher review)
+    assert (
+        _claim_semantically_aligned(
+            ["Binary Search", "Binary search operates on a sorted array in logarithmic time."],
+            [b],
+            {"binary", "search", "requires", "sorted", "array", "logarithmic", "time"},
+            b.excerpt,
+        )
+        is True
+    )
 

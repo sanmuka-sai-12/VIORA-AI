@@ -1,0 +1,317 @@
+{
+  "mode": "LIVE_CLOUDFLARE_WORKER",
+  "transport": "cloudflare_worker",
+  "worker_url": "https://viora-ai.reddyanvesh2008.workers.dev",
+  "model": "@cf/meta/llama-3.1-8b-instruct-fast",
+  "generation_settings": {
+    "max_tokens": 500,
+    "temperature": 0.0,
+    "max_retries": 0
+  },
+  "max_outbound_requests_allowed": 2,
+  "outbound_attempts_executed": 3,
+  "question_id": "eval-reas-02",
+  "question_prompt": "If a Breadth-First Search marks vertices visited only at pop time rather than when placing them into the queue, what goes wrong mathematically and in a fixed-size C queue `int q[V]`?",
+  "shared_qa_system_prompt": "Answer the computer science and C programming question concisely and rigorously.\nCover conceptual correctness, time/space complexity, preconditions, and C memory/undefined-behavior implications.\nStay within 500 tokens. Do not invent facts you are uncertain about.",
+  "preflight": {
+    "transport": "cloudflare_worker",
+    "worker_url": "https://viora-ai.reddyanvesh2008.workers.dev",
+    "model": "@cf/meta/llama-3.1-8b-instruct-fast",
+    "worker_secret_configured": true,
+    "b_and_c_system_prompt_identical": true,
+    "worker_health": {
+      "health_url": "https://viora-ai.reddyanvesh2008.workers.dev/health",
+      "reachable": true,
+      "status_code": 200,
+      "body": {
+        "status": "ok",
+        "service": "viora-inference",
+        "inference": false
+      },
+      "remote_quota_balance_note": "Worker GET /health checks config/secret readiness with inference=false (0 Neurons). Cloudflare Workers AI bindings do not expose remaining daily Neuron balance; account-level billing API credentials are not loaded in .env, so runtime fails closed on HTTP 429 AI_QUOTA_EXCEEDED."
+    },
+    "all_payloads_within_16kb": true,
+    "requests": {
+      "A_concept_extraction": {
+        "wire_bytes": 3780,
+        "compact_bytes": 3581,
+        "within_16kb_worker_ceiling": true,
+        "worker_ceiling_bytes": 16384,
+        "headroom_bytes": 12604,
+        "estimated_input_tokens_full_serialized_request": 945,
+        "estimated_input_tokens_messages_only": 362,
+        "worst_case_neurons": {
+          "model_id": "@cf/meta/llama-3.1-8b-instruct-fast",
+          "known_rate": true,
+          "estimated_neurons": 21.33,
+          "daily_free_allocation": 10000,
+          "pct_of_daily_free_tier": 0.213
+        }
+      },
+      "B_closed_book_qa": {
+        "wire_bytes": 627,
+        "compact_bytes": 613,
+        "within_16kb_worker_ceiling": true,
+        "worker_ceiling_bytes": 16384,
+        "headroom_bytes": 15757,
+        "estimated_input_tokens_full_serialized_request": 157,
+        "estimated_input_tokens_messages_only": 114,
+        "worst_case_neurons": {
+          "model_id": "@cf/meta/llama-3.1-8b-instruct-fast",
+          "known_rate": true,
+          "estimated_neurons": 18.08,
+          "daily_free_allocation": 10000,
+          "pct_of_daily_free_tier": 0.181
+        }
+      },
+      "C_corpus_grounded_qa": {
+        "wire_bytes": 1914,
+        "compact_bytes": 1900,
+        "within_16kb_worker_ceiling": true,
+        "worker_ceiling_bytes": 16384,
+        "headroom_bytes": 14470,
+        "estimated_input_tokens_full_serialized_request": 478,
+        "estimated_input_tokens_messages_only": 432,
+        "worst_case_neurons": {
+          "model_id": "@cf/meta/llama-3.1-8b-instruct-fast",
+          "known_rate": true,
+          "estimated_neurons": 19.4,
+          "daily_free_allocation": 10000,
+          "pct_of_daily_free_tier": 0.194
+        }
+      }
+    },
+    "worst_case_total_neurons": 58.81,
+    "free_tier_daily_neurons": 10000,
+    "worst_case_pct_of_daily_free_tier": 0.5881
+  },
+  "rubric": {
+    "scale_note": "Independent deterministic rubric evaluation (0-2 per dimension, max 10, minus unsupported-claim penalty).",
+    "dimensions": [
+      {
+        "name": "factual_correctness",
+        "max_score": 2,
+        "criteria": "Accurate technical statements with zero semantic contradictions."
+      },
+      {
+        "name": "complexity_correctness",
+        "max_score": 2,
+        "criteria": "Accurately distinguishes O(V+E) under guard vs redundant scans / queue expansion without duplicate-pop guard."
+      },
+      {
+        "name": "conceptual_completeness",
+        "max_score": 2,
+        "criteria": "Explains duplicate frontier enqueuing and queue-once invariant breakdown."
+      },
+      {
+        "name": "preconditions_and_limitations",
+        "max_score": 2,
+        "criteria": "Explicitly identifies unweighted-edge assumption and queue-capacity preconditions."
+      },
+      {
+        "name": "c_implementation_and_memory_safety",
+        "max_score": 2,
+        "criteria": "Identifies fixed-size int q[V] out-of-bounds buffer overflow undefined behavior in C."
+      },
+      {
+        "name": "unsupported_claims",
+        "penalty_per_claim": -1,
+        "criteria": "Deduct 1 per claim not supported by standard C/DSA facts or supplied passages."
+      }
+    ]
+  },
+  "requests": {
+    "A_concept_extraction": {
+      "structured_output_valid": true,
+      "finish_reason": null,
+      "truncated": false,
+      "tokens": {
+        "input_tokens": 431,
+        "output_tokens": 366,
+        "total_tokens": 797
+      },
+      "latency_ms": 3732.48,
+      "worker_latency_ms": 3427,
+      "worker_request_id": "d85d076e-edc3-4c3c-9ad7-aecacb76506d",
+      "wire_bytes": 3780,
+      "neurons": {
+        "model_id": "@cf/meta/llama-3.1-8b-instruct-fast",
+        "known_rate": true,
+        "estimated_neurons": 14.54,
+        "daily_free_allocation": 10000,
+        "pct_of_daily_free_tier": 0.145
+      },
+      "validation": {
+        "schema_version": "1.0",
+        "prompt_version": "concept_prompt:1.1",
+        "chunk_algorithm_version": "struct_chunk:1.0",
+        "total_concepts": 2,
+        "source_supported_count": 0,
+        "source_synthesized_count": 0,
+        "learning_request_count": 0,
+        "inferred_count": 0,
+        "uncertain_count": 2,
+        "unsupported_count": 0,
+        "invalid_evidence_refs_rejected": 0,
+        "duplicate_merges_count": 0,
+        "ambiguous_senses_retained": 0,
+        "requires_teacher_review": true,
+        "validation_notes": [
+          "The provided data is from an untrusted source and should be treated with caution."
+        ]
+      },
+      "concepts": [
+        {
+          "concept_id": "con-1",
+          "name": "Dynamic Arrays",
+          "normalized_name": "dynamic arrays",
+          "sense_label": null,
+          "ambiguity_note": null,
+          "canonical_summary": "A dynamic array doubles capacity when full to maintain an amortized push time of O(1).",
+          "definitions": [],
+          "examples": [
+            {
+              "text": "new_cap = capacity * 2",
+              "grounding": "uncertain",
+              "evidence_ids": []
+            }
+          ],
+          "learning_objectives": [
+            {
+              "objective_id": "obj-1",
+              "statement": "Understand how dynamic arrays maintain a constant time complexity for push operations.",
+              "bloom_level": "understand",
+              "grounding": "uncertain",
+              "evidence_ids": []
+            }
+          ],
+          "prerequisites": [
+            {
+              "prerequisite_name": "Basic understanding of arrays and data structures",
+              "grounding": "uncertain",
+              "evidence_ids": []
+            }
+          ],
+          "grounding": "uncertain",
+          "evidence_bindings": [],
+          "needs_review": true,
+          "chunk_ids": [
+            "chk-1"
+          ]
+        },
+        {
+          "concept_id": "con-2",
+          "name": "Circular Queues",
+          "normalized_name": "circular queues",
+          "sense_label": null,
+          "ambiguity_note": null,
+          "canonical_summary": "A circular queue uses a ring-buffer to store items, with the tail index calculated using the head index, item count, and capacity.",
+          "definitions": [],
+          "examples": [
+            {
+              "text": "tail = (head + count) % CAP",
+              "grounding": "uncertain",
+              "evidence_ids": []
+            }
+          ],
+          "learning_objectives": [
+            {
+              "objective_id": "obj-2",
+              "statement": "Understand how to calculate the tail index in a circular queue.",
+              "bloom_level": "understand",
+              "grounding": "uncertain",
+              "evidence_ids": []
+            }
+          ],
+          "prerequisites": [
+            {
+              "prerequisite_name": "Basic understanding of queues and data structures",
+              "grounding": "uncertain",
+              "evidence_ids": []
+            }
+          ],
+          "grounding": "uncertain",
+          "evidence_bindings": [],
+          "needs_review": true,
+          "chunk_ids": [
+            "chk-1"
+          ]
+        }
+      ],
+      "relationships": [
+        {
+          "relationship_id": "rel-1",
+          "source_concept_id": "con-1",
+          "source_concept_name": "Dynamic Arrays",
+          "relation_type": "part_of",
+          "target_concept_id": "con-2",
+          "target_concept_name": "Circular Queues",
+          "grounding": "uncertain",
+          "evidence_bindings": [
+            {
+              "evidence_id": "ev-1",
+              "source_id": "ec384b4c-e28c-42bb-82cd-d441e793c22b",
+              "version_id": "aad0e50f-272b-4af1-9045-87eef13738c8",
+              "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "extraction_id": "8e972f61-c6de-4b3e-a335-ee1072361200",
+              "page_number": 1,
+              "section_id": "sec-2",
+              "block_id": "blk-1",
+              "verified": true,
+              "excerpt": "VIORA-DSA Study Notes: Dynamic Arrays and Circular Queues"
+            }
+          ],
+          "needs_review": true
+        }
+      ],
+      "raw_response": "{\"section_summary\":\"VIORA-DSA Study Notes: Dynamic Arrays and Circular Queues\",\"concepts\":[{\"name\":\"Dynamic Arrays\",\"canonical_summary\":\"A dynamic array doubles capacity when full to maintain an amortized push time of O(1).\",\"examples\":[\"new_cap = capacity * 2\"],\"learning_objectives\":[\"Understand how dynamic arrays maintain a constant time complexity for push operations.\"],\"prerequisites\":[\"Basic understanding of arrays and data structures\"]},{\"name\":\"Circular Queues\",\"canonical_summary\":\"A circular queue uses a ring-buffer to store items, with the tail index calculated using the head index, item count, and capacity.\",\"examples\":[\"tail = (head + count) % CAP\"],\"learning_objectives\":[\"Understand how to calculate the tail index in a circular queue.\"],\"prerequisites\":[\"Basic understanding of queues and data structures\"]}],\"relationships\":[{\"source_concept\":\"Dynamic Arrays\",\"target_concept\":\"Circular Queues\",\"evidence_ids\":[\"ev-1\"]},{\"source_concept\":\"Circular Queues\",\"target_concept\":\"Ring-Buffer FIFO Equations\",\"evidence_ids\":[\"ev-3\"]}],\"warnings\":[\"The provided data is from an untrusted source and should be treated with caution.\"]}",
+      "error": null
+    },
+    "B_closed_book_qa": {
+      "finish_reason": null,
+      "truncated": false,
+      "tokens": {
+        "input_tokens": 132,
+        "output_tokens": 442,
+        "total_tokens": 574
+      },
+      "latency_ms": 2643.21,
+      "worker_latency_ms": 2384,
+      "worker_request_id": "0cadb3c7-6c7b-4246-9abc-7b7ed1c60453",
+      "wire_bytes": 627,
+      "neurons": {
+        "model_id": "@cf/meta/llama-3.1-8b-instruct-fast",
+        "known_rate": true,
+        "estimated_neurons": 15.96,
+        "daily_free_allocation": 10000,
+        "pct_of_daily_free_tier": 0.16
+      },
+      "response": "**Mathematical Implication:**\n\nIn a Breadth-First Search (BFS) algorithm, marking vertices as visited is crucial for avoiding infinite loops. If vertices are marked only at pop time, it can lead to incorrect results. Consider a scenario where a vertex is visited multiple times due to a cycle in the graph. If we mark vertices only at pop time, we might miss some vertices in the cycle, resulting in an incomplete traversal.\n\n**C Queue Implication:**\n\nIn a fixed-size C queue `int q[V]`, marking vertices only at pop time can lead to undefined behavior. When a vertex is popped from the queue, it's removed from the array `q`. However, if we mark the vertex as visited only after it's popped, we might access an out-of-bounds index in the array. This is because the vertex has already been removed from the array, but we're still trying to access its memory location.\n\n**Correct Approach:**\n\nTo avoid these issues, it's essential to mark vertices as visited when they're enqueued, not when they're popped. This ensures that we don't miss any vertices in the graph and avoid accessing out-of-bounds indices in the queue array.\n\n**Code Example:**\n\n```c\nvoid bfs(int graph[V][V], int start) {\n    int visited[V] = {0};\n    int q[V];\n    int front = 0, rear = 0;\n\n    visited[start] = 1;\n    q[rear++] = start;\n\n    while (front < rear) {\n        int vertex = q[front++];\n        // Process the vertex\n\n        for (int i = 0; i < V; i++) {\n            if (graph[vertex][i] && !visited[i]) {\n                visited[i] = 1;\n                q[rear++] = i;\n            }\n        }\n    }\n}\n```\n\nIn this example, we mark the `start` vertex as visited before enqueuing it. We also mark its neighbors as visited when we enqueue them. This ensures that we don't miss any vertices in the graph and avoid accessing out-of-bounds indices in the queue array.",
+      "error": null
+    },
+    "C_corpus_grounded_qa": {
+      "finish_reason": null,
+      "truncated": false,
+      "tokens": {
+        "input_tokens": 441,
+        "output_tokens": 462,
+        "total_tokens": 903
+      },
+      "latency_ms": 2549.28,
+      "worker_latency_ms": 2382,
+      "worker_request_id": "705d328d-ffa7-4232-ba8c-2f328f2e4550",
+      "wire_bytes": 1914,
+      "neurons": {
+        "model_id": "@cf/meta/llama-3.1-8b-instruct-fast",
+        "known_rate": true,
+        "estimated_neurons": 17.93,
+        "daily_free_allocation": 10000,
+        "pct_of_daily_free_tier": 0.179
+      },
+      "response": "**Mathematical Implication:**\n\nIf a Breadth-First Search marks vertices visited only at pop time, it can lead to repeated enqueuing of vertices in the queue. This is because a vertex is marked as visited only after it is dequeued, but it may still be reachable from other vertices that have not been dequeued yet. As a result, the algorithm may not terminate, or it may produce incorrect results.\n\n**C Queue Implication:**\n\nIn a fixed-size C queue `int q[V]`, marking vertices visited only at pop time can lead to a buffer overflow. When a vertex is dequeued, it is marked as visited, but the queue is not updated to reflect the new tail index. As a result, when the next vertex is dequeued, it may overwrite the previously dequeued vertex, leading to incorrect results or undefined behavior.\n\n**Example:**\n\nSuppose we have a queue `int q[5]` and the following sequence of operations:\n\n1. `q[0] = 1; q[1] = 2; q[2] = 3; q[3] = 4; q[4] = 5; tail = 4; count = 5;`\n2. `q[tail] = 6; tail = (tail + 1) % 5; count++;` (marking vertex 6 as visited)\n3. `q[tail] = 7; tail = (tail + 1) % 5; count++;` (marking vertex 7 as visited)\n4. `q[tail] = 8; tail = (tail + 1) % 5; count++;` (marking vertex 8 as visited)\n\nHowever, since we marked vertices visited only at pop time, the queue is not updated to reflect the new tail index. As a result, when we try to dequeue the next vertex, we will overwrite the previously dequeued vertex, leading to incorrect results or undefined behavior.\n\n**Correct Implementation:**\n\nTo avoid these issues, we should mark vertices visited when they are enqueued, not when they are dequeued. This ensures that each reachable vertex enters the queue at most once and avoids buffer overflows in the queue.",
+      "error": null
+    }
+  },
+  "actual_total_neurons": 48.43,
+  "pct_of_daily_free_tier": 0.4843
+}

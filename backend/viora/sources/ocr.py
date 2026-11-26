@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -22,6 +23,7 @@ RAPIDOCR_EXTRACTOR_VERSION = "3.10"
 OCR_CONFIDENCE_PREPROCESS_THRESHOLD = 0.78
 OCR_LOW_CONFIDENCE_THRESHOLD = 0.70
 OCR_UNSUPPORTED_OR_HANDWRITING_THRESHOLD = 0.50
+_OCR_GARBLE_RE = re.compile(r"(?:\b[A-Za-z]\s{2,}[A-Za-z]\b|\s{3,}|[+\-*/=]\s*$)")
 
 
 class OcrUnavailableError(RuntimeError):
@@ -137,12 +139,17 @@ def hash_pil_image(image: Image.Image) -> str:
     return h.hexdigest()
 
 
+def _has_ocr_garble_hint(lines: tuple[OcrLine, ...]) -> bool:
+    return any(_OCR_GARBLE_RE.search(ln.text) for ln in lines)
+
+
 class RapidOcrBackend:
     """Optional RapidOCR + ONNX Runtime CPU adapter (Apache-2.0 / MIT)."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, intra_op_threads: int | None = None) -> None:
         self._engine: Any = None
         self._available: bool | None = None
+        self._intra_op_threads = intra_op_threads
 
     @property
     def engine_id(self) -> str:
@@ -172,7 +179,20 @@ class RapidOcrBackend:
         if self._engine is None:
             from rapidocr import RapidOCR
 
-            self._engine = RapidOCR()
+            intra = self._intra_op_threads
+            if intra is None:
+                env_t = os.environ.get("VIORA_OCR_INTRA_THREADS")
+                if env_t and env_t.isdigit():
+                    intra = max(1, int(env_t))
+                else:
+                    intra = max(1, min(4, os.cpu_count() or 2))
+            self._engine = RapidOCR(
+                params={
+                    "EngineConfig.onnxruntime.intra_op_num_threads": intra,
+                    "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+                    "Global.log_level": "warning",
+                }
+            )
         return self._engine
 
     def warm_up(self) -> bool:
@@ -242,16 +262,23 @@ class RapidOcrBackend:
         if force_preprocess:
             return self.recognize_image(image, preprocess=True)
         raw_res = self.recognize_image(image, preprocess=False)
-        if raw_res.lines and raw_res.mean_confidence >= OCR_CONFIDENCE_PREPROCESS_THRESHOLD:
+        raw_garbled = _has_ocr_garble_hint(raw_res.lines)
+        if (
+            raw_res.lines
+            and raw_res.mean_confidence >= OCR_CONFIDENCE_PREPROCESS_THRESHOLD
+            and not raw_garbled
+        ):
             return raw_res
         enhanced_res = self.recognize_image(image, preprocess=True)
         raw_chars = sum(len(ln.text) for ln in raw_res.lines)
         enh_chars = sum(len(ln.text) for ln in enhanced_res.lines)
         if not raw_res.lines and enhanced_res.lines:
             return enhanced_res
+        enh_cleaner = raw_garbled and not _has_ocr_garble_hint(enhanced_res.lines)
         if enh_chars >= int(raw_chars * 0.85) and (
             enhanced_res.mean_confidence > raw_res.mean_confidence + 0.02
             or (enh_chars > raw_chars and enhanced_res.mean_confidence >= raw_res.mean_confidence)
+            or (enh_cleaner and enhanced_res.mean_confidence >= raw_res.mean_confidence)
         ):
             return enhanced_res
         return raw_res
@@ -261,12 +288,14 @@ _PROCESS_OCR_BACKEND: RapidOcrBackend | None = None
 _PROCESS_OCR_PID: int | None = None
 
 
-def get_process_ocr_backend(*, warm_up: bool = False) -> RapidOcrBackend:
+def get_process_ocr_backend(
+    *, warm_up: bool = False, intra_op_threads: int | None = None
+) -> RapidOcrBackend:
     """Return a process-scoped RapidOcrBackend singleton so models load once per worker process."""
     global _PROCESS_OCR_BACKEND, _PROCESS_OCR_PID
     pid = os.getpid()
     if _PROCESS_OCR_BACKEND is None or _PROCESS_OCR_PID != pid:
-        _PROCESS_OCR_BACKEND = RapidOcrBackend()
+        _PROCESS_OCR_BACKEND = RapidOcrBackend(intra_op_threads=intra_op_threads)
         _PROCESS_OCR_PID = pid
     if warm_up:
         _PROCESS_OCR_BACKEND.warm_up()

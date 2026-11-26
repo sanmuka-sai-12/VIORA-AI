@@ -84,8 +84,8 @@ def _render_text_image(lines: list[str], *, bg: tuple[int, int, int] = (255, 255
 
 def _build_independent_validation_docs() -> dict[str, Any]:
     """Generate unseen independent validation documents distinct from Batch 2.3 corpus."""
-    # 1. Independent 6-page mixed packet: 2 multi-column digital + 2 table pages + 2 scanned raster pages
-    mc_ops = (
+    # 1. Malformed 2-arg Tm fixture preserved for resilience check, plus valid 6-arg Tm counterpart
+    mc_ops_malformed = (
         "BT /F2 13 Tf 54 740 Tm (Electrostatics Review Sheet) Tj "
         "/F1 10 Tf "
         "54 690 Tm (Left Column: Gauss law relates flux to enclosed charge.) Tj "
@@ -93,13 +93,31 @@ def _build_independent_validation_docs() -> dict[str, Any]:
         "54 665 Tm (Left Column: Symmetry simplifies spherical field integrals.) Tj "
         "320 665 Tm (Right Column: Equipotential surfaces remain perpendicular to E.) Tj ET"
     )
-    tbl_ops = (
+    mc_ops_valid = (
+        "BT /F2 13 Tf 1 0 0 1 54 740 Tm (Electrostatics Review Sheet) Tj "
+        "/F1 10 Tf "
+        "1 0 0 1 54 690 Tm (Left Column: Gauss law relates flux.) Tj "
+        "1 0 0 1 54 672 Tm (Left Column: Spherical symmetry integral.) Tj "
+        "1 0 0 1 54 654 Tm (Left Column: Closed Gaussian surface rule.) Tj "
+        "1 0 0 1 320 690 Tm (Right Column: Electric potential energy.) Tj "
+        "1 0 0 1 320 672 Tm (Right Column: Equipotential field normal.) Tj "
+        "1 0 0 1 320 654 Tm (Right Column: Scalar voltage difference.) Tj ET"
+    )
+    tbl_ops_malformed = (
         "0.75 w 60 720 m 520 720 l S 60 692 m 520 692 l S 60 664 m 520 664 l S 60 636 m 520 636 l S "
         "60 720 m 60 636 l S 240 720 m 240 636 l S 380 720 m 380 636 l S 520 720 m 520 636 l S "
         "BT /F2 10 Tf 68 702 Tm (Quantity) Tj 248 702 Tm (Symbol) Tj 388 702 Tm (Unit) Tj "
         "/F1 10 Tf "
         "68 674 Tm (Capacitance) Tj 248 674 Tm (C) Tj 388 674 Tm (Farad) Tj "
         "68 646 Tm (Inductance) Tj 248 646 Tm (L) Tj 388 646 Tm (Henry) Tj ET"
+    )
+    tbl_ops_valid = (
+        "0.75 w 60 720 m 520 720 l S 60 692 m 520 692 l S 60 664 m 520 664 l S 60 636 m 520 636 l S "
+        "60 720 m 60 636 l S 240 720 m 240 636 l S 380 720 m 380 636 l S 520 720 m 520 636 l S "
+        "BT /F2 10 Tf 1 0 0 1 68 702 Tm (Quantity) Tj 1 0 0 1 248 702 Tm (Symbol) Tj 1 0 0 1 388 702 Tm (Unit) Tj "
+        "/F1 10 Tf "
+        "1 0 0 1 68 674 Tm (Capacitance) Tj 1 0 0 1 248 674 Tm (C) Tj 1 0 0 1 388 674 Tm (Farad) Tj "
+        "1 0 0 1 68 646 Tm (Inductance) Tj 1 0 0 1 248 646 Tm (L) Tj 1 0 0 1 388 646 Tm (Henry) Tj ET"
     )
     scan_p1_jpg = _render_text_image(
         [
@@ -115,22 +133,27 @@ def _build_independent_validation_docs() -> dict[str, Any]:
             "Kirchhoff junction rule enforces charge conservation.",
         ]
     )
-    mixed_6p_pdf = build_rich_pdf(
-        [
-            PdfPageSpec(content_ops=mc_ops),
-            PdfPageSpec(content_ops=tbl_ops),
-            PdfPageSpec(
-                content_ops="q 540 0 0 380 36 320 cm /Im1 Do Q",
-                images=(PdfImageSpec("Im1", scan_p1_jpg, 1100, 750, 36, 320, 540, 380),),
-            ),
-            PdfPageSpec(content_ops=mc_ops),
-            PdfPageSpec(content_ops=tbl_ops),
-            PdfPageSpec(
-                content_ops="q 540 0 0 380 36 320 cm /Im2 Do Q",
-                images=(PdfImageSpec("Im2", scan_p2_jpg, 1100, 750, 36, 320, 540, 380),),
-            ),
-        ]
-    )
+
+    def _make_mixed_6p(mc_stream: str, tbl_stream: str) -> bytes:
+        return build_rich_pdf(
+            [
+                PdfPageSpec(content_ops=mc_stream),
+                PdfPageSpec(content_ops=tbl_stream),
+                PdfPageSpec(
+                    content_ops="q 540 0 0 380 36 320 cm /Im1 Do Q",
+                    images=(PdfImageSpec("Im1", scan_p1_jpg, 1100, 750, 36, 320, 540, 380),),
+                ),
+                PdfPageSpec(content_ops=mc_stream),
+                PdfPageSpec(content_ops=tbl_stream),
+                PdfPageSpec(
+                    content_ops="q 540 0 0 380 36 320 cm /Im2 Do Q",
+                    images=(PdfImageSpec("Im2", scan_p2_jpg, 1100, 750, 36, 320, 540, 380),),
+                ),
+            ]
+        )
+
+    mixed_6p_malformed = _make_mixed_6p(mc_ops_malformed, tbl_ops_malformed)
+    mixed_6p_valid = _make_mixed_6p(mc_ops_valid, tbl_ops_valid)
 
     # 2. Independent 4-page pure scanned PDF
     scanned_4p_pdf = build_rich_pdf(
@@ -166,7 +189,8 @@ def _build_independent_validation_docs() -> dict[str, Any]:
     )
 
     return {
-        "mixed_6p_pdf": mixed_6p_pdf,
+        "mixed_6p_malformed_pdf": mixed_6p_malformed,
+        "mixed_6p_valid_pdf": mixed_6p_valid,
         "scanned_4p_pdf": scanned_4p_pdf,
         "low_contrast_jpg": low_contrast_jpg,
         "low_contrast_gt": "Thermodynamics Quick Reference\nFirst Law: delta U = Q - W\nCarnot Efficiency: eta = 1 - T_c / T_h",
@@ -266,7 +290,8 @@ def main() -> int:
             if workers > 1:
                 ext.warm_pool()
             for doc_name, raw_pdf, pages in (
-                ("indep_mixed_6p_pdf", indep["mixed_6p_pdf"], 6),
+                ("indep_mixed_6p_valid_pdf", indep["mixed_6p_valid_pdf"], 6),
+                ("indep_mixed_6p_malformed_pdf", indep["mixed_6p_malformed_pdf"], 6),
                 ("indep_scanned_4p_pdf", indep["scanned_4p_pdf"], 4),
             ):
                 lats: list[float] = []
@@ -402,7 +427,8 @@ def main() -> int:
                     ("corpus_05_tables_pdf", (CORPUS_DIR / "samples" / "05_tables_bordered_and_borderless.pdf").read_bytes(), "tables.pdf", "application/pdf", "digital_pdf"),
                     ("corpus_07_scanned_png", (CORPUS_DIR / "samples" / "07_scanned_printed_page.png").read_bytes(), "scan.png", "image/png", "png"),
                     ("corpus_11_mixed_pdf", (CORPUS_DIR / "samples" / "11_mixed_digital_scanned.pdf").read_bytes(), "mixed.pdf", "application/pdf", "digital_pdf"),
-                    ("indep_mixed_6p_pdf", indep["mixed_6p_pdf"], "indep_mixed_6p.pdf", "application/pdf", "digital_pdf"),
+                    ("indep_mixed_6p_valid_pdf", indep["mixed_6p_valid_pdf"], "indep_mixed_6p_valid.pdf", "application/pdf", "digital_pdf"),
+                    ("indep_mixed_6p_malformed_pdf", indep["mixed_6p_malformed_pdf"], "indep_mixed_6p_malformed.pdf", "application/pdf", "digital_pdf"),
                     ("indep_scanned_4p_pdf", indep["scanned_4p_pdf"], "indep_scan_4p.pdf", "application/pdf", "scanned_pdf"),
                 ]
                 accept_lats: list[float] = []

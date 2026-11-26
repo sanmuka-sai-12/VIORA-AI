@@ -1,0 +1,471 @@
+{
+  "corpus_id": "viora-dsa-c.v1",
+  "language": "C (ISO C99)",
+  "license": "CC0-1.0",
+  "source_attribution": "Originally authored for VIORA-DSA academic research pilot; self-contained examples verified locally with GCC.",
+  "concept_count": 16,
+  "concepts": [
+    {
+      "concept_id": "dsa-c-array-pointer-arithmetic",
+      "title": "Arrays, Pointer Arithmetic, and Stride Indexing",
+      "topic": "Arrays, pointers and structures",
+      "prerequisites": [],
+      "definition": "A C array occupies one contiguous block of memory where indexing arr[i] computes *(arr + i), advancing by i * sizeof(*arr) bytes from the base address.",
+      "working_principle": "Except inside sizeof, _Alignof, or unary &, an array expression decays to a pointer to element zero. Pointer addition scales integers automatically by the pointed type width.",
+      "algorithm_steps": [
+        "Allocate N contiguous elements statically or with malloc(N * sizeof(T)).",
+        "Check NULL before dereferencing dynamic allocations.",
+        "Bounds-check every index against the tracked element count N before read or write."
+      ],
+      "time_complexity": {"best": "O(1) random access", "average": "O(1) random access", "worst": "O(1) access; O(N) mid-array insert/delete shift"},
+      "auxiliary_space_complexity": "O(1) for pointer traversal beyond O(N) stored buffer",
+      "preconditions_and_limitations": "Requires known upper bound or dynamic reallocation; out-of-bounds pointer arithmetic past one-past-the-end is undefined behavior in C.",
+      "c_example": "int sum_slice(const int *p, size_t n) { int s = 0; for (size_t i = 0; i < n; ++i) s += *(p + i); return s; }",
+      "program_file": "c_programs/01_arrays_dynarray.c",
+      "common_mistakes": [
+        "Applying sizeof(arr) inside a function parameter int arr[], which yields sizeof(int *) instead of buffer byte length.",
+        "Dereferencing a one-past-the-end pointer (arr + N)."
+      ],
+      "practical_applications": ["Dense numeric vectors", "Ring buffers", "Cache-friendly lookup tables"],
+      "expected_learning_outcomes": [
+        "Explain array-to-pointer decay and scaled pointer offsets.",
+        "Pass explicit lengths alongside array pointers in C APIs."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-struct-memory-layout",
+      "title": "C Structures, Field Alignment Padding, and Pass-by-Pointer",
+      "topic": "Arrays, pointers and structures",
+      "prerequisites": ["dsa-c-array-pointer-arithmetic"],
+      "definition": "A struct groups heterogeneous fields in declaration order, inserting alignment padding bytes between fields and at the tail so each member satisfies its hardware alignment.",
+      "working_principle": "Passing struct T * instead of struct T avoids copying large records across the call stack and enables in-place mutation.",
+      "algorithm_steps": [
+        "Order struct fields from largest alignment (double/pointers) to smallest (char/flags) to minimize internal padding.",
+        "Pass const Struct * for read-only inspection and Struct * for mutation."
+      ],
+      "time_complexity": {"best": "O(1) field offset access", "average": "O(1)", "worst": "O(1); pass-by-value copies O(sizeof(struct))"},
+      "auxiliary_space_complexity": "O(1) per pointer parameter",
+      "preconditions_and_limitations": "Unordered padding creates byte holes that memcmp cannot reliably compare without zero-initializing via calloc or designated initializers.",
+      "c_example": "typedef struct { int *data; size_t size; size_t capacity; } DynArray; void swap_ints(int *a, int *b) { int t = *a; *a = *b; *b = t; }",
+      "program_file": "c_programs/01_arrays_dynarray.c",
+      "common_mistakes": [
+        "Using memcmp on structs with uninitialized alignment padding bytes.",
+        "Returning pointers to stack-allocated automatic struct locals."
+      ],
+      "practical_applications": ["Node descriptors", "Dynamic container headers", "Explicit state structs"],
+      "expected_learning_outcomes": [
+        "Predict padding impact on sizeof(struct).",
+        "Prevent dangling pointers when initializing heap structs."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-asymptotic-bounds",
+      "title": "Asymptotic Time and Auxiliary Space Notation (Big-O, Theta, Omega)",
+      "topic": "Time and space complexity",
+      "prerequisites": ["dsa-c-array-pointer-arithmetic"],
+      "definition": "Asymptotic notation characterizes how resource cost f(n) scales for large n: Big-O bounds upper growth, Omega bounds lower growth, and Theta bounds tight asymptotic order.",
+      "working_principle": "Drop constant factors and lower-order terms after identifying the dominant basic-operation count as a function of input size n.",
+      "algorithm_steps": [
+        "Identify elementary constant-time operations and input parameters (n, V, E).",
+        "Sum loop iteration bounds and recursion tree costs.",
+        "Separate auxiliary space (extra heap/stack) from read-only input space."
+      ],
+      "time_complexity": {"best": "Omega(g(n)) lower bound", "average": "Expected cost over input distribution", "worst": "O(g(n)) upper guarantee"},
+      "auxiliary_space_complexity": "Measured separately from input size (e.g., O(1) iterative vs O(n) buffer/recursion depth)",
+      "preconditions_and_limitations": "Asymptotic classes hide constant cache-locality and allocation factors that strongly affect small-n C code.",
+      "c_example": "/* Two nested loops up to n without early exit => Theta(n^2) comparisons, O(1) extra space */",
+      "program_file": "c_programs/04_recursion_sort_search.c",
+      "common_mistakes": [
+        "Confusing asymptotic Big-Omega (an asymptotic lower bound on a cost function) with best-case input behavior.",
+        "Forgetting call-stack frame space when stating space complexity of recursive routines."
+      ],
+      "practical_applications": ["Scaling predictions", "Trade-off comparisons between CPU time and RAM footprint"],
+      "expected_learning_outcomes": [
+        "Distinguish worst-case Big-O from best-case and tight Theta bounds.",
+        "Count auxiliary stack frames alongside explicit malloc buffers."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-amortized-dynamic-array",
+      "title": "Amortized Growth in Dynamic Arrays via Capacity Doubling",
+      "topic": "Time and space complexity",
+      "prerequisites": ["dsa-c-array-pointer-arithmetic", "dsa-c-asymptotic-bounds"],
+      "definition": "A dynamic array achieves O(1) amortized append cost by doubling capacity on overflow so expensive O(n) realloc/copy events occur only at powers of two.",
+      "working_principle": "Across n pushes starting from capacity 1, total moved elements equal 1 + 2 + 4 + ... < 2n, yielding under 3 element writes per push on average over any sequence.",
+      "algorithm_steps": [
+        "If size == capacity, compute new_cap = capacity ? capacity * 2 : 4.",
+        "Call realloc into a temporary pointer; abort cleanly on NULL without leaking old pointer.",
+        "Store item at data[size++] and increment size."
+      ],
+      "time_complexity": {"best": "O(1)", "average": "O(1) amortized", "worst": "O(n) single resize push"},
+      "auxiliary_space_complexity": "O(n) capacity with load factor >= 0.5 after initial growth",
+      "preconditions_and_limitations": "realloc may relocate the buffer, invalidating all stored element pointers inside callers; fixed additive +k growth degrades appends to Theta(n^2).",
+      "c_example": "int *tmp = (int *)realloc(arr->data, new_cap * sizeof(int)); if (!tmp) return -1; arr->data = tmp;",
+      "program_file": "c_programs/01_arrays_dynarray.c",
+      "common_mistakes": [
+        "Assigning arr->data = realloc(arr->data, ...) directly and leaking the original pointer on NULL failure.",
+        "Holding raw pointers into a growing dynamic array across push calls."
+      ],
+      "practical_applications": ["Growable vectors", "String builders", "Adjacency arrays"],
+      "expected_learning_outcomes": [
+        "Prove why geometric growth yields O(1) amortized append while linear growth yields O(n) amortized.",
+        "Implement safe realloc error handling in C."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-array-stack",
+      "title": "Bounded Array Stack and LIFO Invariant",
+      "topic": "Stacks and queues",
+      "prerequisites": ["dsa-c-array-pointer-arithmetic", "dsa-c-struct-memory-layout"],
+      "definition": "A stack enforces Last-In, First-Out (LIFO) discipline where insertions (push) and removals (pop) occur solely at the top index.",
+      "working_principle": "Maintaining an integer top initialized to -1 makes empty detection (top < 0) and full detection (top >= CAP - 1) single comparisons with zero heap allocation.",
+      "algorithm_steps": [
+        "Initialize top = -1.",
+        "Push: verify top < CAP - 1, store items[++top] = value.",
+        "Pop: verify top >= 0, return items[top--]."
+      ],
+      "time_complexity": {"best": "O(1)", "average": "O(1)", "worst": "O(1)"},
+      "auxiliary_space_complexity": "O(CAP) pre-allocated buffer; O(1) operation overhead",
+      "preconditions_and_limitations": "Fixed-capacity stack rejects pushes when full unless backed by a dynamic array.",
+      "c_example": "if (s->top < 0) return -1; *out = s->items[s->top--];",
+      "program_file": "c_programs/02_stacks_queues.c",
+      "common_mistakes": [
+        "Reading items[top] before checking underflow when top == -1.",
+        "Using post-increment vs pre-increment inconsistently between push and peek."
+      ],
+      "practical_applications": ["Iterative DFS", "Balanced-parenthesis validation", "Undo history"],
+      "expected_learning_outcomes": [
+        "Enforce overflow and underflow guards on stack APIs.",
+        "Replace unbounded recursion with an explicit heap/array stack."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-circular-ring-queue",
+      "title": "Circular Ring-Buffer Queue with Explicit Count",
+      "topic": "Stacks and queues",
+      "prerequisites": ["dsa-c-array-stack"],
+      "definition": "A circular queue implements First-In, First-Out (FIFO) buffering over a fixed array by wrapping indices modulo capacity.",
+      "working_principle": "Tracking head and element count (rather than only head and tail) uses all CAP slots unambiguously: empty is count == 0, full is count == CAP, and tail is (head + count) % CAP.",
+      "algorithm_steps": [
+        "Initialize head = 0, count = 0.",
+        "Enqueue: reject if count == CAP; write at (head + count) % CAP and increment count.",
+        "Dequeue: reject if count == 0; read items[head], set head = (head + 1) % CAP, decrement count."
+      ],
+      "time_complexity": {"best": "O(1)", "average": "O(1)", "worst": "O(1)"},
+      "auxiliary_space_complexity": "O(CAP) contiguous storage",
+      "preconditions_and_limitations": "Naive array queue without modulo wrap-around wastes O(n) front slots or shifts O(n) elements on dequeue.",
+      "c_example": "size_t tail = (q->head + q->count) % CAP; q->items[tail] = v; q->count++;",
+      "program_file": "c_programs/02_stacks_queues.c",
+      "common_mistakes": [
+        "Ambiguity between empty and full states when tracking only head == tail without count or sentinel slot.",
+        "Using signed negative indices with % instead of unsigned size_t."
+      ],
+      "practical_applications": ["Breadth-first search frontier", "UART/audio streaming buffers", "Producer-consumer queues"],
+      "expected_learning_outcomes": [
+        "Implement wrap-around FIFO enqueue/dequeue without array shifting.",
+        "Distinguish full from empty states cleanly."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-recursion-call-stack",
+      "title": "Recursion, Base-Case Termination, and Call-Stack Overhead",
+      "topic": "Recursion",
+      "prerequisites": ["dsa-c-array-stack", "dsa-c-asymptotic-bounds"],
+      "definition": "Recursion solves an instance by reducing it toward strictly smaller base cases that terminate directly without self-calls.",
+      "working_principle": "Every active invocation pushes return address, locals, and parameters onto the C call stack, so maximum nesting depth determines both stack RAM usage and overflow risk.",
+      "algorithm_steps": [
+        "Check and return immediately for all minimal/degenerate inputs (e.g., n <= 1 or NULL node).",
+        "Make recursive calls strictly on subproblems advancing monotonically toward a base case.",
+        "Combine subproblem results cleanly."
+      ],
+      "time_complexity": {"best": "Depends on recurrence branching and work", "average": "Determined by recurrence relation", "worst": "Naive overlapping calls can blow up to O(2^n)"},
+      "auxiliary_space_complexity": "O(max recursion depth) call-stack frames",
+      "preconditions_and_limitations": "Unbalanced linear recursion of depth 10^6 can overflow typical OS thread stacks (1–8 MB) when tail-call elimination is not guaranteed in C.",
+      "c_example": "static void merge_sort_rec(int *a, int *t, size_t lo, size_t hi) { if (hi - lo <= 1) return; ... }",
+      "program_file": "c_programs/04_recursion_sort_search.c",
+      "common_mistakes": [
+        "Missing or unreachable base case (e.g., unsigned underflow n - 1 when n == 0).",
+        "Recomputing overlapping Fibonacci-like subtrees instead of memoizing or iterating."
+      ],
+      "practical_applications": ["Tree traversals", "Divide-and-conquer sorting", "Backtracking search"],
+      "expected_learning_outcomes": [
+        "Prove termination using a non-negative integer measure.",
+        "Calculate call-stack space from maximum tree depth."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-recurrence-divide-conquer",
+      "title": "Divide-and-Conquer Recurrences and Balanced Splitting",
+      "topic": "Recursion",
+      "prerequisites": ["dsa-c-recursion-call-stack"],
+      "definition": "A divide-and-conquer recurrence T(n) = a * T(n / b) + f(n) models recursive splitting into subproblems of size n/b plus merge work f(n).",
+      "working_principle": "When splitting evenly in half (b = 2), recursion depth is ceil(log2 n). If each tree level does Theta(n) total work (a = 2, f(n) = Theta(n)), total runtime is Theta(n log n); if only one side recurses with O(1) combine, cost is Theta(log n).",
+      "algorithm_steps": [
+        "Partition interval [lo, hi) using mid = lo + (hi - lo) / 2 to avoid integer overflow.",
+        "Ensure half-open ranges [lo, mid) and [mid, hi) strictly shrink when hi - lo >= 2."
+      ],
+      "time_complexity": {"best": "Theta(log n) single-branch; Theta(n log n) merge", "average": "Same", "worst": "Same for balanced splits"},
+      "auxiliary_space_complexity": "O(log n) stack depth; plus scratch buffers if needed",
+      "preconditions_and_limitations": "Highly skewed pivots degrade binary partitions from O(log n) depth to O(n) worst-case depth.",
+      "c_example": "size_t mid = lo + (hi - lo) / 2; merge_sort_rec(a, tmp, lo, mid); merge_sort_rec(a, tmp, mid, hi);",
+      "program_file": "c_programs/04_recursion_sort_search.c",
+      "common_mistakes": [
+        "Infinite recursion when splitting an inclusive interval [lo, hi] of length 2 incorrectly.",
+        "Computing (lo + hi) / 2 and triggering signed overflow on large ranges."
+      ],
+      "practical_applications": ["Merge sort", "Binary search", "Balanced spatial trees"],
+      "expected_learning_outcomes": [
+        "Analyze recursion tree depth and per-level work sums.",
+        "Use half-open intervals cleanly to avoid off-by-one splits."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-singly-linked-list",
+      "title": "Singly Linked List and Pointer-to-Pointer Head Manipulation",
+      "topic": "Singly, doubly and circular linked lists",
+      "prerequisites": ["dsa-c-struct-memory-layout"],
+      "definition": "A singly linked list chains heap-allocated nodes where each node stores a payload and a next pointer terminating in NULL.",
+      "working_principle": "Passing SNode **head lets insertion, deletion, and in-place reversal update the caller's head pointer uniformly, including when the list starts or becomes empty.",
+      "algorithm_steps": [
+        "Allocate node and initialize next = *head.",
+        "Update *head = node.",
+        "To reverse: iteratively rewire cur->next = prev while preserving nxt = cur->next first."
+      ],
+      "time_complexity": {"best": "O(1) head insert/remove", "average": "O(n) search/tail", "worst": "O(n) arbitrary-position lookup"},
+      "auxiliary_space_complexity": "O(1) per pointer per traversal; O(n) next-pointer overhead across n nodes",
+      "preconditions_and_limitations": "Lacks O(1) random indexing and causes poor CPU cache locality compared to contiguous arrays; freeing requires saving node->next before free(node).",
+      "c_example": "while (cur) { SNode *nxt = cur->next; cur->next = prev; prev = cur; cur = nxt; }",
+      "program_file": "c_programs/03_linked_lists.c",
+      "common_mistakes": [
+        "Writing free(cur); cur = cur->next; (use-after-free).",
+        "Passing SNode *head by value to push_front and failing to update caller's pointer."
+      ],
+      "practical_applications": ["Chained hash buckets", "Adjacency lists", "Free-list allocators"],
+      "expected_learning_outcomes": [
+        "Update head/link pointers safely without losing tail sublists.",
+        "Contrast linked lists vs arrays on cache misses and memory overhead."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-doubly-circular-list",
+      "title": "Doubly and Circular Sentinel Linked Lists for O(1) Unlink",
+      "topic": "Singly, doubly and circular linked lists",
+      "prerequisites": ["dsa-c-singly-linked-list"],
+      "definition": "A doubly linked list links each node to both prev and next; making it circular via one dummy sentinel removes all NULL boundary branches.",
+      "working_principle": "Because every node in a circular sentinel ring always has non-NULL neighbors (empty sentinel points to itself), unlinking node requires only two pointer rewrites regardless of position.",
+      "algorithm_steps": [
+        "Initialize sentinel with sentinel.prev = &sentinel; sentinel.next = &sentinel.",
+        "Insert node after pos by wiring all four links before overwriting pos->next.",
+        "Unlink by setting node->prev->next = node->next and node->next->prev = node->prev."
+      ],
+      "time_complexity": {"best": "O(1) insert/unlink given node pointer", "average": "O(1) endpoint/node splice; O(n) key search", "worst": "O(n) key search"},
+      "auxiliary_space_complexity": "O(1) per splice; two pointers per node plus one sentinel header",
+      "preconditions_and_limitations": "Twice the link-pointer memory of singly lists; corrupting one link direction breaks bidirectional invariants.",
+      "c_example": "node->prev->next = node->next; node->next->prev = node->prev;",
+      "program_file": "c_programs/03_linked_lists.c",
+      "common_mistakes": [
+        "Leaving self-loop or unlinking sentinel node itself.",
+        "Updating pos->next before setting node->next = pos->next."
+      ],
+      "practical_applications": ["LRU eviction lists", "OS scheduler runqueues", "Deque structures"],
+      "expected_learning_outcomes": [
+        "Eliminate NULL edge-case branches using a circular sentinel.",
+        "Perform O(1) arbitrary node removal when holding a node pointer."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-binary-search-tree",
+      "title": "Binary Search Tree Property and Recursive Inorder Traversal",
+      "topic": "Trees, heaps and graphs",
+      "prerequisites": ["dsa-c-recursion-call-stack", "dsa-c-struct-memory-layout"],
+      "definition": "A Binary Search Tree (BST) stores ordered keys so every left-subtree key is strictly less than root->key and every right-subtree key is strictly greater.",
+      "working_principle": "Searching and inserting follow one comparison per level from root to leaf; inorder traversal (left, root, right) outputs all stored keys in sorted order.",
+      "algorithm_steps": [
+        "Start at root; return NULL or allocate leaf at NULL edge during insert.",
+        "Branch left when key < node->key, right when key > node->key.",
+        "Free in postorder (left, right, self) to prevent leaking child subtrees."
+      ],
+      "time_complexity": {"best": "O(1) root hit", "average": "O(log n) for balanced shapes", "worst": "O(n) on sorted insertion without self-balancing"},
+      "auxiliary_space_complexity": "O(h) traversal stack where h is tree height (log n to n)",
+      "preconditions_and_limitations": "Unbalanced BSTs degenerate into linked lists on monotonic input; production ordered maps use balanced trees (AVL/Red-Black). Duplicate keys require an explicit policy: reject/no-op (as in bst_insert), overwrite value, or store a multiplicity count.",
+      "c_example": "if (key < root->key) root->left = bst_insert(root->left, key); else if (key > root->key) root->right = bst_insert(root->right, key);",
+      "program_file": "c_programs/05_trees_heaps.c",
+      "common_mistakes": [
+        "Using preorder node freeing (free(root) before freeing root->left/right).",
+        "Assuming every BST guarantees O(log n) worst-case height."
+      ],
+      "practical_applications": ["In-memory symbol tables", "Range queries when balanced", "Syntax trees"],
+      "expected_learning_outcomes": [
+        "Verify BST ordering invariants locally vs globally across subtrees.",
+        "Explain how monotonic inserts cause O(n) skew."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-binary-min-heap",
+      "title": "Array-Backed Binary Min-Heap and Sift-Up / Sift-Down",
+      "topic": "Trees, heaps and graphs",
+      "prerequisites": ["dsa-c-array-pointer-arithmetic", "dsa-c-asymptotic-bounds"],
+      "definition": "A binary min-heap is a nearly complete binary tree stored compactly in an array where every parent key is less than or equal to both child keys.",
+      "working_principle": "Implicit index formulas map parent(i) = (i - 1) / 2, left(i) = 2*i + 1, right(i) = 2*i + 2, allowing insertion (sift-up) and extract-min (swap last to 0 and sift-down) without child pointers.",
+      "algorithm_steps": [
+        "Push: append at items[size++] and swap upward with parent while items[parent] > items[i].",
+        "Pop min: save items[0], move items[--size] to root, swap downward with smaller child until heap property holds."
+      ],
+      "time_complexity": {"best": "O(1) peek/early stop", "average": "O(log n) push/pop", "worst": "O(log n) push/pop; O(n) bottom-up heapify vs O(n log n) via n pushes"},
+      "auxiliary_space_complexity": "O(1) operation overhead inside O(n) backing array",
+      "preconditions_and_limitations": "Only the minimum element is directly accessible in O(1); searching arbitrary keys requires O(n) scan.",
+      "c_example": "size_t p = (i - 1) / 2; if (h->items[p] <= h->items[i]) break;",
+      "program_file": "c_programs/05_trees_heaps.c",
+      "common_mistakes": [
+        "Neglecting to check right child existence (c + 1 < h->size) before comparing children.",
+        "Computing (i - 1) / 2 when unsigned size_t i == 0 without guarding while (i > 0), wrapping to SIZE_MAX / 2."
+      ],
+      "practical_applications": ["Dijkstra shortest path", "Event-driven priority queues", "Heapsort"],
+      "expected_learning_outcomes": [
+        "Derive implicit array parent/child arithmetic from 0-based indexing.",
+        "Distinguish heap-order invariant from full BST sorting."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-graph-adj-bfs",
+      "title": "Graph Representations and Breadth-First Search (BFS)",
+      "topic": "Trees, heaps and graphs",
+      "prerequisites": ["dsa-c-circular-ring-queue", "dsa-c-singly-linked-list"],
+      "definition": "Breadth-First Search explores vertices in non-decreasing hop distance from a source vertex using a FIFO queue and a visited/distance table.",
+      "working_principle": "Marking a neighbor visited at enqueue time (rather than dequeue time) guarantees each reachable vertex enters the queue at most once, discovering shortest unweighted paths first.",
+      "algorithm_steps": [
+        "Initialize dist[v] = -1 for all vertices; set dist[start] = 0 and enqueue start.",
+        "While queue non-empty, pop u and examine each neighbor v.",
+        "If dist[v] == -1, record dist[v] = dist[u] + 1 and enqueue v."
+      ],
+      "time_complexity": {"best": "O(V + E) adjacency list", "average": "O(V + E) adjacency list", "worst": "O(V + E) adjacency list; O(V^2) adjacency matrix"},
+      "auxiliary_space_complexity": "O(V) distance array + queue",
+      "preconditions_and_limitations": "Produces shortest paths only when edges have equal weight (unweighted); negative/positive weighted graphs require Dijkstra or Bellman-Ford.",
+      "c_example": "if (adj[u][v] && dist[v] == -1) { dist[v] = dist[u] + 1; q[tail++] = v; }",
+      "program_file": "c_programs/06_graphs_hashing.c",
+      "common_mistakes": [
+        "Marking visited only when dequeuing, which enqueues vertices repeatedly on dense/cyclic graphs.",
+        "Using BFS directly for shortest paths on variable-weight edges."
+      ],
+      "practical_applications": ["Unweighted shortest hops", "Connected components", "Bipartite checking"],
+      "expected_learning_outcomes": [
+        "Compare O(V^2) adjacency matrix vs O(V + E) adjacency list trade-offs.",
+        "Explain why FIFO queuing discovers minimum-edge paths first."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-binary-search",
+      "title": "Binary Search on Monotonic Arrays and Half-Open Bounds",
+      "topic": "Searching, sorting and hashing",
+      "prerequisites": ["dsa-c-array-pointer-arithmetic", "dsa-c-asymptotic-bounds"],
+      "definition": "Binary search locates a target in a sorted random-access sequence by repeatedly halving the active candidate interval [lo, hi).",
+      "working_principle": "Comparing arr[mid] against target eliminates at least half of remaining elements each iteration without scanning linear prefixes.",
+      "algorithm_steps": [
+        "Maintain invariant that if target exists, its index lies in [lo, hi), starting at [0, n).",
+        "While lo < hi, compute mid = lo + (hi - lo) / 2.",
+        "Set lo = mid + 1 if arr[mid] < target else hi = mid (or return mid on equality)."
+      ],
+      "time_complexity": {"best": "O(1) immediate midpoint hit", "average": "O(log n)", "worst": "O(log n)"},
+      "auxiliary_space_complexity": "O(1) iterative",
+      "preconditions_and_limitations": "Requires sorted order and O(1) random access; running on unsorted arrays or singly linked lists breaks correctness or O(log n) runtime.",
+      "c_example": "size_t mid = lo + (hi - lo) / 2; if (arr[mid] == target) return (int)mid;",
+      "program_file": "c_programs/04_recursion_sort_search.c",
+      "common_mistakes": [
+        "Writing hi = mid - 1 when hi is exclusive (or using unsigned size_t mid - 1 underflowing to SIZE_MAX when mid == 0).",
+        "Assuming sorted order without validating preconditions."
+      ],
+      "practical_applications": ["Static sorted tables", "Lower/upper bound range queries", "Bisection over monotonic predicates"],
+      "expected_learning_outcomes": [
+        "Write overflow-safe, underflow-free binary search on size_t ranges.",
+        "Adapt loop exit invariants for first/last occurrence variants."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-merge-sort",
+      "title": "Stable Merge Sort via Bottom-Up / Top-Down Two-Way Merge",
+      "topic": "Searching, sorting and hashing",
+      "prerequisites": ["dsa-c-recurrence-divide-conquer"],
+      "definition": "Merge sort recursively splits a slice into halves, sorts each half, and merges two sorted subarrays in linear time while preserving relative order of equal keys (stability).",
+      "working_principle": "Choosing left element on tie (arr[i] <= arr[j]) keeps equal keys ordered as originally encountered, while balanced division enforces Theta(n log n) comparisons even on adversarial inputs.",
+      "algorithm_steps": [
+        "Return immediately when hi - lo <= 1.",
+        "Sort [lo, mid) and [mid, hi).",
+        "Copy merged sorted run into temporary scratch buffer using arr[i] <= arr[j] and copy back."
+      ],
+      "time_complexity": {"best": "Theta(n log n)", "average": "Theta(n log n)", "worst": "Theta(n log n)"},
+      "auxiliary_space_complexity": "O(n) scratch array + O(log n) stack frames",
+      "preconditions_and_limitations": "Requires O(n) extra array scratch memory on arrays (unlike in-place heapsort); linked lists can merge with O(1) auxiliary node links.",
+      "c_example": "if (arr[i] <= arr[j]) tmp[k++] = arr[i++]; else tmp[k++] = arr[j++];",
+      "program_file": "c_programs/04_recursion_sort_search.c",
+      "common_mistakes": [
+        "Allocating a fresh temporary buffer inside every recursive call instead of reusing one O(n) scratch array.",
+        "Breaking stability by writing arr[i] < arr[j] instead of <=."
+      ],
+      "practical_applications": ["External disk sorting", "Stable multi-key sorting", "Inversion counting"],
+      "expected_learning_outcomes": [
+        "Pre-allocate a single O(n) scratch array cleanly.",
+        "Verify merge stability and worst-case Theta(n log n) guarantees."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    },
+    {
+      "concept_id": "dsa-c-open-address-hash",
+      "title": "Open-Addressing Hash Table with Linear Probing and Tombstones",
+      "topic": "Searching, sorting and hashing",
+      "prerequisites": ["dsa-c-array-pointer-arithmetic", "dsa-c-asymptotic-bounds"],
+      "definition": "An open-addressing hash table stores entries directly inside a flat array, resolving collisions by scanning probe offsets and distinguishing deleted slots (tombstones) from never-used empty slots.",
+      "working_principle": "Lookup stops immediately at HT_EMPTY, so deletions cannot write HT_EMPTY without stranding keys placed later along the probe chain; HT_TOMBSTONE bridges probes while allowing reuse on insert.",
+      "algorithm_steps": [
+        "Hash key modulo table capacity; inspect slots (idx + step) % CAP.",
+        "On lookup: continue past HT_TOMBSTONE and non-matching keys; stop on HT_EMPTY or match.",
+        "On insert: track first tombstone seen; update key if found ahead, otherwise place new entry in first tombstone or HT_EMPTY."
+      ],
+      "time_complexity": {"best": "O(1)", "average": "O(1) expected at bounded load factor alpha < 0.7", "worst": "O(n) full-cluster scan or poor hash"},
+      "auxiliary_space_complexity": "O(CAP) contiguous table array",
+      "preconditions_and_limitations": "Performance degrades sharply via primary clustering as load factor approaches 1.0, requiring periodic rehash to clear tombstones and grow table size.",
+      "c_example": "if (tbl[pos].state == HT_EMPTY) return -1; if (tbl[pos].state == HT_OCCUPIED && tbl[pos].key == key) ...",
+      "program_file": "c_programs/06_graphs_hashing.c",
+      "common_mistakes": [
+        "Replacing a deleted slot with HT_EMPTY instead of HT_TOMBSTONE, prematurely terminating downstream lookups.",
+        "Inserting at the first tombstone immediately without first checking whether the same key already lives further down the probe sequence.",
+        "Applying signed k % CAP on negative integer keys in C, yielding negative out-of-bounds indices instead of casting to unsigned first."
+      ],
+      "practical_applications": ["Compiler symbol tables", "In-memory caches", "High-locality dictionaries"],
+      "expected_learning_outcomes": [
+        "Explain why tombstones preserve probe invariants under deletion.",
+        "Analyze how load factor affects expected probe length."
+      ],
+      "source_attribution": "VIORA-DSA Original Authoring",
+      "license": "CC0-1.0"
+    }
+  ]
+}

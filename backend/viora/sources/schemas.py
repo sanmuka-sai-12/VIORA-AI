@@ -106,6 +106,8 @@ class SourceAccessInfo(Contract):
     origin_kind: str
     visibility: str
     lifecycle_state: str
+    title: str = ""
+    latest_version_number: int = 0
 
 
 class OfferingSourcePolicyInfo(Contract):

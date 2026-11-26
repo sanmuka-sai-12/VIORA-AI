@@ -396,17 +396,14 @@ class SourceIngestionService:
                             "source_archived",
                             "Cannot create a new version on an archived source",
                         )
-                    source_summary = repo.find(tenant_id, source_id)
-                    if source_summary is None:
-                        raise AccessError(404, "source_missing", "Source unavailable")
                     effective_offering_id = locked.offering_id
                     captured_offering_id = effective_offering_id
                     effective_origin = locked.origin_kind
                     effective_owner_id = locked.owner_user_id or actor_id
-                    effective_title = source_summary.title
+                    effective_title = locked.title
                     target_source_id = source_id
                     target_scope_id = source_id
-                    version_number = source_summary.latest_version_number + 1
+                    version_number = locked.latest_version_number + 1
                     digest_fields: dict[str, str | None] = {"source_id": str(source_id)}
                 else:
                     assert offering_id is not None and title is not None

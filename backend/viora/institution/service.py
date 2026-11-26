@@ -1,7 +1,7 @@
 """Application services for institution metadata and academic hierarchy management."""
 
 from collections.abc import Callable, Iterable
-from typing import TypeVar
+from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 from ..contracts import Page, ResourceRef, TenantContext
@@ -70,14 +70,10 @@ def _require_fields(fields_set: set[str], *non_null_fields: tuple[str, object]) 
 
 
 def _require_active_parent(
-    scope: AuthorizedScope,
-    action: str,
-    kind: str,
-    tenant_id: UUID,
-    parent_id: UUID,
-    active: bool | None,
+    scope: AuthorizedScope, action: str, kind: str, tenant_id: UUID, parent_id: UUID, parent_row: object | None,
 ) -> None:
     scope.recheck(action, ResourceRef(tenant_id=tenant_id, kind=kind, resource_id=parent_id))
+    active = getattr(parent_row, "active", None) if parent_row is not None else None
     _require_found(active, kind)
     if not active:
         raise AccessError(409, "inactive_parent", f"Referenced {kind} is archived")
@@ -185,6 +181,53 @@ def _revoke_role(
     return revoked
 
 
+def _create_dept_child(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    kind: str,
+    name: str,
+    department_id: UUID | None,
+    create_fn: Any,
+) -> T:
+    if department_id is not None:
+        _require_parent_if_present(
+            repo.get_department(tenant_id, department_id), "department"
+        )
+    entity_id = uuid4()
+    created = create_fn(tenant_id, entity_id, name=name, department_id=department_id)
+    _audit(scope, f"{kind}.create", tenant_id, kind, entity_id)
+    return created
+
+
+def _update_dept_child(
+    scope: AuthorizedScope,
+    repo: AcademicRepository,
+    tenant_id: UUID,
+    kind: str,
+    entity_id: UUID,
+    body: Any,
+    update_fn: Any,
+) -> T:
+    fields = set(body.model_fields_set)
+    _require_fields(fields, ("name", body.name))
+    update_dept = "department_id" in fields
+    if update_dept and body.department_id is not None:
+        _require_active_parent(scope, "department.read", "department", tenant_id, body.department_id, repo.get_department(tenant_id, body.department_id))
+    updated = _require_found(
+        update_fn(
+            tenant_id,
+            entity_id,
+            name=body.name,
+            department_id=body.department_id,
+            update_department=update_dept,
+        ),
+        kind,
+    )
+    _audit(scope, f"{kind}.update", tenant_id, kind, entity_id)
+    return updated
+
+
 # --- Institution ---
 def read_institution(repo: AcademicRepository, tenant_id: UUID) -> InstitutionInfo:
     return _require_found(repo.get_institution(tenant_id), "institution")
@@ -270,8 +313,7 @@ def update_department(
     _require_fields(fields, ("name", body.name))
     update_campus = "campus_id" in fields
     if update_campus and body.campus_id is not None:
-        campus = repo.get_campus(tenant_id, body.campus_id)
-        _require_active_parent(scope, "campus.read", "campus", tenant_id, body.campus_id, campus.active if campus else None)
+        _require_active_parent(scope, "campus.read", "campus", tenant_id, body.campus_id, repo.get_campus(tenant_id, body.campus_id))
     updated = _require_found(
         repo.update_department(tenant_id, department_id, name=body.name, campus_id=body.campus_id, update_campus=update_campus),
         "department",
@@ -307,29 +349,13 @@ def read_programme(repo: AcademicRepository, tenant_id: UUID, programme_id: UUID
 def create_programme(
     scope: AuthorizedScope, repo: AcademicRepository, tenant_id: UUID, body: ProgrammeCreate
 ) -> ProgrammeSummary:
-    if body.department_id is not None:
-        _require_parent_if_present(repo.get_department(tenant_id, body.department_id), "department")
-    programme_id = uuid4()
-    created = repo.create_programme(tenant_id, programme_id, name=body.name, department_id=body.department_id)
-    _audit(scope, "programme.create", tenant_id, "programme", programme_id)
-    return created
+    return _create_dept_child(scope, repo, tenant_id, "programme", body.name, body.department_id, repo.create_programme)
 
 
 def update_programme(
     scope: AuthorizedScope, repo: AcademicRepository, tenant_id: UUID, programme_id: UUID, body: ProgrammeUpdate
 ) -> ProgrammeSummary:
-    fields = set(body.model_fields_set)
-    _require_fields(fields, ("name", body.name))
-    update_dept = "department_id" in fields
-    if update_dept and body.department_id is not None:
-        dept = repo.get_department(tenant_id, body.department_id)
-        _require_active_parent(scope, "department.read", "department", tenant_id, body.department_id, dept.active if dept else None)
-    updated = _require_found(
-        repo.update_programme(tenant_id, programme_id, name=body.name, department_id=body.department_id, update_department=update_dept),
-        "programme",
-    )
-    _audit(scope, "programme.update", tenant_id, "programme", programme_id)
-    return updated
+    return _update_dept_child(scope, repo, tenant_id, "programme", programme_id, body, repo.update_programme)
 
 
 def set_programme_lifecycle(
@@ -410,8 +436,7 @@ def update_semester(
     fields = set(body.model_fields_set)
     _require_fields(fields, ("name", body.name), ("academic_year_id", body.academic_year_id))
     if body.academic_year_id is not None:
-        year = repo.get_academic_year(tenant_id, body.academic_year_id)
-        _require_active_parent(scope, "academic_year.read", "academic_year", tenant_id, body.academic_year_id, year.active if year else None)
+        _require_active_parent(scope, "academic_year.read", "academic_year", tenant_id, body.academic_year_id, repo.get_academic_year(tenant_id, body.academic_year_id))
     updated = _require_found(repo.update_semester(tenant_id, semester_id, name=body.name, academic_year_id=body.academic_year_id), "semester")
     _audit(scope, "semester.update", tenant_id, "semester", semester_id)
     return updated
@@ -446,8 +471,7 @@ def create_section(
 ) -> SectionSummary:
     _require_parent_if_present(repo.get_semester(tenant_id, body.semester_id), "semester")
     if body.programme_id is not None:
-        prog = repo.get_programme(tenant_id, body.programme_id)
-        _require_active_parent(scope, "programme.read", "programme", tenant_id, body.programme_id, prog.active if prog else None)
+        _require_active_parent(scope, "programme.read", "programme", tenant_id, body.programme_id, repo.get_programme(tenant_id, body.programme_id))
     section_id = uuid4()
     created = repo.create_section(tenant_id, section_id, name=body.name, semester_id=body.semester_id, programme_id=body.programme_id)
     _audit(scope, "section.create", tenant_id, "section", section_id)
@@ -461,12 +485,10 @@ def update_section(
     _require_fields(fields, ("name", body.name), ("semester_id", body.semester_id))
     structural = "semester_id" in fields or "programme_id" in fields
     if body.semester_id is not None:
-        sem = repo.get_semester(tenant_id, body.semester_id)
-        _require_active_parent(scope, "semester.read", "semester", tenant_id, body.semester_id, sem.active if sem else None)
+        _require_active_parent(scope, "semester.read", "semester", tenant_id, body.semester_id, repo.get_semester(tenant_id, body.semester_id))
     update_programme = "programme_id" in fields
     if update_programme and body.programme_id is not None:
-        prog = repo.get_programme(tenant_id, body.programme_id)
-        _require_active_parent(scope, "programme.read", "programme", tenant_id, body.programme_id, prog.active if prog else None)
+        _require_active_parent(scope, "programme.read", "programme", tenant_id, body.programme_id, repo.get_programme(tenant_id, body.programme_id))
     updated = _require_found(
         repo.update_section(tenant_id, section_id, name=body.name, semester_id=body.semester_id, programme_id=body.programme_id, update_programme=update_programme),
         "section",
@@ -505,29 +527,13 @@ def read_subject(repo: AcademicRepository, tenant_id: UUID, subject_id: UUID) ->
 def create_subject(
     scope: AuthorizedScope, repo: AcademicRepository, tenant_id: UUID, body: SubjectCreate
 ) -> SubjectSummary:
-    if body.department_id is not None:
-        _require_parent_if_present(repo.get_department(tenant_id, body.department_id), "department")
-    subject_id = uuid4()
-    created = repo.create_subject(tenant_id, subject_id, name=body.name, department_id=body.department_id)
-    _audit(scope, "subject.create", tenant_id, "subject", subject_id)
-    return created
+    return _create_dept_child(scope, repo, tenant_id, "subject", body.name, body.department_id, repo.create_subject)
 
 
 def update_subject(
     scope: AuthorizedScope, repo: AcademicRepository, tenant_id: UUID, subject_id: UUID, body: SubjectUpdate
 ) -> SubjectSummary:
-    fields = set(body.model_fields_set)
-    _require_fields(fields, ("name", body.name))
-    update_dept = "department_id" in fields
-    if update_dept and body.department_id is not None:
-        dept = repo.get_department(tenant_id, body.department_id)
-        _require_active_parent(scope, "department.read", "department", tenant_id, body.department_id, dept.active if dept else None)
-    updated = _require_found(
-        repo.update_subject(tenant_id, subject_id, name=body.name, department_id=body.department_id, update_department=update_dept),
-        "subject",
-    )
-    _audit(scope, "subject.update", tenant_id, "subject", subject_id)
-    return updated
+    return _update_dept_child(scope, repo, tenant_id, "subject", subject_id, body, repo.update_subject)
 
 
 def set_subject_lifecycle(
@@ -558,8 +564,7 @@ def create_offering(
     scope: AuthorizedScope, repo: AcademicRepository, tenant_id: UUID, body: SubjectOfferingCreate
 ) -> SubjectOfferingSummary:
     _require_parent_if_present(repo.get_section(tenant_id, body.section_id), "section")
-    subject = repo.get_subject(tenant_id, body.subject_id)
-    _require_active_parent(scope, "subject.read", "subject", tenant_id, body.subject_id, subject.active if subject else None)
+    _require_active_parent(scope, "subject.read", "subject", tenant_id, body.subject_id, repo.get_subject(tenant_id, body.subject_id))
     offering_id = uuid4()
     if repo.has_duplicate_offering(tenant_id, section_id=body.section_id, subject_id=body.subject_id, name=body.name):
         raise AccessError(409, "duplicate_record", "A matching academic record already exists")
@@ -574,11 +579,9 @@ def update_offering(
     fields = set(body.model_fields_set)
     _require_fields(fields, ("name", body.name), ("section_id", body.section_id), ("subject_id", body.subject_id))
     if body.section_id is not None:
-        sec = repo.get_section(tenant_id, body.section_id)
-        _require_active_parent(scope, "section.read", "section", tenant_id, body.section_id, sec.active if sec else None)
+        _require_active_parent(scope, "section.read", "section", tenant_id, body.section_id, repo.get_section(tenant_id, body.section_id))
     if body.subject_id is not None:
-        sub = repo.get_subject(tenant_id, body.subject_id)
-        _require_active_parent(scope, "subject.read", "subject", tenant_id, body.subject_id, sub.active if sub else None)
+        _require_active_parent(scope, "subject.read", "subject", tenant_id, body.subject_id, repo.get_subject(tenant_id, body.subject_id))
     current = _require_found(repo.get_offering(tenant_id, offering_id), "offering", "Subject offering")
     if repo.has_duplicate_offering(
         tenant_id,

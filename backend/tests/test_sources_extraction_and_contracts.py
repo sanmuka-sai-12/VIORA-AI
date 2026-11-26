@@ -633,3 +633,108 @@ def test_pdf_decompression_limit_and_non_decompressing_image_count() -> None:
     res[NameObject("/XObject")] = DictionaryObject({NameObject("/ImBad"): corrupt_img})
     fake_page = DictionaryObject({NameObject("/Resources"): res})
     assert _count_page_images_safely(fake_page) == 1
+
+
+def test_malformed_tm_vs_valid_pdf_matrix_extraction() -> None:
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from benchmarks.educational_corpus.build_corpus import PdfPageSpec, build_rich_pdf
+
+    # Malformed 2-arg Tm stream collapses glyphs horizontally/vertically in pdfminer but must not crash.
+    malformed_pdf = build_rich_pdf(
+        [
+            PdfPageSpec(
+                content_ops=(
+                    "BT /F1 10 Tf "
+                    "54 690 Tm (Left Column Alpha) Tj "
+                    "320 690 Tm (Right Column Beta) Tj ET"
+                )
+            )
+        ]
+    )
+    # Valid 6-arg Tm multi-column + bordered table counterpart recovers reading order & table grid.
+    valid_mc_ops = (
+        "BT /F1 10 Tf "
+        "1 0 0 1 54 690 Tm (Left Column line one) Tj "
+        "1 0 0 1 54 672 Tm (Left Column line two) Tj "
+        "1 0 0 1 54 654 Tm (Left Column line three) Tj "
+        "1 0 0 1 320 690 Tm (Right Column line one) Tj "
+        "1 0 0 1 320 672 Tm (Right Column line two) Tj "
+        "1 0 0 1 320 654 Tm (Right Column line three) Tj ET"
+    )
+    valid_tbl_ops = (
+        "0.75 w 60 720 m 440 720 l S 60 692 m 440 692 l S 60 664 m 440 664 l S "
+        "60 720 m 60 664 l S 240 720 m 240 664 l S 440 720 m 440 664 l S "
+        "BT /F1 10 Tf 1 0 0 1 68 702 Tm (Item) Tj 1 0 0 1 248 702 Tm (Value) Tj "
+        "1 0 0 1 68 674 Tm (Stack) Tj 1 0 0 1 248 674 Tm (LIFO) Tj ET"
+    )
+    valid_pdf = build_rich_pdf([PdfPageSpec(content_ops=valid_mc_ops), PdfPageSpec(content_ops=valid_tbl_ops)])
+
+    ext = AdaptiveDocumentExtractor()
+    limits = clamp_source_limits()
+    m_doc = ext.extract(
+        tenant_id=uuid4(),
+        source_id=uuid4(),
+        version_id=uuid4(),
+        source_version=1,
+        source_sha256="a" * 64,
+        input_format="digital_pdf",
+        title="MalformedTm",
+        raw_bytes=malformed_pdf,
+        limits=limits,
+    )
+    assert m_doc.quality.overall_status != "failed"
+    assert "Left Column Alpha" in m_doc.normalized_text
+
+    v_doc = ext.extract(
+        tenant_id=uuid4(),
+        source_id=uuid4(),
+        version_id=uuid4(),
+        source_version=1,
+        source_sha256="b" * 64,
+        input_format="digital_pdf",
+        title="ValidTm",
+        raw_bytes=valid_pdf,
+        limits=limits,
+    )
+    txt = v_doc.normalized_text
+    assert txt.index("Left Column line three") < txt.index("Right Column line one")
+    assert len(v_doc.tables) == 1
+    assert v_doc.tables[0].headers == ("Item", "Value")
+    assert ("Stack", "LIFO") in v_doc.tables[0].rows
+
+
+def test_plain_text_formula_extraction_vs_c_assignments() -> None:
+    from viora.sources.public import EXTRACTION_ALGORITHM_VERSION
+
+    assert EXTRACTION_ALGORITHM_VERSION.endswith("norm:1.1")
+    ext = AdaptiveDocumentExtractor()
+    limits = clamp_source_limits()
+    md = (
+        b"# Recurrences and C Safety\n\n"
+        b"A dynamic array uses (`new_cap = capacity * 2`) inside its resize guard.\n\n"
+        b"Divide and Conquer: T(n) = 2*T(n/2) + n => T(n) = Theta(n log n)\n\n"
+        b"Overflow-safe midpoint: mid = lo + (hi - lo) / 2\n\n"
+        b"```c\n"
+        b"int x = a + b;\n"
+        b"q->head = (q->head + 1) % CAP;\n"
+        b"```\n"
+    )
+    doc = ext.extract(
+        tenant_id=uuid4(),
+        source_id=uuid4(),
+        version_id=uuid4(),
+        source_version=1,
+        source_sha256="c" * 64,
+        input_format="typed_notes",
+        title="Recurrences",
+        raw_bytes=md,
+        limits=limits,
+    )
+    frm_raws = [f.raw_representation for f in doc.formulas]
+    assert "T(n) = 2*T(n/2) + n" in frm_raws
+    assert "mid = lo + (hi - lo) / 2" in frm_raws
+    assert not any("new_cap" in s or "q->head" in s or "int x" in s for s in frm_raws)
+    assert any(b.kind == "code" and "q->head" in b.normalized_text for b in doc.text_blocks)
+    assert doc.evidence_references

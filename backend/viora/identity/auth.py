@@ -257,17 +257,13 @@ class AuthService:
         result: TokenPair | None = None
         with self.sessions.begin() as db:
             digest = refresh_hash(refresh_token)
-            locator = (
-                db.execute(
-                    select(RefreshToken.session_id, AuthSession.user_id)
-                    .join(
-                        AuthSession, AuthSession.session_id == RefreshToken.session_id
-                    )
-                    .where(RefreshToken.token_hash == digest)
+            locator = db.execute(
+                select(RefreshToken.session_id, AuthSession.user_id)
+                .join(
+                    AuthSession, AuthSession.session_id == RefreshToken.session_id
                 )
-                .tuples()
-                .one_or_none()
-            )
+                .where(RefreshToken.token_hash == digest)
+            ).one_or_none()
             if locator is not None:
                 session_id, actor_id = locator
                 user = self._lock_user(db, actor_id)

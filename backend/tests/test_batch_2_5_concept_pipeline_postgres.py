@@ -120,14 +120,18 @@ class _DeterministicConceptGateway(FakeAIGateway):
                 else:
                     break
         is_topic = "<untrusted_topic_request>" in user_txt
+        snippet = ""
+        if "<untrusted_source_data>" in user_txt:
+            body = user_txt.split("<untrusted_source_data>", 1)[1].split("</untrusted_source_data>", 1)[0]
+            snippet = " ".join(body.replace("[ev:", " ").split()[:12])
         cited = ev_ids[:1]
         batch = RawConceptExtractionBatch(
             section_summary="Grounded educational summary",
             concepts=[
                 RawConceptCandidate(
                     name="Core Concept A",
-                    canonical_summary="Primary extracted concept.",
-                    definition="Defined cleanly from extracted text.",
+                    canonical_summary=f"Primary extracted concept ({snippet})." if snippet else "Primary extracted concept.",
+                    definition=f"Defined from extracted text: {snippet}" if snippet else "Defined cleanly from extracted text.",
                     grounding="learning_request" if is_topic else "source_explicit",
                     evidence_ids=cited,
                     examples=["Representative classroom example."],

@@ -22,6 +22,7 @@ import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStat
 import { deriveRoleFlags } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
 import { validateRequiredUuid } from "../../tenant/validation";
+import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { resolveMemberLabel, useTenantOptions } from "../common/useTenantOptions";
 
@@ -32,11 +33,9 @@ export function GuardiansPage() {
   const flags = deriveRoleFlags(tenant.selectedInstitution?.roles ?? []);
 
   const options = useTenantOptions({ members: true });
+  const feedback = useActionFeedback();
 
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
-  const [actionError, setActionError] = useState<NormalizedApiError | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-
   const [guardianId, setGuardianId] = useState("");
   const [studentId, setStudentId] = useState("");
   const [creating, setCreating] = useState(false);
@@ -120,138 +119,85 @@ export function GuardiansPage() {
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
     if (!tenantId) return;
-    setActionError(null);
-    setActionSuccess(null);
-
     const gErr = validateRequiredUuid(guardianId, "Guardian User ID");
     const sErr = validateRequiredUuid(studentId, "Student User ID");
     if (gErr || sErr) {
-      setActionError({
-        status: 422,
-        code: "validation_error",
-        message: gErr ?? sErr ?? "Both Guardian and Student UUIDs are required.",
-      });
+      feedback.setValidationError(gErr ?? sErr ?? "Both Guardian and Student UUIDs are required.");
       return;
     }
-
-    setCreating(true);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+    await feedback.runApiAction({
+      setBusy: setCreating,
+      call: () =>
         apiClient.POST("/api/v1/tenants/{tenant_id}/guardian-links", {
           params: { path: { tenant_id: tenantId } },
-          body: {
-            guardian_user_id: guardianId.trim(),
-            student_user_id: studentId.trim(),
-          },
+          body: { guardian_user_id: guardianId.trim(), student_user_id: studentId.trim() },
         }),
-      );
-      if (res.data) {
+      fallbackError: "Unable to create guardian link.",
+      onSuccess: () => {
         setGuardianId("");
         setStudentId("");
-        setActionSuccess(
+        feedback.setActionSuccess(
           "Inactive guardian link created. Verification and activation remain explicitly deferred on the backend.",
         );
         list.resetToFirstPage();
         list.reload();
-      } else {
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Unable to create guardian link."),
-        );
-      }
-    } catch {
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setCreating(false);
-    }
+      },
+    });
   };
 
   const handleConsent = async () => {
     if (!tenantId || !confirmConsent) return;
-    setBusy(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+    const target = confirmConsent;
+    await feedback.runApiAction({
+      setBusy,
+      call: () =>
         apiClient.POST(
           "/api/v1/tenants/{tenant_id}/guardian-links/{guardian_user_id}/students/{student_user_id}/consent",
           {
             params: {
               path: {
                 tenant_id: tenantId,
-                guardian_user_id: confirmConsent.guardian_user_id,
-                student_user_id: confirmConsent.student_user_id,
+                guardian_user_id: target.guardian_user_id,
+                student_user_id: target.student_user_id,
               },
             },
           },
         ),
-      );
-      if (res.data) {
-        setConfirmConsent(null);
-        setActionSuccess("Student consent timestamp recorded on guardian link.");
+      fallbackError: "Unable to record consent.",
+      onSuccess: () => {
+        feedback.setActionSuccess("Student consent timestamp recorded on guardian link.");
         list.reload();
-      } else {
-        setConfirmConsent(null);
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Unable to record consent."),
-        );
-      }
-    } catch {
-      setConfirmConsent(null);
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setBusy(false);
-    }
+      },
+      onFinally: () => setConfirmConsent(null),
+    });
   };
 
   const handleRevoke = async () => {
     if (!tenantId || !confirmRevoke) return;
-    setBusy(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+    const target = confirmRevoke;
+    await feedback.runApiAction({
+      setBusy,
+      call: () =>
         apiClient.POST(
           "/api/v1/tenants/{tenant_id}/guardian-links/{guardian_user_id}/students/{student_user_id}/revoke",
           {
             params: {
               path: {
                 tenant_id: tenantId,
-                guardian_user_id: confirmRevoke.guardian_user_id,
-                student_user_id: confirmRevoke.student_user_id,
+                guardian_user_id: target.guardian_user_id,
+                student_user_id: target.student_user_id,
               },
             },
           },
         ),
-      );
-      if (res.data) {
-        setConfirmRevoke(null);
+      fallbackError: "Unable to revoke guardian link.",
+      onSuccess: () => {
         setStudentSummary(null);
-        setActionSuccess("Guardian link revoked; subsequent guardian summary access is denied.");
+        feedback.setActionSuccess("Guardian link revoked; subsequent guardian summary access is denied.");
         list.reload();
-      } else {
-        setConfirmRevoke(null);
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Unable to revoke guardian link."),
-        );
-      }
-    } catch {
-      setConfirmRevoke(null);
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setBusy(false);
-    }
+      },
+      onFinally: () => setConfirmRevoke(null),
+    });
   };
 
   return (
@@ -267,21 +213,7 @@ export function GuardiansPage() {
         message="New guardian links start inactive. Student consent and link revocation are supported here; guardian identity verification and administrative activation remain intentionally deferred and fail closed on the backend until the verification workflow is implemented."
       />
 
-      {actionSuccess && (
-        <AlertBanner
-          tone="success"
-          message={actionSuccess}
-          onDismiss={() => setActionSuccess(null)}
-        />
-      )}
-      {actionError && (
-        <AlertBanner
-          tone="error"
-          title="Operation failed"
-          error={actionError}
-          onDismiss={() => setActionError(null)}
-        />
-      )}
+      {feedback.alerts}
 
       {flags.isAdmin && (
         <SectionCard

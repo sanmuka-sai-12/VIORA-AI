@@ -250,6 +250,34 @@ def _split_oversized_text_unit(
     return parts
 
 
+def _collect_chunk_metadata(
+    units: list[_AtomicUnit],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    blocks: dict[str, None] = {}
+    tables: dict[str, None] = {}
+    figures: dict[str, None] = {}
+    formulas: dict[str, None] = {}
+    evs: dict[str, None] = {}
+    for u in units:
+        for b in u.block_ids:
+            blocks[b] = None
+        for t in u.table_ids:
+            tables[t] = None
+        for f in u.figure_ids:
+            figures[f] = None
+        for m in u.formula_ids:
+            formulas[m] = None
+        for e in u.evidence_ids:
+            evs[e] = None
+    return (
+        tuple(blocks),
+        tuple(tables),
+        tuple(figures),
+        tuple(formulas),
+        tuple(evs),
+    )
+
+
 def _pack_units(
     *,
     sec: SourceSection,
@@ -308,6 +336,7 @@ def _pack_units(
         parts.extend(u.rendered_text for u in bucket)
         rendered = "\n\n".join(parts)
 
+        block_ids, table_ids, figure_ids, formula_ids, ev_ids = _collect_chunk_metadata(bucket)
         chunks.append(
             DocumentChunk(
                 chunk_id=f"chk-{idx + 1}",
@@ -323,21 +352,11 @@ def _pack_units(
                 char_count=len(rendered),
                 overlap_prefix=overlap_prefix,
                 rendered_text=rendered,
-                block_ids=tuple(
-                    dict.fromkeys(bid for u in bucket for bid in u.block_ids)
-                ),
-                table_ids=tuple(
-                    dict.fromkeys(tid for u in bucket for tid in u.table_ids)
-                ),
-                figure_ids=tuple(
-                    dict.fromkeys(fid for u in bucket for fid in u.figure_ids)
-                ),
-                formula_ids=tuple(
-                    dict.fromkeys(mid for u in bucket for mid in u.formula_ids)
-                ),
-                evidence_ids=tuple(
-                    dict.fromkeys(eid for u in bucket for eid in u.evidence_ids)
-                ),
+                block_ids=block_ids,
+                table_ids=table_ids,
+                figure_ids=figure_ids,
+                formula_ids=formula_ids,
+                evidence_ids=ev_ids,
                 contains_code=any(u.is_code for u in bucket),
                 contains_table=any(u.is_table for u in bucket),
                 contains_formula=any(u.is_formula for u in bucket),
@@ -347,8 +366,15 @@ def _pack_units(
         idx += 1
         if overlap_chars > 0:
             last_text = bucket[-1].rendered_text
-            if not bucket[-1].is_table and not bucket[-1].is_code:
-                prev_tail = last_text[-overlap_chars:].strip()
+            if not bucket[-1].is_table and not bucket[-1].is_code and len(last_text) > overlap_chars:
+                start_pos = len(last_text) - overlap_chars
+                ws_pos = last_text.find(" ", start_pos)
+                tail = (last_text[ws_pos + 1 :] if ws_pos != -1 else last_text[start_pos:]).strip()
+                if tail.startswith(("]", "ev:")):
+                    tail = ""
+                prev_tail = tail
+            elif not bucket[-1].is_table and not bucket[-1].is_code:
+                prev_tail = last_text.strip()
             else:
                 prev_tail = ""
     return chunks, idx
@@ -462,11 +488,7 @@ def chunk_extracted_document(
     chunks: list[DocumentChunk] = []
     if mode == "single_pass" and all_section_units:
         merged_parts: list[str] = []
-        block_ids: list[str] = []
-        table_ids: list[str] = []
-        figure_ids: list[str] = []
-        formula_ids: list[str] = []
-        ev_ids: list[str] = []
+        single_units: list[_AtomicUnit] = []
         p_start = min(u.page_number for _, us in all_section_units for u in us)
         p_end = max(u.page_number for _, us in all_section_units for u in us)
         has_code = has_table = has_formula = has_figure = False
@@ -478,15 +500,12 @@ def chunk_extracted_document(
                 merged_parts.append(f"[SECTION: {sec.title}]")
             for u in us:
                 merged_parts.append(u.rendered_text)
-                block_ids.extend(u.block_ids)
-                table_ids.extend(u.table_ids)
-                figure_ids.extend(u.figure_ids)
-                formula_ids.extend(u.formula_ids)
-                ev_ids.extend(u.evidence_ids)
+                single_units.append(u)
                 has_code = has_code or u.is_code
                 has_table = has_table or u.is_table
                 has_formula = has_formula or u.is_formula
                 has_figure = has_figure or u.is_figure
+        block_ids, table_ids, figure_ids, formula_ids, ev_ids = _collect_chunk_metadata(single_units)
         rendered_single = "\n\n".join(merged_parts)
         chunks.append(
             DocumentChunk(
@@ -502,11 +521,11 @@ def chunk_extracted_document(
                 ),
                 char_count=len(rendered_single),
                 rendered_text=rendered_single,
-                block_ids=tuple(dict.fromkeys(block_ids)),
-                table_ids=tuple(dict.fromkeys(table_ids)),
-                figure_ids=tuple(dict.fromkeys(figure_ids)),
-                formula_ids=tuple(dict.fromkeys(formula_ids)),
-                evidence_ids=tuple(dict.fromkeys(ev_ids)),
+                block_ids=block_ids,
+                table_ids=table_ids,
+                figure_ids=figure_ids,
+                formula_ids=formula_ids,
+                evidence_ids=ev_ids,
                 contains_code=has_code,
                 contains_table=has_table,
                 contains_formula=has_formula,

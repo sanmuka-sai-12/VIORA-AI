@@ -1744,7 +1744,7 @@
             "type": "array"
           },
           "schema_version": {
-            "default": "1.0",
+            "default": "1.1",
             "title": "Schema Version",
             "type": "string"
           },
@@ -2858,9 +2858,20 @@
             "type": "integer"
           },
           "prompt_version": {
-            "default": "concept_prompt:1.1",
+            "default": "concept_prompt:1.2",
             "title": "Prompt Version",
             "type": "string"
+          },
+          "required_fields_complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Fields Complete"
           },
           "requires_teacher_review": {
             "default": true,
@@ -2868,8 +2879,14 @@
             "type": "boolean"
           },
           "schema_version": {
-            "default": "1.0",
+            "default": "1.1",
             "title": "Schema Version",
+            "type": "string"
+          },
+          "semantic_support": {
+            "const": "not_verified",
+            "default": "not_verified",
+            "title": "Semantic Support",
             "type": "string"
           },
           "source_supported_count": {
@@ -2881,6 +2898,15 @@
             "minimum": 0.0,
             "title": "Source Synthesized Count",
             "type": "integer"
+          },
+          "structural_validity": {
+            "default": "unknown",
+            "enum": [
+              "valid",
+              "unknown"
+            ],
+            "title": "Structural Validity",
+            "type": "string"
           },
           "total_concepts": {
             "minimum": 0.0,

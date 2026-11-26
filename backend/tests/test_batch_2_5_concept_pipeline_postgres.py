@@ -120,29 +120,41 @@ class _DeterministicConceptGateway(FakeAIGateway):
                 else:
                     break
         is_topic = "<untrusted_topic_request>" in user_txt
-        snippet = ""
+        ev_text_by_id: dict[str, str] = {}
         if "<untrusted_source_data>" in user_txt:
             body = user_txt.split("<untrusted_source_data>", 1)[1].split("</untrusted_source_data>", 1)[0]
-            snippet = " ".join(body.replace("[ev:", " ").split()[:12])
+            for raw_ln in body.splitlines():
+                ln = raw_ln.strip()
+                if "[ev:" not in ln or not ln.endswith("]"):
+                    continue
+                pos = ln.rfind("[ev:")
+                txt = ln[:pos].strip().lstrip("#").strip()
+                if not txt:
+                    continue
+                for eid in ln[pos + 4 : -1].split(","):
+                    clean_eid = eid.strip()
+                    if clean_eid and clean_eid not in ev_text_by_id:
+                        ev_text_by_id[clean_eid] = txt
         cited = ev_ids[:1]
+        snippet = ev_text_by_id.get(cited[0], "") if cited else ""
+        second_ev = ev_ids[1:2] or cited
+        second_snippet = ev_text_by_id.get(second_ev[0], "") if second_ev else ""
         batch = RawConceptExtractionBatch(
             section_summary="Grounded educational summary",
             concepts=[
                 RawConceptCandidate(
                     name="Core Concept A",
-                    canonical_summary=f"Primary extracted concept ({snippet})." if snippet else "Primary extracted concept.",
-                    definition=f"Defined from extracted text: {snippet}" if snippet else "Defined cleanly from extracted text.",
+                    canonical_summary=snippet or "Primary extracted concept.",
+                    definition=snippet or "Defined cleanly from extracted text.",
                     grounding="learning_request" if is_topic else "source_explicit",
                     evidence_ids=cited,
-                    examples=["Representative classroom example."],
-                    learning_objectives=["Explain Core Concept A with precision."],
                     prerequisites=["Foundational Concept"],
                 ),
                 RawConceptCandidate(
                     name="Foundational Concept",
-                    canonical_summary="Supporting prerequisite.",
+                    canonical_summary=second_snippet or "Supporting prerequisite.",
                     grounding="learning_request" if is_topic else "source_synthesized",
-                    evidence_ids=ev_ids[1:2] or cited,
+                    evidence_ids=second_ev,
                 ),
             ],
             relationships=[

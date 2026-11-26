@@ -221,6 +221,7 @@ def test_cloudflare_provider_validation_shortlist_and_mock_transport(
 def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request() -> None:
     _, md_derived = _load_corpus_doc("01_markdown_notes")
     valid_eid = md_derived.document.evidence_references[0].evidence_id
+    velocity_eid = md_derived.document.evidence_references[1].evidence_id
 
     # Inject prompt-injection text inside source content and verify untrusted tag isolation
     chunk = chunk_extracted_document(md_derived.document).chunks[0]
@@ -249,12 +250,12 @@ def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request()
                 concepts=[
                     RawConceptCandidate(
                         name="Velocity",
-                        canonical_summary="Vector rate of displacement change.",
-                        definition="v = dx / dt",
+                        canonical_summary="Average velocity equals displacement divided by elapsed time.",
+                        definition="Kinematics describes motion without reference to forces.",
                         grounding="source_explicit",
-                        evidence_ids=[valid_eid],
-                        examples=["A car moves 20m East in 2s -> 10 m/s."],
-                        learning_objectives=["Compute average velocity from displacement and time."],
+                        evidence_ids=[velocity_eid],
+                        examples=["Average velocity equals displacement divided by elapsed time."],
+                        learning_objectives=["Kinematics describes motion without reference to forces."],
                         prerequisites=["Displacement"],
                     ),
                     RawConceptCandidate(
@@ -280,9 +281,9 @@ def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request()
                 concepts=[
                     RawConceptCandidate(
                         name="velocity",
-                        canonical_summary="Vector rate of displacement change.",
+                        canonical_summary="Average velocity equals displacement divided by elapsed time.",
                         grounding="source_explicit",
-                        evidence_ids=[valid_eid],
+                        evidence_ids=[velocity_eid],
                     ),
                     RawConceptCandidate(
                         name="Work",
@@ -669,8 +670,6 @@ def test_semantic_screening_flags_contradictions_and_generic_false_positives() -
         _claim_semantically_aligned(
             ["Hash Tables", "A concept method value using buckets for collision chaining."],
             [b],
-            {"binary", "search", "requires", "sorted", "array", "logarithmic", "time"},
-            b.excerpt,
         )
         is False
     )
@@ -679,18 +678,22 @@ def test_semantic_screening_flags_contradictions_and_generic_false_positives() -
         _claim_semantically_aligned(
             ["Binary Search", "Binary search does not require a sorted array and works on unsorted data."],
             [b],
-            {"binary", "search", "requires", "sorted", "array", "logarithmic", "time"},
-            b.excerpt,
         )
         is False
     )
-    # 3. Genuine aligned claim passes screening heuristic (still requires teacher review)
+    # 3. Unverified paraphrase must not be treated as verbatim provenance
     assert (
         _claim_semantically_aligned(
             ["Binary Search", "Binary search operates on a sorted array in logarithmic time."],
             [b],
-            {"binary", "search", "requires", "sorted", "array", "logarithmic", "time"},
-            b.excerpt,
+        )
+        is False
+    )
+    # 4. Genuine verbatim excerpt claims pass provenance check (still requires teacher review)
+    assert (
+        _claim_semantically_aligned(
+            ["A binary search requires a sorted array", "runs in logarithmic time."],
+            [b],
         )
         is True
     )

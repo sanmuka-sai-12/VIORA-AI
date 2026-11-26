@@ -1,10 +1,9 @@
 """Deterministic regression fixtures for component-local and table-boundary scans."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
-
 from viora.knowledge.curriculum import analyze_prerequisites_and_order
 from viora.knowledge.schemas import (
     ConceptCandidate,
@@ -37,7 +36,7 @@ def make_disjoint_cycles(count: int) -> ExtractedKnowledgeGraph:
         source_id=UUID(int=1), version_id=UUID(int=2), derived_extraction_id=UUID(int=3),
         source_sha256="0" * 64, input_format="plain_text", title="Disjoint cycles",
         extraction_mode="single_pass", concepts=concepts, relationships=relationships,
-        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
         validation=KnowledgeValidationReport(
             total_concepts=len(concepts), source_supported_count=len(concepts),
             source_synthesized_count=0, learning_request_count=0, inferred_count=0,

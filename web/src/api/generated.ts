@@ -2081,7 +2081,7 @@ export interface components {
             relationships: components["schemas"]["ConceptRelationshipCandidate"][];
             /**
              * Schema Version
-             * @default 1.0
+             * @default 1.1
              */
             schema_version: string;
             /**
@@ -2540,9 +2540,11 @@ export interface components {
             learning_request_count: number;
             /**
              * Prompt Version
-             * @default concept_prompt:1.1
+             * @default concept_prompt:1.2
              */
             prompt_version: string;
+            /** Required Fields Complete */
+            required_fields_complete?: boolean | null;
             /**
              * Requires Teacher Review
              * @default true
@@ -2550,13 +2552,25 @@ export interface components {
             requires_teacher_review: boolean;
             /**
              * Schema Version
-             * @default 1.0
+             * @default 1.1
              */
             schema_version: string;
+            /**
+             * Semantic Support
+             * @default not_verified
+             * @constant
+             */
+            semantic_support: "not_verified";
             /** Source Supported Count */
             source_supported_count: number;
             /** Source Synthesized Count */
             source_synthesized_count: number;
+            /**
+             * Structural Validity
+             * @default unknown
+             * @enum {string}
+             */
+            structural_validity: "valid" | "unknown";
             /** Total Concepts */
             total_concepts: number;
             /** Uncertain Count */

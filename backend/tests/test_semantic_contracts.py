@@ -3,7 +3,6 @@
 from uuid import uuid4
 
 import pytest
-
 from viora.ai.openai_adapter import _compact_json_schema
 from viora.ai.public import FakeAIGateway
 from viora.contracts import TenantContext
@@ -14,7 +13,11 @@ from viora.knowledge.schemas import (
     RawConceptExtractionBatch,
     RawRelationshipCandidate,
 )
-from viora.sources.public import AdaptiveDocumentExtractor, DerivedExtractionRecord, clamp_source_limits
+from viora.sources.public import (
+    AdaptiveDocumentExtractor,
+    DerivedExtractionRecord,
+    clamp_source_limits,
+)
 
 
 @pytest.fixture

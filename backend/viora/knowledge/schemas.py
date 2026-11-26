@@ -12,8 +12,8 @@ from ..contracts import Contract, Digest, JobState
 from ..sources.public import SourceInputFormat
 
 CHUNK_ALGORITHM_VERSION = "struct_chunk:1.0"
-PROMPT_VERSION = "concept_prompt:1.1"
-CONCEPT_SCHEMA_VERSION = "1.0"
+PROMPT_VERSION = "concept_prompt:1.2"
+CONCEPT_SCHEMA_VERSION = "1.1"
 
 ChunkingMode = Literal["single_pass", "hierarchical"]
 
@@ -105,7 +105,9 @@ class AdaptiveChunkPlan(Contract):
 
 
 class RawConceptCandidate(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", json_schema_extra={
+        "required": ["name", "canonical_summary", "grounding", "evidence_ids"],
+    })
 
     name: str = Field(min_length=1, max_length=160)
     canonical_summary: str = Field(min_length=1, max_length=600)
@@ -120,10 +122,12 @@ class RawConceptCandidate(BaseModel):
 
 
 class RawRelationshipCandidate(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", json_schema_extra={
+        "required": ["source_concept", "relation_type", "target_concept", "grounding", "evidence_ids"],
+    })
 
     source_concept: str = Field(min_length=1, max_length=160)
-    relation_type: RelationshipType = "part_of"
+    relation_type: RelationshipType | None = None
     target_concept: str = Field(min_length=1, max_length=160)
     grounding: RawGroundingLabel = "uncertain"
     evidence_ids: list[str] = Field(default_factory=list, max_length=16)
@@ -231,6 +235,9 @@ class KnowledgeValidationReport(Contract):
     invalid_evidence_refs_rejected: int = Field(ge=0)
     duplicate_merges_count: int = Field(ge=0)
     ambiguous_senses_retained: int = Field(ge=0)
+    structural_validity: Literal["valid", "unknown"] = "unknown"
+    required_fields_complete: bool | None = None
+    semantic_support: Literal["not_verified"] = "not_verified"
     requires_teacher_review: bool = True
     validation_notes: tuple[str, ...] = ()
 

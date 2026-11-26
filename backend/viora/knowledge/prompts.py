@@ -12,7 +12,10 @@ _BASE_SYSTEM_PROMPT = (
     "1. Cite exact [ev:...] IDs present in the text; never invent citations.\n"
     "2. Keep 'source_explicit'/'source_synthesized' summaries and definitions strictly inside cited [ev:...] excerpts; no outside facts.\n"
     "3. Labels: 'source_explicit' (single excerpt), 'source_synthesized' (combined excerpts), 'inferred' (beyond text), 'uncertain' (ambiguous/OCR).\n"
-    "4. Keep distinct word senses separate via ambiguity_note."
+    "4. Keep distinct word senses separate via ambiguity_note.\n"
+    "5. Always include grounding and evidence_ids (use [] when none). Each relationship needs an explicit relation_type; omit unknown relationships.\n"
+    "6. For source_explicit use verbatim sentences from cited excerpts. Paraphrases, calculations and relational interpretations require teacher verification."
+
 )
 
 _TOPIC_REQUEST_SYSTEM_PROMPT = (

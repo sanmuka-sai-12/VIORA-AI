@@ -1,128 +1,105 @@
 #include <assert.h>
 #include <stdio.h>
 
-#define V_DAG 5
-#define Q_FIXED 5
+#define V 5
 #define Q_LARGE 32
 
+typedef enum { MARK_ENQUEUE, MARK_DEQUEUE_GUARDED, MARK_DEQUEUE_UNGUARDED } MarkMode;
+typedef enum { LINEAR, CIRCULAR } QueueMode;
+
 typedef struct {
-    int pushes;
+    int pushes; /* Successful insertions, not attempted writes. */
     int expansions;
+    int max_occupancy;
     int capacity_violated;
-    int step_limit_hit;
 } BfsMetrics;
 
-static int checked_push(int *q, int cap, int *tail, int val, BfsMetrics *m) {
-    m->pushes++;
-    if (*tail >= cap) {
-        m->capacity_violated = 1;
-        return 0; /* Refuse OOB write instead of invoking C undefined behavior */
-    }
-    q[(*tail)++] = val;
-    return 1;
-}
-
-static BfsMetrics bfs_enqueue_mark(int n, const int adj[V_DAG][V_DAG], int q_cap, int dist[V_DAG]) {
+/* Matrix traversal scans V columns per expansion; adjacency lists scan only
+ * outgoing edges. A circular queue reuses popped slots, unlike a linear tail. */
+static BfsMetrics bfs(const int adj[V][V], MarkMode mark, QueueMode queue,
+                      int capacity, int dist[V]) {
     int q[Q_LARGE];
-    int head = 0, tail = 0;
-    BfsMetrics m = {0};
-    for (int i = 0; i < n; ++i) dist[i] = -1;
-
+    int visited[V] = {0};
+    int head = 0, tail = 0, count = 1;
+    BfsMetrics m = {1, 0, 1, 0};
+    assert(capacity > 0 && capacity <= Q_LARGE);
+    for (int v = 0; v < V; ++v) dist[v] = -1;
     dist[0] = 0;
-    checked_push(q, q_cap, &tail, 0, &m);
-    while (head < tail) {
+    visited[0] = mark == MARK_ENQUEUE;
+    q[tail++] = 0;
+    if (queue == CIRCULAR) tail %= capacity;
+    while (count > 0) {
         int u = q[head++];
-        m.expansions++;
-        for (int v = 0; v < n; ++v) {
-            if (adj[u][v] && dist[v] == -1) {
-                dist[v] = dist[u] + 1;
-                checked_push(q, q_cap, &tail, v, &m);
-            }
-        }
-    }
-    return m;
-}
-
-static BfsMetrics bfs_dequeue_mark_guarded(int n, const int adj[V_DAG][V_DAG], int q_cap, int dist[V_DAG]) {
-    int q[Q_LARGE];
-    int visited[V_DAG] = {0};
-    int head = 0, tail = 0;
-    BfsMetrics m = {0};
-    for (int i = 0; i < n; ++i) dist[i] = -1;
-
-    dist[0] = 0;
-    checked_push(q, q_cap, &tail, 0, &m);
-    while (head < tail) {
-        int u = q[head++];
-        if (visited[u]) continue; /* Duplicate-pop guard bounds vertex expansions to <= V */
+        if (queue == CIRCULAR) head %= capacity;
+        --count;
+        if (mark == MARK_DEQUEUE_GUARDED && visited[u]) continue;
         visited[u] = 1;
-        m.expansions++;
-        for (int v = 0; v < n; ++v) {
-            if (adj[u][v] && !visited[v]) {
-                if (dist[v] == -1) dist[v] = dist[u] + 1;
-                checked_push(q, q_cap, &tail, v, &m);
+        ++m.expansions;
+        for (int v = 0; v < V; ++v) {
+            if (!adj[u][v] || visited[v]) continue;
+            if ((queue == LINEAR && tail >= capacity) || count >= capacity) {
+                m.capacity_violated = 1;
+                return m; /* Stop explicitly before any out-of-bounds write. */
             }
-        }
-    }
-    return m;
-}
-
-static BfsMetrics bfs_dequeue_mark_unguarded_cycle(int n, const int adj[3][3], int q_cap, int budget) {
-    int q[Q_LARGE];
-    int head = 0, tail = 0;
-    BfsMetrics m = {0};
-
-    checked_push(q, q_cap, &tail, 0, &m);
-    while (head < tail) {
-        if (m.expansions >= budget) {
-            m.step_limit_hit = 1;
-            break;
-        }
-        int u = q[head++];
-        m.expansions++;
-        /* Unguarded: never checks visited before neighbor expansion, so cyclic edges re-enqueue */
-        for (int v = 0; v < n; ++v) {
-            if (adj[u][v]) checked_push(q, q_cap, &tail, v, &m);
+            if (dist[v] == -1) dist[v] = dist[u] + 1;
+            if (mark == MARK_ENQUEUE) visited[v] = 1;
+            q[tail++] = v;
+            if (queue == CIRCULAR) tail %= capacity;
+            ++count;
+            ++m.pushes;
+            if (count > m.max_occupancy) m.max_occupancy = count;
         }
     }
     return m;
 }
 
 int main(void) {
-    /* Acyclic bipartite diamond K_{1,2,2} (V=5, E=6): nodes 1 & 2 share children 3 & 4 */
-    const int dag[V_DAG][V_DAG] = {
+    /* Five vertices, six edges: two parents share two children. */
+    const int diamond[V][V] = {
         {0, 1, 1, 0, 0},
         {0, 0, 0, 1, 1},
         {0, 0, 0, 1, 1},
         {0, 0, 0, 0, 0},
         {0, 0, 0, 0, 0},
     };
-    int dist[V_DAG];
-
-    /* 1. Enqueue-time marking fits int q[V] with exact V=5 pushes */
-    BfsMetrics m_enq = bfs_enqueue_mark(V_DAG, dag, Q_FIXED, dist);
-    assert(m_enq.pushes == 5 && m_enq.expansions == 5 && m_enq.capacity_violated == 0);
+    /* Add back edges: real dequeue marking still terminates on this cycle. */
+    const int cyclic_diamond[V][V] = {
+        {0, 1, 1, 0, 0},
+        {0, 0, 0, 1, 1},
+        {0, 0, 0, 1, 1},
+        {1, 0, 0, 0, 0},
+        {1, 0, 0, 0, 0},
+    };
+    int dist[V];
+    BfsMetrics enq = bfs(diamond, MARK_ENQUEUE, LINEAR, V, dist);
+    assert(enq.pushes == V && enq.expansions == V && !enq.capacity_violated);
+    assert(enq.max_occupancy == 3);
     assert(dist[0] == 0 && dist[1] == 1 && dist[2] == 1 && dist[3] == 2 && dist[4] == 2);
 
-    /* 2a. Pop-time marking WITH guard on fixed q[5]: duplicate pushes (7 > 5) hit capacity check safely */
-    BfsMetrics m_guard_fixed = bfs_dequeue_mark_guarded(V_DAG, dag, Q_FIXED, dist);
-    assert(m_guard_fixed.pushes == 7 && m_guard_fixed.capacity_violated == 1);
-
-    /* 2b. Pop-time marking WITH guard on larger queue q[32]: expands each vertex once cleanly */
-    BfsMetrics m_guard_large = bfs_dequeue_mark_guarded(V_DAG, dag, Q_LARGE, dist);
-    assert(m_guard_large.pushes == 7 && m_guard_large.expansions == 5 && m_guard_large.capacity_violated == 0);
+    BfsMetrics fixed = bfs(diamond, MARK_DEQUEUE_GUARDED, LINEAR, V, dist);
+    assert(fixed.pushes == V && fixed.capacity_violated);
+    BfsMetrics guarded = bfs(diamond, MARK_DEQUEUE_GUARDED, LINEAR, Q_LARGE, dist);
+    assert(guarded.pushes == 7 && guarded.expansions == V && !guarded.capacity_violated);
+    assert(guarded.max_occupancy == 4);
     assert(dist[3] == 2 && dist[4] == 2);
+    BfsMetrics ring = bfs(diamond, MARK_DEQUEUE_GUARDED, CIRCULAR, V, dist);
+    assert(ring.pushes == 7 && ring.max_occupancy == 4 && !ring.capacity_violated);
+    BfsMetrics small_ring = bfs(diamond, MARK_DEQUEUE_GUARDED, CIRCULAR, 3, dist);
+    assert(small_ring.capacity_violated);
 
-    /* 3. Pop-time marking WITHOUT guard on 3-vertex cycle: exceeds V, hits budget/capacity safely */
-    const int cyc3[3][3] = {
-        {0, 1, 0},
-        {0, 0, 1},
-        {1, 0, 0},
-    };
-    BfsMetrics m_unguard = bfs_dequeue_mark_unguarded_cycle(3, cyc3, Q_LARGE, 10);
-    assert(m_unguard.step_limit_hit == 1 && m_unguard.pushes > 3 && m_unguard.expansions == 10);
+    BfsMetrics unguarded = bfs(cyclic_diamond, MARK_DEQUEUE_UNGUARDED, LINEAR, Q_LARGE, dist);
+    assert(unguarded.pushes == 7 && unguarded.expansions == 7);
+    assert(unguarded.max_occupancy == 4 && !unguarded.capacity_violated);
+    BfsMetrics cyclic_guarded = bfs(cyclic_diamond, MARK_DEQUEUE_GUARDED, CIRCULAR, V, dist);
+    assert(cyclic_guarded.pushes == 7 && cyclic_guarded.expansions == V);
+    assert(!cyclic_guarded.capacity_violated);
+    BfsMetrics cyclic_enq = bfs(cyclic_diamond, MARK_ENQUEUE, LINEAR, V, dist);
+    assert(cyclic_enq.pushes == V && cyclic_enq.expansions == V && !cyclic_enq.capacity_violated);
 
-    printf("PASS bfs_duplicate_counterexample (enq=%d, guard=%d/%d, unguard_exp=%d)\n",
-           m_enq.pushes, m_guard_large.pushes, m_guard_large.expansions, m_unguard.expansions);
+    printf("PASS bfs_duplicate_counterexample: enqueue=%d/%d, guarded=%d/%d, "
+           "unguarded_cycle=%d/%d, peak=%d, linear_full=%d, ring_full=%d\n",
+           enq.pushes, enq.expansions, guarded.pushes, guarded.expansions,
+           unguarded.pushes, unguarded.expansions, guarded.max_occupancy,
+           fixed.capacity_violated, ring.capacity_violated);
     return 0;
 }

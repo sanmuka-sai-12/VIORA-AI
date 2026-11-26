@@ -37,83 +37,16 @@ from .schemas import (
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[^a-z0-9\s]")
-_STOPWORDS = frozenset(
-    {
-        "the", "and", "for", "with", "that", "this", "from", "into", "when", "where",
-        "are", "was", "were", "has", "have", "had", "not", "but", "can", "will",
-        "its", "their", "about", "such", "than", "then", "also", "over", "under",
-        "between", "equals", "equal", "rate", "change", "object", "system",
-        "concept", "concepts", "method", "methods", "function", "functions",
-        "property", "properties", "example", "examples", "step", "steps",
-        "value", "values", "element", "elements", "process", "using", "used",
-        "called", "defined", "represents", "describes",
-    }
-)
-_NEGATION_WORDS = frozenset({"not", "never", "no", "without", "cannot", "cant", "neither", "nor"})
-_ANTONYM_PAIRS: tuple[tuple[str, str], ...] = (
-    ("sorted", "unsorted"),
-    ("fifo", "lifo"),
-    ("constant", "linear"),
-    ("recursive", "iterative"),
-    ("singly", "doubly"),
-    ("contiguous", "linked"),
-    ("static", "dynamic"),
-    ("directed", "undirected"),
-)
-
-
-def _norm_words(text: str) -> set[str]:
-    return set(_PUNCT_RE.sub(" ", text.lower()).split())
-
-
-def _domain_tokens(text: str) -> set[str]:
-    return {
-        tok
-        for tok in _norm_words(text)
-        if (len(tok) >= 3 and tok not in _STOPWORDS) or (len(tok) == 2 and tok.isdigit())
-    }
-
-
-def _has_polarity_conflict(claim_words: set[str], support_words: set[str]) -> bool:
-    """Detect explicit negation or mutually exclusive qualifier flips against evidence."""
-    claim_neg = bool(claim_words & _NEGATION_WORDS)
-    sup_neg = bool(support_words & _NEGATION_WORDS)
-    if claim_neg != sup_neg:
-        return True
-    for a, b in _ANTONYM_PAIRS:
-        if (a in claim_words and b in support_words and a not in support_words) or (
-            b in claim_words and a in support_words and b not in support_words
-        ):
-            return True
-    return False
-
-
 def _claim_semantically_aligned(
     claim_texts: list[str],
     bindings: list[ConceptEvidenceBinding],
-    chunk_tokens: set[str] | None,
-    chunk_text: str | None = None,
 ) -> bool:
-    """Deterministic lexical screening heuristic; flags low overlap or polarity conflicts, never proves entailment."""
-    if not bindings:
-        return False
-    claim_joined = " ".join(t for t in claim_texts if t)
-    claim_toks = _domain_tokens(claim_joined)
-    if not claim_toks:
-        return True
-    claim_words = _norm_words(claim_joined)
-
-    ev_joined = " ".join(b.excerpt for b in bindings if b.excerpt)
-    ev_toks = _domain_tokens(ev_joined)
-    min_req = 2 if len(claim_toks) >= 4 else 1
-
-    ev_overlap = claim_toks & ev_toks
-    if len(ev_overlap) >= min_req:
-        return not _has_polarity_conflict(claim_words, _norm_words(ev_joined))
-    if chunk_tokens and len(claim_toks & chunk_tokens) >= min_req:
-        sup_words = _norm_words(chunk_text) if chunk_text else chunk_tokens
-        return not _has_polarity_conflict(claim_words, sup_words)
-    return False
+    """Check verbatim provenance only; neither paraphrase entailment nor truth is proven."""
+    excerpts = [_WHITESPACE_RE.sub(" ", b.excerpt).strip() for b in bindings if b.verified]
+    claims = [_WHITESPACE_RE.sub(" ", text).strip() for text in claim_texts if text.strip()]
+    return bool(claims) and all(
+        any(claim in excerpt for excerpt in excerpts) for claim in claims
+    )
 
 
 def _compact_schema_size_chars() -> int:
@@ -149,6 +82,8 @@ def _map_grounding(
 ) -> GroundingClassification:
     if is_topic_request:
         return "learning_request"
+    if had_unverified_claim:
+        return "unsupported"
     if raw_label == "source_explicit":
         return "source_supported" if verified_ev_count > 0 else "unsupported"
     if raw_label == "source_synthesized":
@@ -303,10 +238,11 @@ class ConceptExtractor:
         ambiguous_retained = 0
         notes: list[str] = []
         notes_seen: set[str] = set()
-        chunk_text_by_id = {ch.chunk_id: ch.rendered_text for ch in chunk_plan.chunks}
-        chunk_tokens_by_id: dict[str, set[str]] = {
-            cid: _domain_tokens(txt) for cid, txt in chunk_text_by_id.items()
-        }
+        required_fields_complete = all(
+            {"grounding", "evidence_ids"} <= candidate.model_fields_set
+            for _, batch in raw_batches
+            for candidate in [*batch.concepts, *batch.relationships]
+        )
         binding_cache: dict[str, ConceptEvidenceBinding] = {}
 
         # Keyed conservatively by (normalized_name, sense_key).
@@ -359,8 +295,6 @@ class ConceptExtractor:
             return valid, bad
 
         for chunk_id, batch in raw_batches:
-            ch_toks = chunk_tokens_by_id.get(chunk_id)
-            ch_txt = chunk_text_by_id.get(chunk_id)
             for w in batch.warnings:
                 clean_w = w.strip()
                 if clean_w:
@@ -377,22 +311,19 @@ class ConceptExtractor:
                     raw_c.grounding,
                     is_topic_request=is_topic,
                     verified_ev_count=len(verified_ids),
-                    had_unverified_claim=bad_cnt > 0 or raw_c.grounding == "source_explicit",
+                    had_unverified_claim=bad_cnt > 0,
                 )
                 if (
                     not is_topic
                     and grounding in {"source_supported", "source_synthesized"}
-                    and len(doc.normalized_text.strip()) >= 20
                     and not _claim_semantically_aligned(
                         [
-                            raw_c.name,
                             raw_c.canonical_summary,
                             raw_c.definition or "",
                             *raw_c.examples,
+                            *raw_c.learning_objectives,
                         ],
                         bindings,
-                        ch_toks,
-                        ch_txt,
                     )
                 ):
                     grounding = "uncertain"
@@ -455,8 +386,6 @@ class ConceptExtractor:
                         if b.evidence_id not in have_eids:
                             existing_bindings.append(b)
                             have_eids.add(b.evidence_id)
-                    if target_bucket["grounding"] != "source_supported" and grounding == "source_supported":
-                        target_bucket["grounding"] = "source_supported"
 
                 self._append_candidate_details(
                     target_bucket=target_bucket,
@@ -489,9 +418,11 @@ class ConceptExtractor:
         relationships: list[ConceptRelationshipCandidate] = []
         rel_seen: set[tuple[str, str, str]] = set()
         for rel_chunk_id, batch in raw_batches:
-            ch_toks = chunk_tokens_by_id.get(rel_chunk_id)
-            ch_txt = chunk_text_by_id.get(rel_chunk_id)
             for rel in batch.relationships:
+                if rel.relation_type is None:
+                    required_fields_complete = False
+                    _add_note("Omitted relationship without a declared relation_type; no relationship was fabricated.")
+                    continue
                 s_norm = normalize_concept_name(rel.source_concept)
                 t_norm = normalize_concept_name(rel.target_concept)
                 s_ids = name_to_concept_ids.get(s_norm, [])
@@ -509,19 +440,10 @@ class ConceptExtractor:
                     rel.grounding,
                     is_topic_request=is_topic,
                     verified_ev_count=len(bindings),
-                    had_unverified_claim=bad_cnt > 0 or rel.grounding == "source_explicit",
+                    had_unverified_claim=bad_cnt > 0,
                 )
-                if (
-                    not is_topic
-                    and rel_grounding in {"source_supported", "source_synthesized"}
-                    and len(doc.normalized_text.strip()) >= 20
-                    and not _claim_semantically_aligned(
-                        [rel.source_concept, rel.target_concept],
-                        bindings,
-                        ch_toks,
-                        ch_txt,
-                    )
-                ):
+                if rel_grounding in {"source_supported", "source_synthesized"}:
+                    # Endpoint mentions do not establish a directed, typed relationship.
                     rel_grounding = "uncertain"
                     semantic_mismatch_count += 1
                 if s_ambig or t_ambig:
@@ -579,7 +501,7 @@ class ConceptExtractor:
                         relation_type="prerequisite_of",
                         target_concept_id=c.concept_id,
                         target_concept_name=c.name,
-                        grounding=prereq.grounding,
+                        grounding="learning_request" if is_topic else "uncertain",
                         evidence_bindings=p_bindings,
                         needs_review=(
                             is_topic
@@ -591,7 +513,7 @@ class ConceptExtractor:
 
         if semantic_mismatch_count > 0:
             _add_note(
-                f"Downgraded {semantic_mismatch_count} claim(s) whose valid evidence IDs lacked semantic term overlap; teacher verification required."
+                f"Retained {semantic_mismatch_count} non-verbatim or relational claim(s) as uncertain; evidence identity does not prove semantic support."
             )
         if is_topic:
             _add_note(
@@ -602,7 +524,11 @@ class ConceptExtractor:
                 f"Rejected {rejected_refs} ungrounded or version-mismatched evidence reference(s)."
             )
 
+        if not required_fields_complete:
+            _add_note("Required grounding, evidence_ids or relation_type omitted; partial output is a draft only.")
         validation = KnowledgeValidationReport(
+            structural_validity="valid",
+            required_fields_complete=required_fields_complete,
             schema_version=CONCEPT_SCHEMA_VERSION,
             prompt_version=PROMPT_VERSION,
             chunk_algorithm_version=chunk_plan.chunking_version,
@@ -672,7 +598,6 @@ class ConceptExtractor:
             raw_c.examples,
             lambda _, s: ConceptExample(text=s, grounding=grounding, evidence_ids=verified_ids),
         )
-        obj_grounding = "learning_request" if grounding == "learning_request" else grounding
         _add_unique(
             "objectives",
             "obj_seen",
@@ -681,7 +606,7 @@ class ConceptExtractor:
                 objective_id=f"obj-{obj_seq_start + i + 1}",
                 statement=s,
                 bloom_level=raw_c.bloom_level,
-                grounding=obj_grounding,
+                grounding=grounding,
                 evidence_ids=verified_ids,
             ),
         )
@@ -689,7 +614,7 @@ class ConceptExtractor:
             "prerequisites",
             "prereq_seen",
             raw_c.prerequisites,
-            lambda _, s: PrerequisiteCandidate(prerequisite_name=s, grounding=grounding, evidence_ids=verified_ids),
+            lambda _, s: PrerequisiteCandidate(prerequisite_name=s, grounding="learning_request" if grounding == "learning_request" else "uncertain", evidence_ids=verified_ids),
         )
 
     @staticmethod

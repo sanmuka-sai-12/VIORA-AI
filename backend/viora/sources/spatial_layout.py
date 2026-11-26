@@ -188,11 +188,14 @@ def _extract_spatial_tables(
 
             if strategy == "text":
                 # Trim leading/trailing caption or single-span prose rows accidentally pulled into borderless table
-                while final_rows and (
-                    _CAPTION_RE.match(" ".join(c for c in final_rows[0] if c))
-                    or sum(1 for c in final_rows[0] if c) <= 1
+                first_data_row = 0
+                while first_data_row < len(final_rows) and (
+                    _CAPTION_RE.match(" ".join(c for c in final_rows[first_data_row] if c))
+                    or sum(1 for c in final_rows[first_data_row] if c) <= 1
                 ):
-                    final_rows.pop(0)
+                    first_data_row += 1
+                if first_data_row:
+                    del final_rows[:first_data_row]
                 col_n = len(final_rows[0]) if final_rows else 0
                 while final_rows and (
                     sum(1 for c in final_rows[-1] if c) <= 1

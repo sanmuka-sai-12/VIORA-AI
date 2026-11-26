@@ -2013,7 +2013,7 @@ class AdaptiveDocumentExtractor:
 
             stripped = page_text.strip()
             lines = page_text.splitlines()
-            non_empty = [_normalize_line(ln) for ln in lines if _normalize_line(ln)]
+            non_empty = [normalized for ln in lines if (normalized := _normalize_line(ln))]
             top_tmpl = (
                 normalize_header_footer_template(non_empty[0])
                 if non_empty

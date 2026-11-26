@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..contracts import ArtifactVersionRef, JobState, Page
 from ..security import AccessError
@@ -543,7 +543,20 @@ class SqlSourceRepository:
         if not access_clauses:
             return Page(items=(), next_cursor=None)
 
-        stmt = select(Source).where(
+        stmt = select(Source, SourceVersion).outerjoin(
+            SourceVersion,
+            and_(
+                SourceVersion.tenant_id == Source.tenant_id,
+                SourceVersion.version_id == Source.latest_version_id,
+            ),
+        ).options(
+            load_only(
+                SourceVersion.input_format,
+                SourceVersion.content_sha256,
+                SourceVersion.size_bytes,
+                raiseload=True,
+            )
+        ).where(
             Source.tenant_id == tenant_id,
             Source.offering_id == offering_id,
             Source.origin_kind != "unscoped",
@@ -555,32 +568,14 @@ class SqlSourceRepository:
             stmt = stmt.where(Source.lifecycle_state == lifecycle_state)
         if cursor is not None:
             stmt = stmt.where(Source.source_id > cursor)
-        rows = self.session.scalars(
+        rows = self.session.execute(
             stmt.order_by(Source.source_id.asc()).limit(limit + 1)
         ).all()
         has_more = len(rows) > limit
         slice_rows = rows[:limit]
-        version_ids = [r.latest_version_id for r in slice_rows if r.latest_version_id is not None]
-        versions_by_id: dict[UUID, SourceVersion] = {}
-        if version_ids:
-            for ver in self.session.scalars(
-                select(SourceVersion).where(
-                    SourceVersion.tenant_id == tenant_id,
-                    SourceVersion.version_id.in_(version_ids),
-                )
-            ).all():
-                versions_by_id[ver.version_id] = ver
-        next_cursor = str(slice_rows[-1].source_id) if has_more else None
+        next_cursor = str(slice_rows[-1][0].source_id) if has_more else None
         return Page(
-            items=tuple(
-                _source_dto(
-                    r,
-                    versions_by_id.get(r.latest_version_id)
-                    if r.latest_version_id
-                    else None,
-                )
-                for r in slice_rows
-            ),
+            items=tuple(_source_dto(source, latest) for source, latest in slice_rows),
             next_cursor=next_cursor,
         )
 

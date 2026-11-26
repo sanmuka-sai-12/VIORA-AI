@@ -109,9 +109,11 @@ def analyze_prerequisites_and_order(
 
     # Build adjacency once and run Tarjan SCC once on the full graph; iteratively resolve only cyclic SCC subgraphs.
     adj: dict[str, list[str]] = {cid: [] for cid in node_ids}
+    outgoing_edge_ids: dict[str, list[str]] = {cid: [] for cid in node_ids}
     for eid in active_edge_ids:
         rel = edges[eid]
         adj[rel.source_concept_id].append(rel.target_concept_id)
+        outgoing_edge_ids[rel.source_concept_id].append(eid)
     for adj_list in adj.values():
         adj_list.sort(key=lambda x: node_rank[x])
 
@@ -124,8 +126,9 @@ def analyze_prerequisites_and_order(
         blocked_nodes.update(scc_set)
         in_scc_edges = [
             edges[eid]
-            for eid in active_edge_ids
-            if edges[eid].source_concept_id in scc_set
+            for cid in scc
+            for eid in outgoing_edge_ids[cid]
+            if eid in active_edge_ids
             and edges[eid].target_concept_id in scc_set
         ]
         if not in_scc_edges:

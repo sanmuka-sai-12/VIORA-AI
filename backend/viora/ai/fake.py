@@ -1,3 +1,4 @@
+from time import monotonic
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -6,18 +7,22 @@ from ..contracts import TenantContext
 from .ports import AIGateway
 from .schemas import (
     AIRequestConfig,
+    AIResourceLimits,
     ChatMessage,
     CompletionResult,
     EmbeddingResult,
+    GatewayMetadata,
     StructuredResult,
     Usage,
+    validate_chat_budget,
+    validate_embedding_budget,
 )
 
 T = TypeVar("T", bound=BaseModel)
 
 
 class FakeAIGateway(AIGateway):
-    """Deterministic, zero-network AI gateway implementation for unit and contract testing."""
+    """Deterministic, zero-network AI gateway implementation for testing."""
 
     def __init__(
         self,
@@ -25,11 +30,13 @@ class FakeAIGateway(AIGateway):
         structured_payloads: dict[type[BaseModel], BaseModel] | None = None,
         embedding_dimension: int = 1536,
         model_name: str = "fake-model",
+        resource_limits: AIResourceLimits | None = None,
     ) -> None:
         self.default_completion = default_completion
         self.structured_payloads = structured_payloads or {}
         self.embedding_dimension = embedding_dimension
         self.model_name = model_name
+        self.hard_limits = resource_limits or AIResourceLimits()
         self.recorded_calls: list[dict[str, object]] = []
 
     def complete(
@@ -38,6 +45,11 @@ class FakeAIGateway(AIGateway):
         messages: list[ChatMessage],
         config: AIRequestConfig | None = None,
     ) -> CompletionResult:
+        start = monotonic()
+        cfg = config or AIRequestConfig()
+        total_len = validate_chat_budget(
+            messages, cfg, hard_limits=self.hard_limits
+        )
         self.recorded_calls.append(
             {
                 "method": "complete",
@@ -48,12 +60,11 @@ class FakeAIGateway(AIGateway):
             }
         )
         output_content = self.default_completion
-        if config and config.max_tokens is not None:
-            max_chars = config.max_tokens * 4
+        if cfg.max_tokens is not None:
+            max_chars = cfg.max_tokens * 4
             if len(output_content) > max_chars:
                 output_content = output_content[:max_chars]
 
-        total_len = sum(len(m.content) for m in messages)
         usage = Usage(
             input_tokens=total_len // 4,
             output_tokens=len(output_content) // 4,
@@ -63,6 +74,15 @@ class FakeAIGateway(AIGateway):
             content=output_content,
             model=self.model_name,
             usage=usage,
+            metadata=GatewayMetadata(
+                provider="fake",
+                latency_ms=(monotonic() - start) * 1000.0,
+                retry_count=0,
+                attempts=1,
+                simulated=True,
+                input_chars=total_len,
+                output_chars=len(output_content),
+            ),
         )
 
     def complete_structured(
@@ -72,6 +92,11 @@ class FakeAIGateway(AIGateway):
         response_model: type[T],
         config: AIRequestConfig | None = None,
     ) -> StructuredResult[T]:
+        start = monotonic()
+        cfg = config or AIRequestConfig()
+        total_len = validate_chat_budget(
+            messages, cfg, hard_limits=self.hard_limits
+        )
         self.recorded_calls.append(
             {
                 "method": "complete_structured",
@@ -86,7 +111,6 @@ class FakeAIGateway(AIGateway):
             parsed = self.structured_payloads[response_model]
             assert isinstance(parsed, response_model)
         else:
-            # Construct default schema instance using schema defaults or mock values
             schema_fields = response_model.model_fields
             mock_data: dict[str, object] = {}
             for field_name, field_info in schema_fields.items():
@@ -103,7 +127,6 @@ class FakeAIGateway(AIGateway):
             parsed = response_model.model_validate(mock_data)
 
         raw_json = parsed.model_dump_json()
-        total_len = sum(len(m.content) for m in messages)
         usage = Usage(
             input_tokens=total_len // 4,
             output_tokens=len(raw_json) // 4,
@@ -114,6 +137,15 @@ class FakeAIGateway(AIGateway):
             raw_content=raw_json,
             model=self.model_name,
             usage=usage,
+            metadata=GatewayMetadata(
+                provider="fake",
+                latency_ms=(monotonic() - start) * 1000.0,
+                retry_count=0,
+                attempts=1,
+                simulated=True,
+                input_chars=total_len,
+                output_chars=len(raw_json),
+            ),
         )
 
     def embed(
@@ -122,6 +154,11 @@ class FakeAIGateway(AIGateway):
         texts: list[str],
         config: AIRequestConfig | None = None,
     ) -> EmbeddingResult:
+        start = monotonic()
+        cfg = config or AIRequestConfig()
+        total_chars = validate_embedding_budget(
+            texts, cfg, hard_limits=self.hard_limits
+        )
         self.recorded_calls.append(
             {
                 "method": "embed",
@@ -131,7 +168,6 @@ class FakeAIGateway(AIGateway):
                 "config": config,
             }
         )
-        total_chars = sum(len(t) for t in texts)
         embeddings = [
             [0.1 * ((i + j) % 10) for j in range(self.embedding_dimension)]
             for i in range(len(texts))
@@ -145,4 +181,13 @@ class FakeAIGateway(AIGateway):
             embeddings=embeddings,
             model=self.model_name,
             usage=usage,
+            metadata=GatewayMetadata(
+                provider="fake",
+                latency_ms=(monotonic() - start) * 1000.0,
+                retry_count=0,
+                attempts=1,
+                simulated=True,
+                input_chars=total_chars,
+                output_chars=0,
+            ),
         )

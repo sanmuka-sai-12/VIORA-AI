@@ -2,29 +2,38 @@ from .fake import FakeAIGateway
 from .openai_adapter import OpenAIAdapter
 from .ports import AIGateway
 from .schemas import (
+    DEFAULT_TRUSTED_AI_HOSTS,
     AIConfigurationError,
     AIContentFilterError,
     AIError,
     AIRateLimitError,
     AIRequestConfig,
+    AIResourceLimitError,
+    AIResourceLimits,
     AIResponseFormatError,
     AITimeoutError,
     AITransientError,
     ChatMessage,
     CompletionResult,
     EmbeddingResult,
+    GatewayMetadata,
     Role,
     StructuredResult,
     Usage,
+    clamp_resource_limits,
+    validate_provider_endpoint,
 )
 
 __all__ = [
+    "DEFAULT_TRUSTED_AI_HOSTS",
     "AIConfigurationError",
     "AIContentFilterError",
     "AIError",
     "AIGateway",
     "AIRateLimitError",
     "AIRequestConfig",
+    "AIResourceLimitError",
+    "AIResourceLimits",
     "AIResponseFormatError",
     "AITimeoutError",
     "AITransientError",
@@ -32,9 +41,11 @@ __all__ = [
     "CompletionResult",
     "EmbeddingResult",
     "FakeAIGateway",
+    "GatewayMetadata",
     "OpenAIAdapter",
     "Role",
     "StructuredResult",
     "Usage",
+    "clamp_resource_limits",
+    "validate_provider_endpoint",
 ]
-

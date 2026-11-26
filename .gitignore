@@ -8,7 +8,7 @@ __pycache__/
 .ruff_cache/
 web/node_modules/
 web/dist/
-storage/
+/storage/
 *.log
 *.tsbuildinfo
 .DS_Store

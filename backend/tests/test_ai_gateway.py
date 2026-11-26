@@ -232,21 +232,45 @@ def test_openai_adapter_endpoint_security_validation() -> None:
             client=MagicMock(),
         )
 
-    # Localhost HTTP is permitted for local development/mocks
+    # Localhost HTTP requires explicit opt-in and is forbidden by default
+    with pytest.raises(AIConfigurationError, match="explicit development configuration"):
+        OpenAIAdapter(
+            api_key=SecretStr("mock-key"),
+            base_url="http://localhost:11434/v1",
+            client=MagicMock(),
+        )
+
     local_adapter = OpenAIAdapter(
         api_key=SecretStr("mock-key"),
         base_url="http://localhost:11434/v1",
+        allow_local_http=True,
         client=MagicMock(),
     )
     assert local_adapter._base_url == "http://localhost:11434/v1"
 
-    # HTTPS is permitted
+    # Arbitrary untrusted HTTPS hosts are rejected unless explicitly listed
+    with pytest.raises(AIConfigurationError, match="Untrusted AI endpoint host"):
+        OpenAIAdapter(
+            api_key=SecretStr("mock-key"),
+            base_url="https://arbitrary-external.example/v1",
+            client=MagicMock(),
+        )
+
+    # Trusted defaults and explicitly trusted institutional hosts are permitted
     secure_adapter = OpenAIAdapter(
         api_key=SecretStr("mock-key"),
         base_url="https://api.openai.com/v1",
         client=MagicMock(),
     )
     assert secure_adapter._base_url == "https://api.openai.com/v1"
+
+    custom_adapter = OpenAIAdapter(
+        api_key=SecretStr("mock-key"),
+        base_url="https://ai.campus.example/v1",
+        trusted_hosts={"ai.campus.example"},
+        client=MagicMock(),
+    )
+    assert custom_adapter._base_url == "https://ai.campus.example/v1"
 
 
 def test_openai_adapter_missing_api_key_without_client() -> None:
@@ -313,5 +337,300 @@ def test_structured_response_sanitizes_underlying_validation_cause(
 
     # __cause__ must be None so tracebacks cannot leak payload data
     assert exc_info.value.__cause__ is None
+
+
+def test_openai_adapter_backoff_jitter_and_operation_deadline(
+    dummy_context: TenantContext,
+) -> None:
+    slept: list[float] = []
+    fake_now = [100.0]
+
+    def fake_clock() -> float:
+        return fake_now[0]
+
+    def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        fake_now[0] += seconds
+
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Recovered after jittered waits"
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_response.model = "gpt-4o-mini"
+    mock_response.usage.prompt_tokens = 10
+    mock_response.usage.completion_tokens = 5
+    mock_response.usage.total_tokens = 15
+
+    mock_client.chat.completions.create.side_effect = [
+        openai.InternalServerError(message="503", response=MagicMock(), body=None),
+        openai.APIConnectionError(request=MagicMock()),
+        mock_response,
+    ]
+
+    adapter = OpenAIAdapter(
+        api_key=SecretStr("mock-key"),
+        client=mock_client,
+        clock=fake_clock,
+        sleep_fn=fake_sleep,
+        jitter_fn=lambda cap: cap * 0.5,
+    )
+    res = adapter.complete(
+        dummy_context,
+        [ChatMessage(role=Role.user, content="Recover")],
+        AIRequestConfig(
+            max_retries=3,
+            base_backoff_seconds=0.2,
+            max_backoff_seconds=0.35,
+            total_deadline_seconds=10.0,
+        ),
+    )
+
+    assert res.content == "Recovered after jittered waits"
+    assert res.metadata.retry_count == 2
+    assert res.metadata.attempts == 3
+    assert res.metadata.simulated is False
+    # Retry 0 cap = 0.2 -> half = 0.1; Retry 1 cap = min(0.35, 0.4) -> half = 0.175
+    assert slept == [pytest.approx(0.1), pytest.approx(0.175)]
+
+    # Tight total deadline rejects retry wait cleanly instead of sleeping past deadline
+    fake_now[0] = 200.0
+    slept.clear()
+    mock_client.chat.completions.create.side_effect = [
+        openai.RateLimitError(message="429", response=MagicMock(), body=None),
+        openai.RateLimitError(message="429", response=MagicMock(), body=None),
+    ]
+    tight_adapter = OpenAIAdapter(
+        api_key=SecretStr("mock-key"),
+        client=mock_client,
+        clock=fake_clock,
+        sleep_fn=fake_sleep,
+        jitter_fn=lambda cap: cap,
+    )
+    with pytest.raises(AITimeoutError, match="deadline"):
+        tight_adapter.complete(
+            dummy_context,
+            [ChatMessage(role=Role.user, content="Tight deadline")],
+            AIRequestConfig(
+                max_retries=2,
+                base_backoff_seconds=1.5,
+                total_deadline_seconds=1.0,
+            ),
+        )
+    assert slept == []
+
+
+def test_openai_adapter_endpoint_credential_and_query_rejection() -> None:
+    for bad_url in (
+        "https://user:secret@api.openai.com/v1",
+        "https://api.openai.com/v1?token=abc",
+        "https://api.openai.com/v1#frag",
+        "https:///v1",
+        "   ",
+    ):
+        with pytest.raises(AIConfigurationError):
+            OpenAIAdapter(
+                api_key=SecretStr("mock-key"),
+                base_url=bad_url,
+                client=MagicMock(),
+            )
+
+
+def test_ai_gateway_resource_limits_enforced(dummy_context: TenantContext) -> None:
+    from viora.ai.public import AIResourceLimitError, AIResourceLimits
+
+    limits = AIResourceLimits(
+        max_messages=2,
+        max_input_chars=25,
+        max_output_tokens=50,
+        max_embedding_texts=2,
+        max_embedding_chars_per_text=10,
+        max_embedding_total_chars=15,
+    )
+    cfg = AIRequestConfig(resource_limits=limits)
+    mock_client = MagicMock()
+    adapter = OpenAIAdapter(api_key=SecretStr("mock-key"), client=mock_client)
+    fake = FakeAIGateway()
+
+    for gw in (adapter, fake):
+        with pytest.raises(AIResourceLimitError):
+            gw.complete(dummy_context, [], cfg)
+        with pytest.raises(AIResourceLimitError):
+            gw.complete(
+                dummy_context,
+                [ChatMessage(role=Role.user, content="a")] * 3,
+                cfg,
+            )
+        with pytest.raises(AIResourceLimitError):
+            gw.complete(
+                dummy_context,
+                [ChatMessage(role=Role.user, content="x" * 26)],
+                cfg,
+            )
+        with pytest.raises(AIResourceLimitError):
+            gw.complete(
+                dummy_context,
+                [ChatMessage(role=Role.user, content="ok")],
+                AIRequestConfig(max_tokens=51, resource_limits=limits),
+            )
+        with pytest.raises(AIResourceLimitError):
+            gw.embed(dummy_context, ["a", "b", "c"], cfg)
+        with pytest.raises(AIResourceLimitError):
+            gw.embed(dummy_context, ["01234567890"], cfg)
+        with pytest.raises(AIResourceLimitError):
+            gw.embed(dummy_context, ["01234567", "01234567"], cfg)
+
+    mock_client.chat.completions.create.assert_not_called()
+    mock_client.embeddings.create.assert_not_called()
+
+    # Caller cannot override adapter-configured hard resource upper bounds upward
+    strict_adapter = OpenAIAdapter(
+        api_key=SecretStr("mock-key"),
+        client=mock_client,
+        resource_limits=AIResourceLimits(max_input_chars=20, max_output_tokens=16),
+    )
+    caller_override = AIRequestConfig(
+        max_tokens=32,
+        resource_limits=AIResourceLimits(max_input_chars=500_000, max_output_tokens=32_768),
+    )
+    with pytest.raises(AIResourceLimitError):
+        strict_adapter.complete(
+            dummy_context,
+            [ChatMessage(role=Role.user, content="x" * 21)],
+            caller_override,
+        )
+    with pytest.raises(AIResourceLimitError):
+        strict_adapter.complete(
+            dummy_context,
+            [ChatMessage(role=Role.user, content="ok")],
+            caller_override,
+        )
+
+    from viora.config import Settings
+
+    with pytest.raises(ValueError, match="Local insecure AI endpoints"):
+        Settings.model_validate(
+            {
+                "database_url": "postgresql+psycopg://localhost/viora_test",
+                "environment": "production",
+                "allow_local_ai_endpoint": True,
+            }
+        )
+
+
+def test_ai_gateway_malformed_responses_and_sensitive_log_redaction(
+    dummy_context: TenantContext, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO, logger="viora.ai.openai_adapter")
+
+    mock_client = MagicMock()
+    secret_prompt = "CONFIDENTIAL_STUDENT_ALICE_PROMPT"
+    secret_output = "SENSITIVE_PRIVATE_OUTPUT"
+
+    bad_choices = MagicMock()
+    bad_choices.choices = []
+    mock_client.chat.completions.create.return_value = bad_choices
+
+    adapter = OpenAIAdapter(
+        api_key=SecretStr("sk-super-secret-token-value"),
+        base_url="https://api.cloudflare.com/client/v4/accounts/acct123/ai/v1",
+        client=mock_client,
+    )
+    assert "sk-super-secret" not in repr(adapter)
+
+    with pytest.raises(AIResponseFormatError):
+        adapter.complete(
+            dummy_context,
+            [ChatMessage(role=Role.user, content=secret_prompt)],
+        )
+
+    good_choice = MagicMock()
+    good_choice.message.content = secret_output
+    good_resp = MagicMock()
+    good_resp.choices = [good_choice]
+    good_resp.model = "workers-ai"
+    good_resp.usage.prompt_tokens = 12
+    good_resp.usage.completion_tokens = 8
+    good_resp.usage.total_tokens = 0  # Test auto-sum when total omitted
+    mock_client.chat.completions.create.return_value = good_resp
+
+    ok = adapter.complete(
+        dummy_context,
+        [ChatMessage(role=Role.user, content=secret_prompt)],
+    )
+    assert ok.usage.total_tokens == 20
+
+    # Malformed embedding count rejected
+    bad_embed = MagicMock()
+    bad_embed.data = []
+    mock_client.embeddings.create.return_value = bad_embed
+    with pytest.raises(AIResponseFormatError):
+        adapter.embed(dummy_context, ["one"])
+
+    combined_logs = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert secret_prompt not in combined_logs
+    assert secret_output not in combined_logs
+    assert "sk-super-secret" not in combined_logs
+    assert "ai_request_succeeded" in combined_logs
+
+
+def test_openai_adapter_connection_pool_and_bounded_concurrency(
+    dummy_context: TenantContext,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Lock
+    from time import sleep
+
+    # Real OpenAIAdapter instance without custom client builds reusable http_client cleanly
+    with OpenAIAdapter(
+        api_key=SecretStr("mock-key"),
+        base_url="http://127.0.0.1:11434/v1",
+        allow_local_http=True,
+        max_concurrency=2,
+    ) as pooled:
+        assert pooled._http_client is not None
+    assert pooled._http_client is None
+
+    active = 0
+    max_seen = 0
+    lock = Lock()
+
+    def slow_create(**_kwargs: object) -> MagicMock:
+        nonlocal active, max_seen
+        with lock:
+            active += 1
+            max_seen = max(max_seen, active)
+        sleep(0.03)
+        with lock:
+            active -= 1
+        ch = MagicMock()
+        ch.message.content = "ok"
+        r = MagicMock()
+        r.choices = [ch]
+        r.model = "m"
+        r.usage = None
+        return r
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = slow_create
+    bounded = OpenAIAdapter(
+        api_key=SecretStr("mock-key"),
+        client=mock_client,
+        max_concurrency=2,
+    )
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(
+            pool.map(
+                lambda _: bounded.complete(
+                    dummy_context, [ChatMessage(role=Role.user, content="hi")]
+                ),
+                range(6),
+            )
+        )
+    assert len(results) == 6
+    assert max_seen <= 2
 
 

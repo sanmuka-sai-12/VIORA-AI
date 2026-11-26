@@ -45,8 +45,15 @@ class Settings(BaseModel):
     cors_origins: tuple[str, ...] = ()
     pool_size: int = Field(default=5, gt=0)
     pool_timeout: int = Field(default=5, gt=0)
+    media_storage_dir: str = Field(default="./storage", min_length=1)
     openai_api_key: SecretStr | None = None
     openai_base_url: str | None = None
+    trusted_ai_hosts: tuple[str, ...] = (
+        "api.openai.com",
+        "api.cloudflare.com",
+        "gateway.ai.cloudflare.com",
+    )
+    allow_local_ai_endpoint: bool = False
     default_ai_model: str = "gpt-4o-mini"
     default_embedding_model: str = "text-embedding-3-small"
 
@@ -80,6 +87,10 @@ class Settings(BaseModel):
             and not self.auth.cookie_secure
         ):
             raise ValueError("Production requires Secure authentication cookies")
+        if self.environment == "production" and self.allow_local_ai_endpoint:
+            raise ValueError(
+                "Local insecure AI endpoints cannot be enabled in production"
+            )
         return self
 
     @classmethod
@@ -124,8 +135,20 @@ class Settings(BaseModel):
                 ),
                 "pool_size": values.get("DB_POOL_SIZE", 5),
                 "pool_timeout": values.get("DB_POOL_TIMEOUT", 5),
+                "media_storage_dir": values.get("MEDIA_STORAGE_DIR", "./storage"),
                 "openai_api_key": values.get("OPENAI_API_KEY"),
                 "openai_base_url": values.get("OPENAI_BASE_URL"),
+                "trusted_ai_hosts": tuple(
+                    x.strip().lower()
+                    for x in (
+                        values.get("TRUSTED_AI_HOSTS")
+                        or "api.openai.com,api.cloudflare.com,gateway.ai.cloudflare.com"
+                    ).split(",")
+                    if x.strip()
+                ),
+                "allow_local_ai_endpoint": values.get(
+                    "ALLOW_LOCAL_AI_ENDPOINT", "false"
+                ),
                 "default_ai_model": values.get("DEFAULT_AI_MODEL", "gpt-4o-mini"),
                 "default_embedding_model": values.get(
                     "DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"

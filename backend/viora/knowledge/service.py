@@ -291,13 +291,12 @@ class ConceptKnowledgeService:
                     "unknown_concept_id",
                     "Review references unknown concept_id for this extraction",
                 )
-            if req.decision == "approved" and not publication_complete(
-                reviewed_graph(ext.knowledge, req.rejected_concept_ids)
-            ):
+            reviewed = reviewed_graph(ext.knowledge, req.rejected_concept_ids)
+            if req.decision == "approved" and not publication_complete(reviewed):
                 raise AccessError(
                     409, "incomplete_publication", "A complete lesson is required for approval"
                 )
-            outline = generate_lesson_outline(ext.knowledge)
+            outline = generate_lesson_outline(reviewed)
             rev, pub = repo.record_review(
                 tenant_id=tenant_id,
                 source_id=source_id,

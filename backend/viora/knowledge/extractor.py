@@ -37,6 +37,13 @@ from .schemas import (
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[^a-z0-9\s]")
+def _verbatim_claim_in_excerpt(claim: str, excerpt: str) -> bool:
+    """Match a normalized claim on token boundaries so e.g. 'sorted' never matches 'unsorted'."""
+    prefix = r"(?<![A-Za-z0-9_-])" if (claim[0].isalnum() or claim[0] in "_-") else ""
+    suffix = r"(?![A-Za-z0-9_-])" if (claim[-1].isalnum() or claim[-1] in "_-") else ""
+    return re.search(f"{prefix}{re.escape(claim)}{suffix}", excerpt) is not None
+
+
 def _claim_semantically_aligned(
     claim_texts: list[str],
     bindings: list[ConceptEvidenceBinding],
@@ -45,7 +52,8 @@ def _claim_semantically_aligned(
     excerpts = [_WHITESPACE_RE.sub(" ", b.excerpt).strip() for b in bindings if b.verified]
     claims = [_WHITESPACE_RE.sub(" ", text).strip() for text in claim_texts if text.strip()]
     return bool(claims) and all(
-        any(claim in excerpt for excerpt in excerpts) for claim in claims
+        any(_verbatim_claim_in_excerpt(claim, excerpt) for excerpt in excerpts)
+        for claim in claims
     )
 
 

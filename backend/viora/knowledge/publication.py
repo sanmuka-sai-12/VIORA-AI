@@ -24,12 +24,22 @@ def reviewed_graph(
         if concept.concept_id not in rejected
     )
     retained = {concept.concept_id for concept in concepts}
+    counts = {
+        "total_concepts": len(concepts),
+        "source_supported_count": sum(1 for c in concepts if c.grounding == "source_supported"),
+        "source_synthesized_count": sum(1 for c in concepts if c.grounding == "source_synthesized"),
+        "learning_request_count": sum(1 for c in concepts if c.grounding == "learning_request"),
+        "inferred_count": sum(1 for c in concepts if c.grounding == "inferred"),
+        "uncertain_count": sum(1 for c in concepts if c.grounding == "uncertain"),
+        "unsupported_count": sum(1 for c in concepts if c.grounding == "unsupported"),
+    }
     return graph.model_copy(update={
         "concepts": concepts,
         "relationships": tuple(
             edge for edge in graph.relationships
             if {edge.source_concept_id, edge.target_concept_id} <= retained
         ),
+        "validation": graph.validation.model_copy(update=counts),
     })
 
 

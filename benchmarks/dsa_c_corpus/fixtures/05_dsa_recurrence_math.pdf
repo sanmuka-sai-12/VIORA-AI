@@ -1,0 +1,74 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [9 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 415 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+8 beginbfchar
+<44> <0394>
+<53> <2211>
+<49> <222B>
+<52> <221A>
+<41> <2248>
+<4C> <2264>
+<47> <2265>
+<50> <2202>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode 6 0 R >>
+endobj
+8 0 obj
+<< /Length 414 >>
+stream
+BT /F2 14 Tf 1 0 0 1 54 745 Tm (Recurrence and Index Equations for C Algorithms) Tj /F1 11 Tf 1 0 0 1 54 705 Tm (Divide and Conquer: T(n) = 2*T(n/2) + n => T(n) = Theta(n log n)) Tj 1 0 0 1 54 680 Tm (Overflow-safe midpoint: mid = lo + (hi - lo) / 2) Tj 1 0 0 1 54 655 Tm (Binary heap parent: parent(i) = (i - 1) / 2 for i > 0) Tj 1 0 0 1 54 630 Tm (Open-address linear probe: pos = (hash(k) + step) mod CAP) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 7 0 R >> >> /Contents 8 0 R >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000415 00000 n 
+0000000881 00000 n 
+0000000965 00000 n 
+0000001430 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1586
+%%EOF

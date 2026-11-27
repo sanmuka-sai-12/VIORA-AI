@@ -212,11 +212,11 @@ class ExtractionWorkerHandler:
         with self.access.reauthorize(actor, "source.process", source_ref) as scope:
             repo = SqlSourceRepository(scope.session)
             src_info = repo.get_source_access(job.tenant_id, job.source_id)
-            src_summary = repo.find(job.tenant_id, job.source_id)
-            ver = repo.get_version(job.tenant_id, job.source_id, job.version_id)
-            if src_info is None or src_summary is None or ver is None:
+            ver_meta = repo.get_version_meta(job.tenant_id, job.source_id, job.version_id)
+            if src_info is None or ver_meta is None:
                 raise AccessError(404, "source_missing", "Source or version unavailable")
-            if ver.storage_ref != job.input_artifact:
+            ver_num, ver_sha, ver_fmt, ver_storage_ref = ver_meta
+            if ver_storage_ref != job.input_artifact:
                 raise AccessError(
                     409,
                     "artifact_mismatch",
@@ -229,8 +229,8 @@ class ExtractionWorkerHandler:
             )
             cache_key = build_extraction_cache_key(
                 scope_key=scope_key,
-                content_sha256=ver.content_sha256,
-                input_format=ver.input_format,
+                content_sha256=ver_sha,
+                input_format=ver_fmt,
                 config=self.cache_config,
             )
             cached_doc = SqlExtractionCache(scope.session).lookup(
@@ -250,9 +250,9 @@ class ExtractionWorkerHandler:
                 tenant_id=job.tenant_id,
                 source_id=job.source_id,
                 version_id=job.version_id,
-                source_version=ver.version_number,
-                source_sha256=ver.content_sha256,
-                title=src_summary.title,
+                source_version=ver_num,
+                source_sha256=ver_sha,
+                title=src_info.title,
                 created_at=datetime.now(UTC),
             )
             heartbeat.renew(
@@ -348,10 +348,10 @@ class ExtractionWorkerHandler:
                     tenant_id=job.tenant_id,
                     source_id=job.source_id,
                     version_id=job.version_id,
-                    source_version=ver.version_number,
-                    source_sha256=ver.content_sha256,
-                    input_format=ver.input_format,
-                    title=src_summary.title,
+                    source_version=ver_num,
+                    source_sha256=ver_sha,
+                    input_format=ver_fmt,
+                    title=src_info.title,
                     raw_bytes=raw_bytes,
                     limits=self.limits,
                     progress_callback=_progress_cb,
@@ -388,7 +388,7 @@ class ExtractionWorkerHandler:
                 tenant_id=job.tenant_id,
                 source_id=job.source_id,
                 version_id=job.version_id,
-                source_sha256=ver.content_sha256,
+                source_sha256=ver_sha,
                 document=extracted_doc,
                 processing_status=proc_status,
                 extraction_ms=extract_ms,
@@ -403,9 +403,9 @@ class ExtractionWorkerHandler:
                     tenant_id=job.tenant_id,
                     cache_key=cache_key,
                     scope_key=scope_key,
-                    content_sha256=ver.content_sha256,
+                    content_sha256=ver_sha,
                     config=self.cache_config,
-                    input_format=ver.input_format,
+                    input_format=ver_fmt,
                     source_id=job.source_id,
                     version_id=job.version_id,
                     derived_extraction_id=derived.extraction_id,
@@ -720,13 +720,6 @@ def build_worker_runner(
     store = artifact_store or local_artifact_store(
         settings.media_storage_dir, max_artifact_bytes=limits.max_bytes
     )
-    effective_ocr: OcrBackend | None = ocr_backend
-    if effective_ocr is None and settings.worker_enable_ocr:
-        candidate = RapidOcrBackend()
-        if candidate.is_available():
-            candidate.warm_up()
-            effective_ocr = candidate
-
     cpu_budget = max(1, os.cpu_count() or 2)
     effective_concurrency = max(1, min(settings.worker_concurrency, cpu_budget))
     effective_page_workers = max(
@@ -735,6 +728,12 @@ def build_worker_runner(
     intra_op_thread_budget = max(
         1, cpu_budget // max(1, effective_concurrency * effective_page_workers)
     )
+    effective_ocr: OcrBackend | None = ocr_backend
+    if effective_ocr is None and settings.worker_enable_ocr:
+        candidate = RapidOcrBackend(intra_op_threads=intra_op_thread_budget)
+        if candidate.is_available():
+            candidate.warm_up()
+            effective_ocr = candidate
     extractor = AdaptiveDocumentExtractor(
         ocr_backend=effective_ocr,
         page_workers=effective_page_workers,

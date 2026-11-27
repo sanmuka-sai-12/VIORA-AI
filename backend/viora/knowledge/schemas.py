@@ -12,8 +12,8 @@ from ..contracts import Contract, Digest, JobState
 from ..sources.public import SourceInputFormat
 
 CHUNK_ALGORITHM_VERSION = "struct_chunk:1.0"
-PROMPT_VERSION = "concept_prompt:1.1"
-CONCEPT_SCHEMA_VERSION = "1.0"
+PROMPT_VERSION = "concept_prompt:1.2"
+CONCEPT_SCHEMA_VERSION = "1.1"
 
 ChunkingMode = Literal["single_pass", "hierarchical"]
 
@@ -105,7 +105,9 @@ class AdaptiveChunkPlan(Contract):
 
 
 class RawConceptCandidate(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", json_schema_extra={
+        "required": ["name", "canonical_summary", "grounding", "evidence_ids"],
+    })
 
     name: str = Field(min_length=1, max_length=160)
     canonical_summary: str = Field(min_length=1, max_length=600)
@@ -120,10 +122,12 @@ class RawConceptCandidate(BaseModel):
 
 
 class RawRelationshipCandidate(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", json_schema_extra={
+        "required": ["source_concept", "relation_type", "target_concept", "grounding", "evidence_ids"],
+    })
 
     source_concept: str = Field(min_length=1, max_length=160)
-    relation_type: RelationshipType = "part_of"
+    relation_type: RelationshipType | None = None
     target_concept: str = Field(min_length=1, max_length=160)
     grounding: RawGroundingLabel = "uncertain"
     evidence_ids: list[str] = Field(default_factory=list, max_length=16)
@@ -231,6 +235,9 @@ class KnowledgeValidationReport(Contract):
     invalid_evidence_refs_rejected: int = Field(ge=0)
     duplicate_merges_count: int = Field(ge=0)
     ambiguous_senses_retained: int = Field(ge=0)
+    structural_validity: Literal["valid", "unknown"] = "unknown"
+    required_fields_complete: bool | None = None
+    semantic_support: Literal["not_verified"] = "not_verified"
     requires_teacher_review: bool = True
     validation_notes: tuple[str, ...] = ()
 
@@ -461,3 +468,104 @@ class PublishedLessonPackage(Contract):
     published_at: datetime
     knowledge: ExtractedKnowledgeGraph
     outline: StructuredLessonOutline
+
+
+INDEX_ALGORITHM_VERSION = "hybrid_index:1.0"
+RETRIEVAL_ALGORITHM_VERSION = "hybrid_graph_rrf:1.0"
+RetrievalMode = Literal["lexical", "semantic", "hybrid", "hybrid_graph"]
+
+
+class KnowledgeIndexTriggerRequest(Contract):
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class KnowledgeIndexTriggerResult(Contract):
+    job_id: UUID
+    job_state: JobState
+    derived_extraction_id: UUID
+    concept_extraction_id: UUID | None = None
+    index_version: int | None = None
+    idempotent_replay: bool = False
+
+
+class KnowledgeIndexStatus(Contract):
+    tenant_id: UUID
+    source_id: UUID
+    version_id: UUID
+    indexed: bool
+    index_version: int | None = None
+    derived_extraction_id: UUID | None = None
+    concept_extraction_id: UUID | None = None
+    chunk_count: int = Field(ge=0, default=0)
+    embedding_model: str | None = None
+    embedding_model_version: str | None = None
+    chunk_algorithm_version: str | None = None
+    updated_at: datetime | None = None
+
+
+class KnowledgeRetrieveRequest(Contract):
+    query: str = Field(min_length=2, max_length=1000)
+    offering_id: UUID | None = None
+    mode: RetrievalMode = "hybrid_graph"
+    top_k: int = Field(default=5, ge=1, le=20)
+    candidate_k: int = Field(default=20, ge=1, le=50)
+    max_context_tokens: int = Field(default=1800, ge=128, le=6000)
+    include_student_submissions: bool = True
+    published_only: bool = False
+    max_graph_hops: int = Field(default=2, ge=1, le=2)
+
+
+class RetrievedEvidenceChunk(Contract):
+    chunk_record_id: UUID
+    source_id: UUID
+    version_id: UUID
+    derived_extraction_id: UUID
+    concept_extraction_id: UUID | None = None
+    index_version: int = Field(ge=1)
+    chunk_id: str
+    chunk_index: int = Field(ge=0)
+    section_id: str
+    section_path: tuple[str, ...] = ()
+    heading_title: str | None = None
+    page_start: int = Field(ge=1)
+    page_end: int = Field(ge=1)
+    evidence_ids: tuple[str, ...] = ()
+    origin_kind: str
+    visibility: str
+    rendered_text: str
+    parent_context: str | None = None
+    lexical_score: float = 0.0
+    semantic_score: float = 0.0
+    rrf_score: float = 0.0
+    estimated_tokens: int = Field(ge=1)
+
+
+class GraphEnrichmentConcept(Contract):
+    concept_id: str
+    name: str
+    sense_label: str | None = None
+    grounding: GroundingClassification
+    canonical_summary: str
+    definitions: tuple[str, ...] = ()
+    prerequisites: tuple[str, ...] = ()
+    relation_paths: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+    hop_distance: int = Field(ge=0, le=2)
+
+
+class KnowledgeRetrievalResult(Contract):
+    algorithm_version: str = RETRIEVAL_ALGORITHM_VERSION
+    mode: RetrievalMode
+    query: str
+    embedding_model: str
+    embedding_model_version: str
+    chunks: tuple[RetrievedEvidenceChunk, ...] = ()
+    graph_concepts: tuple[GraphEnrichmentConcept, ...] = ()
+    context_text: str = ""
+    context_tokens: int = Field(ge=0)
+    duplicate_chunks_removed: int = Field(ge=0)
+    cycles_avoided: int = Field(ge=0)
+    hops_traversed: int = Field(ge=0)
+    lexical_candidates: int = Field(ge=0)
+    semantic_candidates: int = Field(ge=0)
+    retrieval_ms: float = Field(ge=0.0)

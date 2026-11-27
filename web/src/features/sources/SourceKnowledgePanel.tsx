@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
-  normalizeApiError,
   type ConceptExtractionRecord,
   type DerivedExtractionRecord,
   type KnowledgePublicationState,
   type KnowledgeReviewRecord,
-  type NormalizedApiError,
   type OfferingSourcePolicyInfo,
   type PublishedLessonPackage,
   type SourceSummary,
@@ -21,6 +19,7 @@ import {
   SectionCard,
   StatusBadge,
 } from "../../components/common/UiPrimitives";
+import { useActionFeedback, type ApiResultLike } from "../common/useActionFeedback";
 import {
   canOwnerStudentProcess,
   canTeacherManageSource,
@@ -44,6 +43,7 @@ export function SourceKnowledgePanel({
 }) {
   const { snapshot: auth, apiClient, controller: authController } = useAuth();
   const actorUserId = auth.user?.user_id;
+  const { setActionError, setActionSuccess, clearFeedback, runApiAction, alerts } = useActionFeedback();
 
   const [versions, setVersions] = useState<SourceVersionSummary[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState(source.latest_version_id ?? "");
@@ -54,9 +54,7 @@ export function SourceKnowledgePanel({
   const [reviews, setReviews] = useState<KnowledgeReviewRecord[]>([]);
   const [studentPkg, setStudentPkg] = useState<PublishedLessonPackage | null>(null);
   const [loading, setLoading] = useState(false);
-  const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [error, setError] = useState<NormalizedApiError | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const [decision, setDecision] = useState<"approved" | "changes_requested" | "rejected">("approved");
   const [reviewNotes, setReviewNotes] = useState("");
@@ -74,56 +72,27 @@ export function SourceKnowledgePanel({
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    clearFeedback();
+    const freshGet = <T,>(call: () => Promise<ApiResultLike<T>>) => authController.runWithFreshToken(call);
+    const sourcePath = { tenant_id: tenantId, source_id: source.source_id };
     try {
       const [verRes, jobRes] = await Promise.all([
-        authController.runWithFreshToken(() =>
-          apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions", {
-            params: { path: { tenant_id: tenantId, source_id: source.source_id } },
-          }),
-        ),
-        authController.runWithFreshToken(() =>
-          apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/jobs", {
-            params: { path: { tenant_id: tenantId, source_id: source.source_id } },
-          }),
-        ),
+        freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions", { params: { path: sourcePath } })),
+        freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/jobs", { params: { path: sourcePath } })),
       ]);
-      if (verRes.data) {
-        setVersions(verRes.data.items);
-      }
-      if (jobRes.data) {
-        setJobs(jobRes.data.items);
-      }
+      if (verRes.data) setVersions(verRes.data.items);
+      if (jobRes.data) setJobs(jobRes.data.items);
 
       const verId = selectedVersionId;
       if (!verId) return;
+      const versionPath = { ...sourcePath, version_id: verId };
 
       if (canInspectDraft) {
         const [extRes, conRes, outRes, revRes] = await Promise.all([
-          authController.runWithFreshToken(() =>
-            apiClient.GET(
-              "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extraction",
-              { params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: verId } } },
-            ),
-          ),
-          authController.runWithFreshToken(() =>
-            apiClient.GET(
-              "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts",
-              { params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: verId } } },
-            ),
-          ),
-          authController.runWithFreshToken(() =>
-            apiClient.GET(
-              "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/outline",
-              { params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: verId } } },
-            ),
-          ),
-          authController.runWithFreshToken(() =>
-            apiClient.GET(
-              "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/reviews",
-              { params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: verId } } },
-            ),
-          ),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extraction", { params: { path: versionPath } })),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts", { params: { path: versionPath } })),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/outline", { params: { path: versionPath } })),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/reviews", { params: { path: versionPath } })),
         ]);
         setDerived(extRes.data ?? null);
         setConcepts(conRes.data ?? null);
@@ -131,11 +100,8 @@ export function SourceKnowledgePanel({
         setReviews(revRes.data?.items ?? []);
         setStudentPkg(null);
       } else {
-        const pubRes = await authController.runWithFreshToken(() =>
-          apiClient.GET(
-            "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/published",
-            { params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: verId } } },
-          ),
+        const pubRes = await freshGet(() =>
+          apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/published", { params: { path: versionPath } }),
         );
         setStudentPkg(pubRes.data ?? null);
         setDerived(null);
@@ -144,39 +110,32 @@ export function SourceKnowledgePanel({
         setReviews([]);
       }
     } catch {
-      setError({ status: 0, code: "network_error", message: "Failed to load resource details." });
+      setActionError({ status: 0, code: "network_error", message: "Failed to load resource details." });
     } finally {
       setLoading(false);
     }
-  }, [apiClient, authController, canInspectDraft, selectedVersionId, source.source_id, tenantId]);
+  }, [apiClient, authController, canInspectDraft, clearFeedback, selectedVersionId, setActionError, source.source_id, tenantId]);
 
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
 
-  const runAction = async (
+  const runAction = (
     label: string,
-    fn: () => Promise<{ data?: unknown; error?: unknown; response: Response }>,
+    call: () => Promise<ApiResultLike<unknown>>,
     successMsg: string,
     refreshSourceList = false,
   ) => {
-    setBusyAction(label);
-    setError(null);
-    setNotice(null);
-    try {
-      const res = await authController.runWithFreshToken(fn);
-      if (res.data !== undefined) {
-        setNotice(successMsg);
+    void runApiAction({
+      call,
+      fallbackError: `${label} failed.`,
+      setBusy,
+      onSuccess: () => {
+        setActionSuccess(successMsg);
         if (refreshSourceList) onSourceUpdated();
-        await loadWorkspace();
-      } else {
-        setError(normalizeApiError(res.error, res.response.status, `${label} failed.`));
-      }
-    } catch {
-      setError({ status: 0, code: "network_error", message: `${label} request failed.` });
-    } finally {
-      setBusyAction(null);
-    }
+        void loadWorkspace();
+      },
+    });
   };
 
   const handleReviewSubmit = (e: FormEvent) => {
@@ -239,7 +198,7 @@ export function SourceKnowledgePanel({
               <button
                 type="button"
                 className="viora-btn viora-btn-sm"
-                disabled={busyAction !== null}
+                disabled={busy}
                 onClick={() =>
                   void runAction(
                     "Queue document extraction",
@@ -257,7 +216,7 @@ export function SourceKnowledgePanel({
               <button
                 type="button"
                 className="viora-btn viora-btn-sm viora-btn-primary"
-                disabled={busyAction !== null || !derived}
+                disabled={busy || !derived}
                 onClick={() =>
                   void runAction(
                     "Queue concept extraction",
@@ -279,7 +238,7 @@ export function SourceKnowledgePanel({
               <button
                 type="button"
                 className="viora-btn viora-btn-sm"
-                disabled={busyAction !== null || source.lifecycle_state !== "active"}
+                disabled={busy || source.lifecycle_state !== "active"}
                 onClick={() =>
                   void runAction(
                     "Update visibility",
@@ -303,7 +262,7 @@ export function SourceKnowledgePanel({
               <button
                 type="button"
                 className="viora-btn viora-btn-sm"
-                disabled={busyAction !== null}
+                disabled={busy}
                 onClick={() =>
                   void runAction(
                     "Update lifecycle",
@@ -327,8 +286,7 @@ export function SourceKnowledgePanel({
       }
     >
       <div className="viora-stack">
-        <AlertBanner tone="error" error={error} onDismiss={() => setError(null)} />
-        <AlertBanner tone="success" message={notice ?? undefined} onDismiss={() => setNotice(null)} />
+        {alerts}
         {loading && <LoadingSpinner message="Loading extraction, jobs, and knowledge state..." />}
 
         <DataTable
@@ -513,13 +471,13 @@ export function SourceKnowledgePanel({
                 </label>
               )}
               <div className="viora-row">
-                <button type="submit" className="viora-btn viora-btn-primary" disabled={busyAction !== null}>
+                <button type="submit" className="viora-btn viora-btn-primary" disabled={busy}>
                   Submit Review (v{concepts.concept_version})
                 </button>
                 <button
                   type="button"
                   className="viora-btn"
-                  disabled={busyAction !== null || (!pubState.published_to_students && !pubState.teacher_approved)}
+                  disabled={busy || (!pubState.published_to_students && !pubState.teacher_approved)}
                   onClick={() =>
                     void runAction(
                       pubState.published_to_students ? "Unpublish" : "Publish",

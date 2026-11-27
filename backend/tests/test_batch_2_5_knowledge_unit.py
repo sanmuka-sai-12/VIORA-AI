@@ -221,6 +221,7 @@ def test_cloudflare_provider_validation_shortlist_and_mock_transport(
 def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request() -> None:
     _, md_derived = _load_corpus_doc("01_markdown_notes")
     valid_eid = md_derived.document.evidence_references[0].evidence_id
+    velocity_eid = md_derived.document.evidence_references[1].evidence_id
 
     # Inject prompt-injection text inside source content and verify untrusted tag isolation
     chunk = chunk_extracted_document(md_derived.document).chunks[0]
@@ -249,12 +250,12 @@ def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request()
                 concepts=[
                     RawConceptCandidate(
                         name="Velocity",
-                        canonical_summary="Vector rate of displacement change.",
-                        definition="v = dx / dt",
+                        canonical_summary="Average velocity equals displacement divided by elapsed time.",
+                        definition="Kinematics describes motion without reference to forces.",
                         grounding="source_explicit",
-                        evidence_ids=[valid_eid],
-                        examples=["A car moves 20m East in 2s -> 10 m/s."],
-                        learning_objectives=["Compute average velocity from displacement and time."],
+                        evidence_ids=[velocity_eid],
+                        examples=["Average velocity equals displacement divided by elapsed time."],
+                        learning_objectives=["Kinematics describes motion without reference to forces."],
                         prerequisites=["Displacement"],
                     ),
                     RawConceptCandidate(
@@ -280,9 +281,9 @@ def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request()
                 concepts=[
                     RawConceptCandidate(
                         name="velocity",
-                        canonical_summary="Vector rate of displacement change.",
+                        canonical_summary="Average velocity equals displacement divided by elapsed time.",
                         grounding="source_explicit",
-                        evidence_ids=[valid_eid],
+                        evidence_ids=[velocity_eid],
                     ),
                     RawConceptCandidate(
                         name="Work",
@@ -321,6 +322,30 @@ def test_concept_extractor_grounding_consolidation_ambiguity_and_topic_request()
     assert kg.validation.invalid_evidence_refs_rejected >= 1
     # Hallucinated evidence ID turned physics "Work" into unsupported + needs_review=True
     assert any(w.grounding == "unsupported" and w.needs_review for w in work)
+
+    # Valid evidence ID with semantically unrelated claim MUST NOT become source_supported
+    mismatch_gw = _ScriptedGateway(
+        [
+            RawConceptExtractionBatch(
+                section_summary="Hallucinated claim on valid ev id",
+                concepts=[
+                    RawConceptCandidate(
+                        name="Cellular Mitosis",
+                        canonical_summary="Eukaryotic nuclear chromosome division phase.",
+                        grounding="source_explicit",
+                        evidence_ids=[valid_eid],
+                    )
+                ],
+            )
+        ]
+    )
+    mismatch_kg = ConceptExtractor(mismatch_gw).extract_concepts(
+        context=ctx, derived=md_derived, force_mode="single_pass"
+    ).knowledge
+    assert mismatch_kg.concepts[0].grounding == "uncertain"
+    assert mismatch_kg.concepts[0].needs_review is True
+    assert mismatch_kg.validation.source_supported_count == 0
+    assert mismatch_kg.validation.uncertain_count == 1
 
     # Topic description input_format -> strictly learning_request, NEVER factual proof
     topic_doc = AdaptiveDocumentExtractor().extract(
@@ -605,6 +630,29 @@ def test_prerequisite_dag_cycle_detection_and_structured_lesson_outline() -> Non
     assert outline.modules[-1].steps[0].concept_name == "Acceleration"
     assert outline.estimated_total_minutes > 0
 
+    from viora.knowledge.publication import publication_complete, reviewed_graph
+
+    velocity = next(c for c in kg.concepts if c.name == "Velocity")
+    filtered = reviewed_graph(kg, (velocity.concept_id,))
+    assert {c.name for c in filtered.concepts} == {"Displacement", "Acceleration"}
+    assert filtered.relationships == ()
+    assert all(not c.prerequisites for c in filtered.concepts)
+    assert {
+        step.concept_name
+        for module in generate_lesson_outline(filtered).modules
+        for step in module.steps
+    } == {"Displacement", "Acceleration"}
+    assert not publication_complete(
+        reviewed_graph(kg, tuple(c.concept_id for c in kg.concepts))
+    )
+    for completeness, allowed in ((False, False), (None, True), (True, True)):
+        graph = kg.model_copy(update={
+            "validation": kg.validation.model_copy(
+                update={"required_fields_complete": completeness}
+            )
+        })
+        assert publication_complete(graph) is allowed
+
 
 def test_concept_extractor_counts_schema_overhead_in_json_schema_mode() -> None:
     from viora.ai.public import AIRequestConfig, AIResourceLimitError, AIResourceLimits
@@ -622,4 +670,54 @@ def test_concept_extractor_counts_schema_overhead_in_json_schema_mode() -> None:
             context=ctx, derived=md_derived, force_mode="single_pass"
         )
     assert PROMPT_VERSION != "concept_prompt:1.0"
+
+
+def test_semantic_screening_flags_contradictions_and_generic_false_positives() -> None:
+    from viora.knowledge.extractor import _claim_semantically_aligned
+    from viora.knowledge.schemas import ConceptEvidenceBinding
+
+    sid, vid, eid = uuid4(), uuid4(), uuid4()
+    b = ConceptEvidenceBinding(
+        evidence_id="ev-1",
+        source_id=sid,
+        version_id=vid,
+        source_sha256="a" * 64,
+        extraction_id=eid,
+        page_number=1,
+        section_id="sec-1",
+        verified=True,
+        excerpt="A binary search requires a sorted array and runs in logarithmic time.",
+    )
+    # 1. Generic boilerplate overlap + single weak word must not pass a long mismatched claim
+    assert (
+        _claim_semantically_aligned(
+            ["Hash Tables", "A concept method value using buckets for collision chaining."],
+            [b],
+        )
+        is False
+    )
+    # 2. Negation / antonym contradiction despite high keyword overlap must be flagged
+    assert (
+        _claim_semantically_aligned(
+            ["Binary Search", "Binary search does not require a sorted array and works on unsorted data."],
+            [b],
+        )
+        is False
+    )
+    # 3. Unverified paraphrase must not be treated as verbatim provenance
+    assert (
+        _claim_semantically_aligned(
+            ["Binary Search", "Binary search operates on a sorted array in logarithmic time."],
+            [b],
+        )
+        is False
+    )
+    # 4. Genuine verbatim excerpt claims pass provenance check (still requires teacher review)
+    assert (
+        _claim_semantically_aligned(
+            ["A binary search requires a sorted array", "runs in logarithmic time."],
+            [b],
+        )
+        is True
+    )
 

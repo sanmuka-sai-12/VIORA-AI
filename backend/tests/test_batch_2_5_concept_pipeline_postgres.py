@@ -120,25 +120,41 @@ class _DeterministicConceptGateway(FakeAIGateway):
                 else:
                     break
         is_topic = "<untrusted_topic_request>" in user_txt
+        ev_text_by_id: dict[str, str] = {}
+        if "<untrusted_source_data>" in user_txt:
+            body = user_txt.split("<untrusted_source_data>", 1)[1].split("</untrusted_source_data>", 1)[0]
+            for raw_ln in body.splitlines():
+                ln = raw_ln.strip()
+                if "[ev:" not in ln or not ln.endswith("]"):
+                    continue
+                pos = ln.rfind("[ev:")
+                txt = ln[:pos].strip().lstrip("#").strip()
+                if not txt:
+                    continue
+                for eid in ln[pos + 4 : -1].split(","):
+                    clean_eid = eid.strip()
+                    if clean_eid and clean_eid not in ev_text_by_id:
+                        ev_text_by_id[clean_eid] = txt
         cited = ev_ids[:1]
+        snippet = ev_text_by_id.get(cited[0], "") if cited else ""
+        second_ev = ev_ids[1:2] or cited
+        second_snippet = ev_text_by_id.get(second_ev[0], "") if second_ev else ""
         batch = RawConceptExtractionBatch(
             section_summary="Grounded educational summary",
             concepts=[
                 RawConceptCandidate(
                     name="Core Concept A",
-                    canonical_summary="Primary extracted concept.",
-                    definition="Defined cleanly from extracted text.",
+                    canonical_summary=snippet or "Primary extracted concept.",
+                    definition=snippet or "Defined cleanly from extracted text.",
                     grounding="learning_request" if is_topic else "source_explicit",
                     evidence_ids=cited,
-                    examples=["Representative classroom example."],
-                    learning_objectives=["Explain Core Concept A with precision."],
                     prerequisites=["Foundational Concept"],
                 ),
                 RawConceptCandidate(
                     name="Foundational Concept",
-                    canonical_summary="Supporting prerequisite.",
+                    canonical_summary=second_snippet or "Supporting prerequisite.",
                     grounding="learning_request" if is_topic else "source_synthesized",
-                    evidence_ids=ev_ids[1:2] or cited,
+                    evidence_ids=second_ev,
                 ),
             ],
             relationships=[
@@ -750,5 +766,214 @@ def test_end_to_end_concept_extraction_caching_auth_and_recovery(env: KnowledgeE
             j_rev = client.get(f"/api/v1/tenants/{a.tenant}/jobs/{fence_j}", headers=_hdr(a.teacher_token))
             assert j_rev.status_code == 403
             _ = StaleWorkerFenceError
+    finally:
+        runner.close()
+
+
+def test_incomplete_and_rejected_concept_publication_filtering_postgres(
+    env: KnowledgeEnv,
+) -> None:
+    a = env.a
+
+    class _BatchGateway(FakeAIGateway):
+        def __init__(self) -> None:
+            super().__init__(model_name="@cf/meta/llama-3.1-8b-instruct-fast")
+            self.mode: str = "incomplete"
+
+        def complete_structured(
+            self,
+            context: TenantContext,
+            messages: list[ChatMessage],
+            response_model,
+            config: AIRequestConfig | None = None,
+        ):
+            user_txt = messages[-1].content
+            pos = user_txt.find("[ev:")
+            end = user_txt.find("]", pos) if pos != -1 else -1
+            ev_id = user_txt[pos + 4 : end].split(",")[0].strip() if end != -1 else "ev-1"
+            if self.mode == "incomplete":
+                batch = RawConceptExtractionBatch(
+                    section_summary="Incomplete draft",
+                    concepts=[
+                        RawConceptCandidate(
+                            name="Draft Concept",
+                            canonical_summary="Requires a sorted array.",
+                        )
+                    ],
+                )
+            else:
+                batch = RawConceptExtractionBatch(
+                    section_summary="Filtered publication verification",
+                    concepts=[
+                        RawConceptCandidate(
+                            name="Sorted Search",
+                            canonical_summary="Binary search requires a sorted array.",
+                            grounding="source_explicit",
+                            evidence_ids=[ev_id],
+                        ),
+                        RawConceptCandidate(
+                            name="Unsupported Speculation",
+                            canonical_summary="Speculative unverified concept.",
+                            grounding="source_explicit",
+                            evidence_ids=["ev-missing"],
+                        ),
+                    ],
+                    relationships=[
+                        RawRelationshipCandidate(
+                            source_concept="Sorted Search",
+                            relation_type="prerequisite_of",
+                            target_concept="Unsupported Speculation",
+                            grounding="source_explicit",
+                            evidence_ids=[ev_id],
+                        )
+                    ],
+                )
+            self.structured_payloads[response_model] = batch
+            return super().complete_structured(context, messages, response_model, config)
+
+    gw = _BatchGateway()
+    runner = build_worker_runner(env.settings, db=env.app_db, ai_gateway=gw)
+    try:
+        with TestClient(create_app(env.settings, env.app_db)) as client:
+            # 1. Incomplete draft cannot be approved or published
+            inc_src = client.post(
+                f"/api/v1/tenants/{a.tenant}/offerings/{a.offering}/sources",
+                headers=_hdr(a.teacher_token),
+                json={
+                    "title": "Incomplete Concept Test",
+                    "input_format": "typed_notes",
+                    "content": "Requires a sorted array.\n",
+                    "visibility": "offering_published",
+                },
+            ).json()
+            sid1, vid1 = inc_src["source"]["source_id"], inc_src["version"]["version_id"]
+            assert (
+                client.post(
+                    f"/api/v1/tenants/{a.tenant}/sources/{sid1}/versions/{vid1}/concepts/extract",
+                    headers=_hdr(a.teacher_token),
+                ).status_code
+                == 202
+            )
+            assert runner.drain()["succeeded"] == 1
+            inc_ext = client.get(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid1}/versions/{vid1}/concepts",
+                headers=_hdr(a.teacher_token),
+            ).json()
+            assert inc_ext["knowledge"]["validation"]["required_fields_complete"] is False
+
+            rev_inc = client.post(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid1}/versions/{vid1}/concepts/review",
+                headers=_hdr(a.teacher_token),
+                json={
+                    "concept_extraction_id": inc_ext["concept_extraction_id"],
+                    "decision": "approved",
+                },
+            )
+            assert rev_inc.status_code == 409
+            assert rev_inc.json()["code"] == "incomplete_publication"
+
+            pub_inc = client.post(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid1}/versions/{vid1}/concepts/publish",
+                headers=_hdr(a.teacher_token),
+                json={"concept_extraction_id": inc_ext["concept_extraction_id"], "publish": True},
+            )
+            assert pub_inc.status_code == 409
+
+            # 2. Mixed verified + unsupported extraction: reject unsupported -> filtered stats & outline consistent
+            gw.mode = "mixed"
+            mix_src_resp = client.post(
+                f"/api/v1/tenants/{a.tenant}/offerings/{a.offering}/sources",
+                headers=_hdr(a.teacher_token),
+                json={
+                    "title": "Filtered Stats Test",
+                    "input_format": "typed_notes",
+                    "content": "Binary search requires a sorted array.\n",
+                    "visibility": "offering_published",
+                },
+            )
+            assert mix_src_resp.status_code in (200, 201), mix_src_resp.text
+            mix_src = mix_src_resp.json()
+            sid2, vid2 = mix_src["source"]["source_id"], mix_src["version"]["version_id"]
+            assert (
+                client.post(
+                    f"/api/v1/tenants/{a.tenant}/sources/{sid2}/versions/{vid2}/concepts/extract",
+                    headers=_hdr(a.teacher_token),
+                ).status_code
+                == 202
+            )
+            assert runner.drain()["succeeded"] == 1
+            mix_ext = client.get(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid2}/versions/{vid2}/concepts",
+                headers=_hdr(a.teacher_token),
+            ).json()
+            mix_ext_id = mix_ext["concept_extraction_id"]
+            assert mix_ext["knowledge"]["validation"]["total_concepts"] == 2
+            assert mix_ext["knowledge"]["validation"]["unsupported_count"] == 1
+
+            c_ok = next(c["concept_id"] for c in mix_ext["knowledge"]["concepts"] if c["name"] == "Sorted Search")
+            c_bad = next(c["concept_id"] for c in mix_ext["knowledge"]["concepts"] if c["name"] == "Unsupported Speculation")
+
+            # Rejecting every concept fails with 409 incomplete_publication
+            rev_empty = client.post(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid2}/versions/{vid2}/concepts/review",
+                headers=_hdr(a.teacher_token),
+                json={
+                    "concept_extraction_id": mix_ext_id,
+                    "decision": "approved",
+                    "rejected_concept_ids": [c_ok, c_bad],
+                },
+            )
+            assert rev_empty.status_code == 409
+            assert rev_empty.json()["code"] == "incomplete_publication"
+
+            # Approving only c_ok while rejecting c_bad updates publication & outline stats
+            rev_ok = client.post(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid2}/versions/{vid2}/concepts/review",
+                headers=_hdr(a.teacher_token),
+                json={
+                    "concept_extraction_id": mix_ext_id,
+                    "decision": "approved",
+                    "approved_concept_ids": [c_ok],
+                    "rejected_concept_ids": [c_bad],
+                },
+            )
+            assert rev_ok.status_code == 200
+            pub_state = rev_ok.json()
+            assert pub_state["teacher_approved"] is True
+            assert pub_state["all_evidence_verified"] is True
+            assert pub_state["outline"]["all_evidence_verified"] is True
+            assert pub_state["outline"]["supported_steps_count"] == 1
+            assert pub_state["outline"]["review_required_steps_count"] == 0
+            assert [
+                step["concept_id"]
+                for mod in pub_state["outline"]["modules"]
+                for step in mod["steps"]
+            ] == [c_ok]
+
+            pub_ok = client.post(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid2}/versions/{vid2}/concepts/publish",
+                headers=_hdr(a.teacher_token),
+                json={"concept_extraction_id": mix_ext_id, "publish": True},
+            )
+            assert pub_ok.status_code == 200
+            assert pub_ok.json()["published_to_students"] is True
+            assert pub_ok.json()["all_evidence_verified"] is True
+
+            student_res = client.get(
+                f"/api/v1/tenants/{a.tenant}/sources/{sid2}/versions/{vid2}/concepts/published",
+                headers=_hdr(a.student_token),
+            )
+            assert student_res.status_code == 200
+            pkg = student_res.json()
+            assert pkg["all_evidence_verified"] is True
+            assert [c["concept_id"] for c in pkg["knowledge"]["concepts"]] == [c_ok]
+            assert pkg["knowledge"]["relationships"] == []
+            assert pkg["knowledge"]["validation"]["total_concepts"] == 1
+            assert pkg["knowledge"]["validation"]["source_supported_count"] == 1
+            assert pkg["knowledge"]["validation"]["unsupported_count"] == 0
+            assert pkg["knowledge"]["validation"]["uncertain_count"] == 0
+            assert pkg["outline"]["all_evidence_verified"] is True
+            assert pkg["outline"]["supported_steps_count"] == 1
+            assert pkg["outline"]["review_required_steps_count"] == 0
     finally:
         runner.close()

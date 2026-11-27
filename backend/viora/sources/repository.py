@@ -4,8 +4,9 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..contracts import ArtifactVersionRef, JobState, Page
 from ..security import AccessError
@@ -256,6 +257,8 @@ class SqlSourceRepository:
             origin_kind=row.origin_kind,
             visibility=row.visibility,
             lifecycle_state=row.lifecycle_state,
+            title=row.title,
+            latest_version_number=row.latest_version_number,
         )
 
     def _latest_derived_for_version(
@@ -271,11 +274,70 @@ class SqlSourceRepository:
             .limit(1)
         )
 
+    def _latest_derived_for_versions(
+        self, tenant_id: UUID, version_ids: list[UUID]
+    ) -> dict[UUID, DerivedExtraction]:
+        if not version_ids:
+            return {}
+        rows = self.session.scalars(
+            select(DerivedExtraction)
+            .ext(distinct_on(DerivedExtraction.version_id))
+            .where(
+                DerivedExtraction.tenant_id == tenant_id,
+                DerivedExtraction.version_id.in_(version_ids),
+            )
+            .order_by(
+                DerivedExtraction.version_id,
+                DerivedExtraction.extraction_version.desc(),
+            )
+        ).all()
+        return {row.version_id: row for row in rows}
+
     def _latest_job_for_version(
         self, tenant_id: UUID, version_id: UUID
     ) -> WorkflowJobSummary | None:
         return SqlWorkflowRepository(self.session).get_latest_job_for_version(
             tenant_id, version_id
+        )
+
+    def _latest_jobs_for_versions(
+        self, tenant_id: UUID, version_ids: list[UUID]
+    ) -> dict[UUID, WorkflowJobSummary]:
+        return SqlWorkflowRepository(self.session).get_latest_jobs_for_versions(
+            tenant_id, version_ids
+        )
+
+    def get_version_meta(
+        self, tenant_id: UUID, source_id: UUID, version_id: UUID
+    ) -> tuple[int, str, SourceInputFormat, ArtifactVersionRef] | None:
+        row = self.session.execute(
+            select(
+                SourceVersion.version_number,
+                SourceVersion.content_sha256,
+                SourceVersion.input_format,
+                SourceVersion.storage_kind,
+                SourceVersion.storage_resource_id,
+                SourceVersion.storage_version_id,
+                SourceVersion.storage_sha256,
+            ).where(
+                SourceVersion.tenant_id == tenant_id,
+                SourceVersion.source_id == source_id,
+                SourceVersion.version_id == version_id,
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return (
+            row.version_number,
+            row.content_sha256,
+            row.input_format,  # type: ignore[return-value]
+            ArtifactVersionRef(
+                tenant_id=tenant_id,
+                kind=row.storage_kind,
+                resource_id=row.storage_resource_id,
+                version_id=row.storage_version_id,
+                sha256=row.storage_sha256,
+            ),
         )
 
     def get_version(
@@ -423,13 +485,16 @@ class SqlSourceRepository:
         ).all()
         has_more = len(rows) > limit
         slice_rows = rows[:limit]
+        version_ids = [item.version_id for item in slice_rows]
+        derived_by_ver = self._latest_derived_for_versions(tenant_id, version_ids)
+        jobs_by_ver = self._latest_jobs_for_versions(tenant_id, version_ids)
         next_cursor = str(slice_rows[-1].version_number) if has_more else None
         return Page(
             items=tuple(
                 _version_summary_dto(
                     item,
-                    derived=self._latest_derived_for_version(tenant_id, item.version_id),
-                    latest_job=self._latest_job_for_version(tenant_id, item.version_id),
+                    derived=derived_by_ver.get(item.version_id),
+                    latest_job=jobs_by_ver.get(item.version_id),
                 )
                 for item in slice_rows
             ),
@@ -478,7 +543,20 @@ class SqlSourceRepository:
         if not access_clauses:
             return Page(items=(), next_cursor=None)
 
-        stmt = select(Source).where(
+        stmt = select(Source, SourceVersion).outerjoin(
+            SourceVersion,
+            and_(
+                SourceVersion.tenant_id == Source.tenant_id,
+                SourceVersion.version_id == Source.latest_version_id,
+            ),
+        ).options(
+            load_only(
+                SourceVersion.input_format,
+                SourceVersion.content_sha256,
+                SourceVersion.size_bytes,
+                raiseload=True,
+            )
+        ).where(
             Source.tenant_id == tenant_id,
             Source.offering_id == offering_id,
             Source.origin_kind != "unscoped",
@@ -490,32 +568,14 @@ class SqlSourceRepository:
             stmt = stmt.where(Source.lifecycle_state == lifecycle_state)
         if cursor is not None:
             stmt = stmt.where(Source.source_id > cursor)
-        rows = self.session.scalars(
+        rows = self.session.execute(
             stmt.order_by(Source.source_id.asc()).limit(limit + 1)
         ).all()
         has_more = len(rows) > limit
         slice_rows = rows[:limit]
-        version_ids = [r.latest_version_id for r in slice_rows if r.latest_version_id is not None]
-        versions_by_id: dict[UUID, SourceVersion] = {}
-        if version_ids:
-            for ver in self.session.scalars(
-                select(SourceVersion).where(
-                    SourceVersion.tenant_id == tenant_id,
-                    SourceVersion.version_id.in_(version_ids),
-                )
-            ).all():
-                versions_by_id[ver.version_id] = ver
-        next_cursor = str(slice_rows[-1].source_id) if has_more else None
+        next_cursor = str(slice_rows[-1][0].source_id) if has_more else None
         return Page(
-            items=tuple(
-                _source_dto(
-                    r,
-                    versions_by_id.get(r.latest_version_id)
-                    if r.latest_version_id
-                    else None,
-                )
-                for r in slice_rows
-            ),
+            items=tuple(_source_dto(source, latest) for source, latest in slice_rows),
             next_cursor=next_cursor,
         )
 

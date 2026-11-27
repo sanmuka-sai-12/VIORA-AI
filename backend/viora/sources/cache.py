@@ -18,7 +18,7 @@ from .document_contracts import EvidenceReference, ExtractedDocument
 from .models import ExtractionCacheEntry, PageOcrCacheEntry, Source
 from .ocr import OcrLine, OcrPageResult
 
-EXTRACTION_ALGORITHM_VERSION = "adaptive:2.0;spatial:2.0;norm:1.0"
+EXTRACTION_ALGORITHM_VERSION = "adaptive:2.0;spatial:2.0;norm:1.1"
 PREPROCESSING_VERSION = "pil_ocr:2.0"
 
 
@@ -173,24 +173,22 @@ class SqlExtractionCache:
         now: datetime,
     ) -> ExtractedDocument | None:
         row = self.session.scalar(
-            select(ExtractionCacheEntry).where(
+            select(ExtractionCacheEntry)
+            .join(
+                Source,
+                (Source.tenant_id == ExtractionCacheEntry.tenant_id)
+                & (Source.source_id == ExtractionCacheEntry.source_id),
+            )
+            .where(
                 ExtractionCacheEntry.tenant_id == tenant_id,
                 ExtractionCacheEntry.cache_key == cache_key,
                 ExtractionCacheEntry.scope_key == scope_key,
                 ExtractionCacheEntry.invalidated_at.is_(None),
                 ExtractionCacheEntry.expires_at > now,
+                Source.lifecycle_state == "active",
             )
         )
         if row is None:
-            return None
-        # Verify originating source has not been archived/revoked if still referenced.
-        origin_state = self.session.scalar(
-            select(Source.lifecycle_state).where(
-                Source.tenant_id == tenant_id,
-                Source.source_id == row.source_id,
-            )
-        )
-        if origin_state != "active":
             return None
         self.session.execute(
             update(ExtractionCacheEntry)

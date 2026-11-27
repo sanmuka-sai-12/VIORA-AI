@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select, text, update
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -239,6 +240,22 @@ class SqlWorkflowRepository:
             .limit(1)
         )
         return _job_summary_dto(row) if row is not None else None
+
+    def get_latest_jobs_for_versions(
+        self, tenant_id: UUID, version_ids: list[UUID]
+    ) -> dict[UUID, WorkflowJobSummary]:
+        if not version_ids:
+            return {}
+        rows = self.session.scalars(
+            select(WorkflowJob)
+            .ext(distinct_on(WorkflowJob.version_id))
+            .where(
+                WorkflowJob.tenant_id == tenant_id,
+                WorkflowJob.version_id.in_(version_ids),
+            )
+            .order_by(WorkflowJob.version_id, WorkflowJob.created_at.desc())
+        ).all()
+        return {row.version_id: _job_summary_dto(row) for row in rows}
 
     def list_source_jobs(
         self,

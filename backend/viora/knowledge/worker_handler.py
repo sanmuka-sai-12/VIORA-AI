@@ -101,13 +101,12 @@ class ConceptExtractionWorkerHandler:
         with self.access.reauthorize(actor, "source.process", source_ref) as scope:
             src_repo = SqlSourceRepository(scope.session)
             src_info = src_repo.get_source_access(job.tenant_id, job.source_id)
-            ver = src_repo.get_version(job.tenant_id, job.source_id, job.version_id)
             derived: DerivedExtractionRecord | None = (
                 src_repo.get_latest_derived_extraction(
                     job.tenant_id, job.source_id, job.version_id
                 )
             )
-            if src_info is None or ver is None or derived is None:
+            if src_info is None or derived is None:
                 from ..security import AccessError
 
                 raise AccessError(

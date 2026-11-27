@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -37,6 +37,24 @@ from .schemas import (
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[^a-z0-9\s]")
+def _verbatim_claim_in_excerpt(claim: str, excerpt: str) -> bool:
+    """Match a normalized claim on token boundaries so e.g. 'sorted' never matches 'unsorted'."""
+    prefix = r"(?<![A-Za-z0-9_-])" if (claim[0].isalnum() or claim[0] in "_-") else ""
+    suffix = r"(?![A-Za-z0-9_-])" if (claim[-1].isalnum() or claim[-1] in "_-") else ""
+    return re.search(f"{prefix}{re.escape(claim)}{suffix}", excerpt) is not None
+
+
+def _claim_semantically_aligned(
+    claim_texts: list[str],
+    bindings: list[ConceptEvidenceBinding],
+) -> bool:
+    """Check verbatim provenance only; neither paraphrase entailment nor truth is proven."""
+    excerpts = [_WHITESPACE_RE.sub(" ", b.excerpt).strip() for b in bindings if b.verified]
+    claims = [_WHITESPACE_RE.sub(" ", text).strip() for text in claim_texts if text.strip()]
+    return bool(claims) and all(
+        any(_verbatim_claim_in_excerpt(claim, excerpt) for excerpt in excerpts)
+        for claim in claims
+    )
 
 
 def _compact_schema_size_chars() -> int:
@@ -72,6 +90,8 @@ def _map_grounding(
 ) -> GroundingClassification:
     if is_topic_request:
         return "learning_request"
+    if had_unverified_claim:
+        return "unsupported"
     if raw_label == "source_explicit":
         return "source_supported" if verified_ev_count > 0 else "unsupported"
     if raw_label == "source_synthesized":
@@ -146,6 +166,7 @@ class ConceptExtractor:
         t_inf0 = time.monotonic_ns()
         raw_batches: list[tuple[str, RawConceptExtractionBatch]] = []
         known_names: list[str] = []
+        known_names_seen: set[str] = set()
         provider_name = "unknown"
         model_name = "unknown"
         in_tok = 0
@@ -179,7 +200,8 @@ class ConceptExtractor:
             tot_tok += res.usage.total_tokens
             raw_batches.append((chunk.chunk_id, res.parsed))
             for c in res.parsed.concepts:
-                if c.name not in known_names:
+                if c.name not in known_names_seen:
+                    known_names_seen.add(c.name)
                     known_names.append(c.name)
 
         inference_ms = round((time.monotonic_ns() - t_inf0) / 1_000_000.0, 3)
@@ -219,9 +241,17 @@ class ConceptExtractor:
     ) -> ExtractedKnowledgeGraph:
         doc = derived.document
         rejected_refs = 0
+        semantic_mismatch_count = 0
         duplicate_merges = 0
         ambiguous_retained = 0
         notes: list[str] = []
+        notes_seen: set[str] = set()
+        required_fields_complete = all(
+            {"grounding", "evidence_ids"} <= candidate.model_fields_set
+            for _, batch in raw_batches
+            for candidate in [*batch.concepts, *batch.relationships]
+        )
+        binding_cache: dict[str, ConceptEvidenceBinding] = {}
 
         # Keyed conservatively by (normalized_name, sense_key).
         # If ambiguity_note differs or raw candidate declares distinct sense, retain separate entry.
@@ -229,6 +259,12 @@ class ConceptExtractor:
         id_by_name_sense: dict[tuple[str, str], dict[str, object]] = {}
         name_to_concept_ids: dict[str, list[str]] = {}
         obj_seq = 0
+
+        def _add_note(note: str) -> None:
+            clean = note[:200]
+            if clean and clean not in notes_seen:
+                notes_seen.add(clean)
+                notes.append(clean)
 
         def _verify_ev(raw_ids: list[str]) -> tuple[list[ConceptEvidenceBinding], int]:
             bad = 0
@@ -248,8 +284,9 @@ class ConceptExtractor:
                     bad += 1
                     continue
                 seen.add(clean)
-                valid.append(
-                    ConceptEvidenceBinding(
+                cached_b = binding_cache.get(clean)
+                if cached_b is None:
+                    cached_b = ConceptEvidenceBinding(
                         evidence_id=ev.evidence_id,
                         source_id=doc.source_id,
                         version_id=doc.version_id,
@@ -261,14 +298,15 @@ class ConceptExtractor:
                         verified=True,
                         excerpt=ev.excerpt[:1000],
                     )
-                )
+                    binding_cache[clean] = cached_b
+                valid.append(cached_b)
             return valid, bad
 
         for chunk_id, batch in raw_batches:
             for w in batch.warnings:
                 clean_w = w.strip()
-                if clean_w and clean_w not in notes:
-                    notes.append(clean_w[:200])
+                if clean_w:
+                    _add_note(clean_w)
 
             for raw_c in batch.concepts:
                 norm = normalize_concept_name(raw_c.name)
@@ -281,21 +319,30 @@ class ConceptExtractor:
                     raw_c.grounding,
                     is_topic_request=is_topic,
                     verified_ev_count=len(verified_ids),
-                    had_unverified_claim=bad_cnt > 0 or raw_c.grounding == "source_explicit",
+                    had_unverified_claim=bad_cnt > 0,
                 )
+                if (
+                    not is_topic
+                    and grounding in {"source_supported", "source_synthesized"}
+                    and not _claim_semantically_aligned(
+                        [
+                            raw_c.canonical_summary,
+                            raw_c.definition or "",
+                            *raw_c.examples,
+                            *raw_c.learning_objectives,
+                        ],
+                        bindings,
+                    )
+                ):
+                    grounding = "uncertain"
+                    semantic_mismatch_count += 1
+
                 sense_key = (
                     normalize_concept_name(raw_c.ambiguity_note)
                     if raw_c.ambiguity_note
                     else ""
                 )
                 existing_bucket = id_by_name_sense.get((norm, sense_key))
-
-                # If normalized_name already exists without ambiguity_note and new one HAS ambiguity_note (or different sense), retain separate sense!
-                if existing_bucket is None and not sense_key and norm in name_to_concept_ids:
-                    # Only merge unconditionally when neither carries conflicting ambiguity notes and grounding matches or refines
-                    candidates = [b for b in buckets if b["norm"] == norm and not b["sense_key"]]
-                    if candidates:
-                        existing_bucket = candidates[0]
 
                 if existing_bucket is None:
                     cid = f"con-{len(buckets) + 1}"
@@ -317,9 +364,15 @@ class ConceptExtractor:
                         "examples": [],
                         "objectives": [],
                         "prerequisites": [],
+                        "def_seen": set(),
+                        "ex_seen": set(),
+                        "obj_seen": set(),
+                        "prereq_seen": set(),
                         "grounding": grounding,
                         "bindings": list(bindings),
+                        "ev_seen": {b.evidence_id for b in bindings},
                         "chunk_ids": [chunk_id],
+                        "chunk_seen": {chunk_id},
                     }
                     buckets.append(bucket)
                     id_by_name_sense[(norm, sense_key)] = bucket
@@ -329,18 +382,18 @@ class ConceptExtractor:
                     duplicate_merges += 1
                     target_bucket = existing_bucket
                     chunk_ids = target_bucket["chunk_ids"]
-                    assert isinstance(chunk_ids, list)
-                    if chunk_id not in chunk_ids:
+                    chunk_seen = target_bucket["chunk_seen"]
+                    assert isinstance(chunk_ids, list) and isinstance(chunk_seen, set)
+                    if chunk_id not in chunk_seen:
+                        chunk_seen.add(chunk_id)
                         chunk_ids.append(chunk_id)
                     existing_bindings = target_bucket["bindings"]
-                    assert isinstance(existing_bindings, list)
-                    have_eids = {b.evidence_id for b in existing_bindings}
+                    have_eids = target_bucket["ev_seen"]
+                    assert isinstance(existing_bindings, list) and isinstance(have_eids, set)
                     for b in bindings:
                         if b.evidence_id not in have_eids:
                             existing_bindings.append(b)
                             have_eids.add(b.evidence_id)
-                    if target_bucket["grounding"] != "source_supported" and grounding == "source_supported":
-                        target_bucket["grounding"] = "source_supported"
 
                 self._append_candidate_details(
                     target_bucket=target_bucket,
@@ -355,26 +408,59 @@ class ConceptExtractor:
             self._finalize_bucket(b, is_topic=is_topic) for b in buckets
         )
 
-        # Relationships: resolve exact endpoints conservatively; retain uncertain/unverified for review
+        # Relationships: resolve exact endpoints conservatively; flag ambiguous senses & mismatched evidence
+        by_cid = {c.concept_id: c for c in concepts}
+        concept_ev_ids = {
+            c.concept_id: {b.evidence_id for b in c.evidence_bindings} for c in concepts
+        }
+
+        def _pick_endpoint(ids: list[str], rel_eids: set[str]) -> tuple[str, bool]:
+            if len(ids) == 1:
+                return ids[0], False
+            if rel_eids:
+                ev_matched = [cid for cid in ids if concept_ev_ids.get(cid, set()) & rel_eids]
+                if len(ev_matched) == 1:
+                    return ev_matched[0], False
+            return ids[0], True
+
         relationships: list[ConceptRelationshipCandidate] = []
         rel_seen: set[tuple[str, str, str]] = set()
-        for _, batch in raw_batches:
+        for rel_chunk_id, batch in raw_batches:
             for rel in batch.relationships:
+                if rel.relation_type is None:
+                    required_fields_complete = False
+                    _add_note("Omitted relationship without a declared relation_type; no relationship was fabricated.")
+                    continue
                 s_norm = normalize_concept_name(rel.source_concept)
                 t_norm = normalize_concept_name(rel.target_concept)
                 s_ids = name_to_concept_ids.get(s_norm, [])
                 t_ids = name_to_concept_ids.get(t_norm, [])
-                if not s_ids or not t_ids or s_ids[0] == t_ids[0]:
+                if not s_ids or not t_ids:
                     continue
                 bindings, bad_cnt = _verify_ev(rel.evidence_ids)
                 rejected_refs += bad_cnt
+                rel_eids = {b.evidence_id for b in bindings}
+                s_id, s_ambig = _pick_endpoint(s_ids, rel_eids)
+                t_id, t_ambig = _pick_endpoint(t_ids, rel_eids)
+                if s_id == t_id:
+                    continue
                 rel_grounding = _map_grounding(
                     rel.grounding,
                     is_topic_request=is_topic,
                     verified_ev_count=len(bindings),
-                    had_unverified_claim=bad_cnt > 0 or rel.grounding == "source_explicit",
+                    had_unverified_claim=bad_cnt > 0,
                 )
-                dedupe_key = (s_ids[0], rel.relation_type, t_ids[0])
+                if rel_grounding in {"source_supported", "source_synthesized"}:
+                    # Endpoint mentions do not establish a directed, typed relationship.
+                    rel_grounding = "uncertain"
+                    semantic_mismatch_count += 1
+                if s_ambig or t_ambig:
+                    if rel_grounding == "source_supported":
+                        rel_grounding = "uncertain"
+                    _add_note(
+                        f"Relationship '{rel.source_concept.strip()}' -> '{rel.target_concept.strip()}' referenced an ambiguous multi-sense concept."
+                    )
+                dedupe_key = (s_id, rel.relation_type, t_id)
                 if dedupe_key in rel_seen:
                     duplicate_merges += 1
                     continue
@@ -382,15 +468,17 @@ class ConceptExtractor:
                 relationships.append(
                     ConceptRelationshipCandidate(
                         relationship_id=f"rel-{len(relationships) + 1}",
-                        source_concept_id=s_ids[0],
+                        source_concept_id=s_id,
                         source_concept_name=rel.source_concept.strip(),
                         relation_type=rel.relation_type,
-                        target_concept_id=t_ids[0],
+                        target_concept_id=t_id,
                         target_concept_name=rel.target_concept.strip(),
                         grounding=rel_grounding,
                         evidence_bindings=tuple(bindings),
                         needs_review=(
                             is_topic
+                            or s_ambig
+                            or t_ambig
                             or rel_grounding != "source_supported"
                             or len(bindings) == 0
                         ),
@@ -398,8 +486,8 @@ class ConceptExtractor:
                 )
 
         # Deterministically link concept.prerequisites strings to unambiguous extracted concepts
-        by_cid = {c.concept_id: c for c in concepts}
         for c in concepts:
+            ev_map = {b.evidence_id: b for b in c.evidence_bindings}
             for prereq in c.prerequisites:
                 p_ids = name_to_concept_ids.get(
                     normalize_concept_name(prereq.prerequisite_name), []
@@ -411,7 +499,7 @@ class ConceptExtractor:
                     continue
                 rel_seen.add(dedupe_key)
                 p_bindings = tuple(
-                    b for b in c.evidence_bindings if b.evidence_id in prereq.evidence_ids
+                    ev_map[eid] for eid in prereq.evidence_ids if eid in ev_map
                 )
                 relationships.append(
                     ConceptRelationshipCandidate(
@@ -421,7 +509,7 @@ class ConceptExtractor:
                         relation_type="prerequisite_of",
                         target_concept_id=c.concept_id,
                         target_concept_name=c.name,
-                        grounding=prereq.grounding,
+                        grounding="learning_request" if is_topic else "uncertain",
                         evidence_bindings=p_bindings,
                         needs_review=(
                             is_topic
@@ -431,16 +519,24 @@ class ConceptExtractor:
                     )
                 )
 
+        if semantic_mismatch_count > 0:
+            _add_note(
+                f"Retained {semantic_mismatch_count} non-verbatim or relational claim(s) as uncertain; evidence identity does not prove semantic support."
+            )
         if is_topic:
-            notes.append(
+            _add_note(
                 "Source input_format is topic_description: concepts represent a learning request, not factual source evidence."
             )
         if rejected_refs > 0:
-            notes.append(
+            _add_note(
                 f"Rejected {rejected_refs} ungrounded or version-mismatched evidence reference(s)."
             )
 
+        if not required_fields_complete:
+            _add_note("Required grounding, evidence_ids or relation_type omitted; partial output is a draft only.")
         validation = KnowledgeValidationReport(
+            structural_validity="valid",
+            required_fields_complete=required_fields_complete,
             schema_version=CONCEPT_SCHEMA_VERSION,
             prompt_version=PROMPT_VERSION,
             chunk_algorithm_version=chunk_plan.chunking_version,
@@ -488,58 +584,46 @@ class ConceptExtractor:
         verified_ids: tuple[str, ...],
         obj_seq_start: int,
     ) -> None:
-        defs = target_bucket["definitions"]
-        exs = target_bucket["examples"]
-        objs = target_bucket["objectives"]
-        prereqs = target_bucket["prerequisites"]
-        assert (
-            isinstance(defs, list)
-            and isinstance(exs, list)
-            and isinstance(objs, list)
-            and isinstance(prereqs, list)
-        )
+        def _add_unique(key: str, seen_key: str, texts: Iterable[str] | tuple[str, ...], build: Callable[[int, str], object]) -> None:
+            items: list[object] = target_bucket[key]  # type: ignore[assignment]
+            seen: set[str] = target_bucket[seen_key]  # type: ignore[assignment]
+            for idx, raw in enumerate(texts):
+                clean = raw.strip()
+                if clean and clean not in seen:
+                    seen.add(clean)
+                    items.append(build(idx, clean))
+
         if raw_c.definition:
-            d_txt = raw_c.definition.strip()
-            if d_txt and not any(d.definition == d_txt for d in defs):
-                defs.append(
-                    ConceptDefinition(
-                        definition=d_txt,
-                        grounding=grounding,
-                        evidence_ids=verified_ids,
-                    )
-                )
-        for ex_txt in raw_c.examples:
-            clean = ex_txt.strip()
-            if clean and not any(e.text == clean for e in exs):
-                exs.append(
-                    ConceptExample(
-                        text=clean,
-                        grounding=grounding,
-                        evidence_ids=verified_ids,
-                    )
-                )
-        for offset, lo_txt in enumerate(raw_c.learning_objectives):
-            clean = lo_txt.strip()
-            if clean and not any(o.statement == clean for o in objs):
-                objs.append(
-                    LearningObjectiveCandidate(
-                        objective_id=f"obj-{obj_seq_start + offset + 1}",
-                        statement=clean,
-                        bloom_level=raw_c.bloom_level,
-                        grounding="learning_request" if grounding == "learning_request" else grounding,
-                        evidence_ids=verified_ids,
-                    )
-                )
-        for p_txt in raw_c.prerequisites:
-            clean = p_txt.strip()
-            if clean and not any(p.prerequisite_name == clean for p in prereqs):
-                prereqs.append(
-                    PrerequisiteCandidate(
-                        prerequisite_name=clean,
-                        grounding=grounding,
-                        evidence_ids=verified_ids,
-                    )
-                )
+            _add_unique(
+                "definitions",
+                "def_seen",
+                (raw_c.definition,),
+                lambda _, s: ConceptDefinition(definition=s, grounding=grounding, evidence_ids=verified_ids),
+            )
+        _add_unique(
+            "examples",
+            "ex_seen",
+            raw_c.examples,
+            lambda _, s: ConceptExample(text=s, grounding=grounding, evidence_ids=verified_ids),
+        )
+        _add_unique(
+            "objectives",
+            "obj_seen",
+            raw_c.learning_objectives,
+            lambda i, s: LearningObjectiveCandidate(
+                objective_id=f"obj-{obj_seq_start + i + 1}",
+                statement=s,
+                bloom_level=raw_c.bloom_level,
+                grounding=grounding,
+                evidence_ids=verified_ids,
+            ),
+        )
+        _add_unique(
+            "prerequisites",
+            "prereq_seen",
+            raw_c.prerequisites,
+            lambda _, s: PrerequisiteCandidate(prerequisite_name=s, grounding="learning_request" if grounding == "learning_request" else "uncertain", evidence_ids=verified_ids),
+        )
 
     @staticmethod
     def _finalize_bucket(

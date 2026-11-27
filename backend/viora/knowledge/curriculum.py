@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+from collections import deque
 
 from .schemas import (
     CURRICULUM_ALGORITHM_VERSION,
@@ -106,26 +107,32 @@ def analyze_prerequisites_and_order(
                 )
             )
 
-    # Iteratively break cyclic SCCs by removing the weakest grounded / latest back-edge
-    while True:
-        adj: dict[str, list[str]] = {cid: [] for cid in node_ids}
-        for eid in active_edge_ids:
-            rel = edges[eid]
-            adj[rel.source_concept_id].append(rel.target_concept_id)
-        for adj_list in adj.values():
-            adj_list.sort(key=lambda x: node_rank[x])
-        cyclic_sccs = [c for c in _find_sccs(node_ids, adj) if len(c) > 1]
-        if not cyclic_sccs:
-            break
-        scc = sorted(cyclic_sccs[0], key=lambda x: node_rank[x])
+    # Build adjacency once and run Tarjan SCC once on the full graph; iteratively resolve only cyclic SCC subgraphs.
+    adj: dict[str, list[str]] = {cid: [] for cid in node_ids}
+    outgoing_edge_ids: dict[str, list[str]] = {cid: [] for cid in node_ids}
+    for eid in active_edge_ids:
+        rel = edges[eid]
+        adj[rel.source_concept_id].append(rel.target_concept_id)
+        outgoing_edge_ids[rel.source_concept_id].append(eid)
+    for adj_list in adj.values():
+        adj_list.sort(key=lambda x: node_rank[x])
+
+    pending_sccs: deque[list[str]] = deque(
+        c for c in _find_sccs(node_ids, adj) if len(c) > 1
+    )
+    while pending_sccs:
+        scc = sorted(pending_sccs.popleft(), key=lambda x: node_rank[x])
         scc_set = set(scc)
         blocked_nodes.update(scc_set)
         in_scc_edges = [
             edges[eid]
-            for eid in active_edge_ids
-            if edges[eid].source_concept_id in scc_set
+            for cid in scc
+            for eid in outgoing_edge_ids[cid]
+            if eid in active_edge_ids
             and edges[eid].target_concept_id in scc_set
         ]
+        if not in_scc_edges:
+            continue
         # Prefer breaking the weakest grounded, unverified, latest edge in the SCC
         weakest = min(
             in_scc_edges,
@@ -149,6 +156,14 @@ def analyze_prerequisites_and_order(
                 ),
             )
         )
+        sub_adj: dict[str, list[str]] = {cid: [] for cid in scc}
+        for rel in in_scc_edges:
+            if rel.relationship_id != weakest.relationship_id:
+                sub_adj[rel.source_concept_id].append(rel.target_concept_id)
+        for adj_list in sub_adj.values():
+            adj_list.sort(key=lambda x: node_rank[x])
+        for sub_scc in reversed([c for c in _find_sccs(scc, sub_adj) if len(c) > 1]):
+            pending_sccs.appendleft(sub_scc)
 
     # Kahn topological sort with stable document reading-order priority queue
     children: dict[str, list[str]] = {cid: [] for cid in node_ids}

@@ -1,0 +1,151 @@
+{
+  "corpus_id": "viora-dsa-c-fixtures.v1",
+  "license": "CC0-1.0",
+  "document_count": 8,
+  "documents": [
+    {
+      "doc_id": "dsa_01_markdown_notes",
+      "filename": "01_dsa_notes.md",
+      "relative_path": "fixtures/01_dsa_notes.md",
+      "input_format": "typed_notes",
+      "size_bytes": 372,
+      "sha256": "ec69dcbfcba9f110d985926625571ab95d7b0ec9656a85bed3d12688c06908c0",
+      "ground_truth": {
+        "expected_ordered_markers": [
+          "Dynamic Arrays",
+          "amortized push",
+          "Ring-Buffer",
+          "q->items[tail] = val;"
+        ],
+        "expected_code_markers": [
+          "size_t tail = (q->head + q->count) % CAP;"
+        ],
+        "expected_formulas": [
+          "tail = (head + count) \\bmod CAP"
+        ]
+      }
+    },
+    {
+      "doc_id": "dsa_02_code_heavy_pdf",
+      "filename": "02_dsa_code_heavy.pdf",
+      "relative_path": "fixtures/02_dsa_code_heavy.pdf",
+      "input_format": "digital_pdf",
+      "size_bytes": 2205,
+      "sha256": "8790c94ad5d7cf0a79f3873d196f047285d9c2f754de4f247b55dbbee42a6ce2",
+      "ground_truth": {
+        "expected_ordered_markers": [
+          "Singly Linked List Reversal",
+          "SNode *prev = NULL, *cur = *head;",
+          "cur->next = prev;",
+          "Always save cur->next"
+        ],
+        "expected_code_markers": [
+          "static void sll_reverse(SNode **head) {"
+        ]
+      }
+    },
+    {
+      "doc_id": "dsa_03_multicolumn_pdf",
+      "filename": "03_dsa_multicolumn.pdf",
+      "relative_path": "fixtures/03_dsa_multicolumn.pdf",
+      "input_format": "digital_pdf",
+      "size_bytes": 2087,
+      "sha256": "3a91e03c59a025be1c582007b76cd6e97404abc402059b36f4de3078d997856e",
+      "ground_truth": {
+        "expected_ordered_markers": [
+          "Left: Bounded Stack LIFO",
+          "Initialize top = -1.",
+          "Push increments top before write.",
+          "Pop reads items[top] then decrements.",
+          "Guards top < 0 against underflow.",
+          "Right: Open-Address Hash Table",
+          "Compute initial slot = hash(key) % CAP.",
+          "Probe forward across occupied slots.",
+          "Deleted slots store HT_TOMBSTONE.",
+          "Stop lookups immediately on HT_EMPTY."
+        ]
+      }
+    },
+    {
+      "doc_id": "dsa_04_complexity_tables",
+      "filename": "04_dsa_complexity_tables.pdf",
+      "relative_path": "fixtures/04_dsa_complexity_tables.pdf",
+      "input_format": "digital_pdf",
+      "size_bytes": 2856,
+      "sha256": "f75ba790ed51123fca3f321ff234a5536e67ec6ad9ce48adfb141182d711e6ca",
+      "ground_truth": {
+        "expected_table_headers": [
+          [
+            "Structure",
+            "Search",
+            "AuxSpace"
+          ],
+          [
+            "Representation",
+            "BFS_Time",
+            "Space"
+          ]
+        ],
+        "expected_table_rows": [
+          [
+            "SortedArray",
+            "O(log n)",
+            "O(1)"
+          ],
+          [
+            "AdjList",
+            "O(V+E)",
+            "O(V)"
+          ]
+        ]
+      }
+    },
+    {
+      "doc_id": "dsa_05_recurrence_math",
+      "filename": "05_dsa_recurrence_math.pdf",
+      "relative_path": "fixtures/05_dsa_recurrence_math.pdf",
+      "input_format": "digital_pdf",
+      "size_bytes": 1852,
+      "sha256": "81c6eb0fb4aa4de7dbf9d53c74a4a25f92e0020f4da24929f8f4c749aa9b6168",
+      "ground_truth": {
+        "expected_formulas": [
+          "T(n) = 2*T(n/2) + n",
+          "mid = lo + (hi - lo) / 2"
+        ]
+      }
+    },
+    {
+      "doc_id": "dsa_06_scanned_notes_png",
+      "filename": "06_dsa_scanned_notes.png",
+      "relative_path": "fixtures/06_dsa_scanned_notes.png",
+      "input_format": "png",
+      "size_bytes": 52889,
+      "sha256": "bb4e4e6f93f48af632be6d6deef7787a774a1300e4d1058fab06c7d68b7d11e2",
+      "ground_truth": {
+        "expected_text": "Binary Min-Heap Invariant Notes\nEvery parent node stores key <= both children keys.\nPush appends at tail and repeats sift-up while parent > child.\nExtract-min moves tail to root and repeats sift-down."
+      }
+    },
+    {
+      "doc_id": "dsa_06b_scanned_notes_pdf",
+      "filename": "06b_dsa_scanned_notes.pdf",
+      "relative_path": "fixtures/06b_dsa_scanned_notes.pdf",
+      "input_format": "scanned_pdf",
+      "size_bytes": 39338,
+      "sha256": "633bdae28770ead2cfc90158a2e881eabbf0c0ff98193db3a8d7c393154137d9",
+      "ground_truth": {
+        "expected_text": "Binary Min-Heap Invariant Notes\nEvery parent node stores key <= both children keys.\nPush appends at tail and repeats sift-up while parent > child.\nExtract-min moves tail to root and repeats sift-down."
+      }
+    },
+    {
+      "doc_id": "dsa_07_photographed_notes_jpg",
+      "filename": "07_dsa_photographed_notes.jpg",
+      "relative_path": "fixtures/07_dsa_photographed_notes.jpg",
+      "input_format": "jpeg",
+      "size_bytes": 32312,
+      "sha256": "050919bba9eecb8c91c2770de9051bc6c4f65fb8d7e1e1cd4fa40499ab838e2b",
+      "ground_truth": {
+        "expected_text": "Adjacency List Breadth-First Search\nMark neighbor visited before pushing onto FIFO ring queue.\nEach reachable edge is inspected once in O(V + E) time."
+      }
+    }
+  ]
+}

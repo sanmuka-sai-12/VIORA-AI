@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, TypeVar
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..contracts import Page
@@ -56,6 +56,60 @@ _ENTITY_MODELS: dict[str, type[Any]] = {
 }
 
 
+def _active_section_chain(stmt: Any) -> Any:
+    return (
+        stmt.join(
+            Semester,
+            and_(
+                Semester.tenant_id == Section.tenant_id,
+                Semester.id == Section.semester_id,
+            ),
+        )
+        .join(
+            AcademicYear,
+            and_(
+                AcademicYear.tenant_id == Semester.tenant_id,
+                AcademicYear.id == Semester.academic_year_id,
+            ),
+        )
+        .outerjoin(
+            Programme,
+            and_(
+                Programme.tenant_id == Section.tenant_id,
+                Programme.id == Section.programme_id,
+            ),
+        )
+        .where(
+            Section.active.is_(True),
+            Semester.active.is_(True),
+            AcademicYear.active.is_(True),
+            or_(Section.programme_id.is_(None), Programme.active.is_(True)),
+        )
+    )
+
+
+def _dept_head_scope(stmt: Any, model: type[Any], actor_id: UUID) -> Any:
+    return (
+        stmt.join(
+            Department,
+            and_(
+                Department.tenant_id == model.tenant_id,
+                Department.id == model.department_id,
+            ),
+        )
+        .join(
+            DepartmentHead,
+            and_(
+                DepartmentHead.tenant_id == model.tenant_id,
+                DepartmentHead.department_id == model.department_id,
+                DepartmentHead.user_id == actor_id,
+                DepartmentHead.active.is_(True),
+            ),
+        )
+        .where(model.active.is_(True), Department.active.is_(True))
+    )
+
+
 class SqlInstitutionStatus:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -91,7 +145,7 @@ class SqlInstitutionDirectory:
     def academic_context(
         self, tenant_id: UUID, offering_id: UUID
     ) -> AcademicContext | None:
-        query = (
+        query = _active_section_chain(
             select(
                 SubjectOffering.subject_id,
                 Section.id,
@@ -108,45 +162,19 @@ class SqlInstitutionDirectory:
                 ),
             )
             .join(
-                Semester,
-                and_(
-                    Semester.tenant_id == Section.tenant_id,
-                    Semester.id == Section.semester_id,
-                ),
-            )
-            .join(
-                AcademicYear,
-                and_(
-                    AcademicYear.tenant_id == Semester.tenant_id,
-                    AcademicYear.id == Semester.academic_year_id,
-                ),
-            )
-            .join(
                 Subject,
                 and_(
                     Subject.tenant_id == SubjectOffering.tenant_id,
                     Subject.id == SubjectOffering.subject_id,
                 ),
             )
-            .outerjoin(
-                Programme,
-                and_(
-                    Programme.tenant_id == Section.tenant_id,
-                    Programme.id == Section.programme_id,
-                ),
-            )
             .join(Institution, Institution.tenant_id == SubjectOffering.tenant_id)
-            .where(
-                SubjectOffering.tenant_id == tenant_id,
-                SubjectOffering.id == offering_id,
-                Institution.active.is_(True),
-                SubjectOffering.active.is_(True),
-                Section.active.is_(True),
-                Semester.active.is_(True),
-                AcademicYear.active.is_(True),
-                Subject.active.is_(True),
-                or_(Section.programme_id.is_(None), Programme.active.is_(True)),
-            )
+        ).where(
+            SubjectOffering.tenant_id == tenant_id,
+            SubjectOffering.id == offering_id,
+            Institution.active.is_(True),
+            SubjectOffering.active.is_(True),
+            Subject.active.is_(True),
         )
         row = self.session.execute(query).one_or_none()
         if row is None:
@@ -161,6 +189,77 @@ class SqlInstitutionDirectory:
             semester_id=semester_id,
             academic_year_id=academic_year_id,
         )
+
+    def offering_access_state(
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        offering_id: UUID,
+        *,
+        need_teacher: bool = False,
+        need_student: bool = False,
+    ) -> tuple[bool, bool, bool]:
+        """Verify active offering hierarchy and optional active teacher/student links in one query."""
+        cols: list[Any] = [SubjectOffering.id]
+        if need_teacher:
+            cols.append(TeacherAssignment.active)
+        if need_student:
+            cols.append(StudentEnrolment.active)
+        query = (
+            _active_section_chain(
+                select(*cols)
+                .select_from(SubjectOffering)
+                .join(
+                    Section,
+                    and_(
+                        Section.tenant_id == SubjectOffering.tenant_id,
+                        Section.id == SubjectOffering.section_id,
+                    ),
+                )
+                .join(
+                    Subject,
+                    and_(
+                        Subject.tenant_id == SubjectOffering.tenant_id,
+                        Subject.id == SubjectOffering.subject_id,
+                    ),
+                )
+                .join(Institution, Institution.tenant_id == SubjectOffering.tenant_id)
+            )
+            .where(
+                SubjectOffering.tenant_id == tenant_id,
+                SubjectOffering.id == offering_id,
+                Institution.active.is_(True),
+                SubjectOffering.active.is_(True),
+                Subject.active.is_(True),
+            )
+        )
+        if need_teacher:
+            query = query.outerjoin(
+                TeacherAssignment,
+                and_(
+                    TeacherAssignment.tenant_id == SubjectOffering.tenant_id,
+                    TeacherAssignment.offering_id == SubjectOffering.id,
+                    TeacherAssignment.user_id == user_id,
+                ),
+            )
+        if need_student:
+            query = query.outerjoin(
+                StudentEnrolment,
+                and_(
+                    StudentEnrolment.tenant_id == SubjectOffering.tenant_id,
+                    StudentEnrolment.offering_id == SubjectOffering.id,
+                    StudentEnrolment.user_id == user_id,
+                ),
+            )
+        row = self.session.execute(query).one_or_none()
+        if row is None:
+            return False, False, False
+        idx = 1
+        t_active = bool(row[idx] is True) if need_teacher else False
+        if need_teacher:
+            idx += 1
+        s_active = bool(row[idx] is True) if need_student else False
+        return True, t_active, s_active
 
     def _eligible(self, tenant_id: UUID, user_id: UUID, role: InstitutionRole) -> bool:
         return role in self.identities.applicable_roles(user_id, tenant_id)
@@ -227,43 +326,18 @@ class SqlInstitutionDirectory:
         return (
             self._eligible(tenant_id, user_id, InstitutionRole.class_coordinator)
             and self.session.scalar(
-                select(ClassCoordinator.active)
-                .join(
-                    Section,
-                    and_(
-                        Section.tenant_id == ClassCoordinator.tenant_id,
-                        Section.id == ClassCoordinator.section_id,
-                    ),
-                )
-                .join(
-                    Semester,
-                    and_(
-                        Semester.tenant_id == Section.tenant_id,
-                        Semester.id == Section.semester_id,
-                    ),
-                )
-                .join(
-                    AcademicYear,
-                    and_(
-                        AcademicYear.tenant_id == Semester.tenant_id,
-                        AcademicYear.id == Semester.academic_year_id,
-                    ),
-                )
-                .outerjoin(
-                    Programme,
-                    and_(
-                        Programme.tenant_id == Section.tenant_id,
-                        Programme.id == Section.programme_id,
-                    ),
-                )
-                .where(
+                _active_section_chain(
+                    select(ClassCoordinator.active).join(
+                        Section,
+                        and_(
+                            Section.tenant_id == ClassCoordinator.tenant_id,
+                            Section.id == ClassCoordinator.section_id,
+                        ),
+                    )
+                ).where(
                     ClassCoordinator.tenant_id == tenant_id,
                     ClassCoordinator.user_id == user_id,
                     ClassCoordinator.section_id == section_id,
-                    Section.active.is_(True),
-                    Semester.active.is_(True),
-                    AcademicYear.active.is_(True),
-                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
                 )
             )
             is True
@@ -318,37 +392,15 @@ class SqlInstitutionDirectory:
     def section_active(self, tenant_id: UUID, section_id: UUID) -> bool:
         return (
             self.session.scalar(
-                select(Section.id)
-                .join(
-                    Semester,
-                    and_(
-                        Semester.tenant_id == Section.tenant_id,
-                        Semester.id == Section.semester_id,
-                    ),
+                _active_section_chain(
+                    select(Section.id).join(
+                        Institution, Institution.tenant_id == Section.tenant_id
+                    )
                 )
-                .join(
-                    AcademicYear,
-                    and_(
-                        AcademicYear.tenant_id == Semester.tenant_id,
-                        AcademicYear.id == Semester.academic_year_id,
-                    ),
-                )
-                .outerjoin(
-                    Programme,
-                    and_(
-                        Programme.tenant_id == Section.tenant_id,
-                        Programme.id == Section.programme_id,
-                    ),
-                )
-                .join(Institution, Institution.tenant_id == Section.tenant_id)
                 .where(
                     Section.tenant_id == tenant_id,
                     Section.id == section_id,
                     Institution.active.is_(True),
-                    Section.active.is_(True),
-                    Semester.active.is_(True),
-                    AcademicYear.active.is_(True),
-                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
                 )
                 .limit(1)
             )
@@ -639,10 +691,28 @@ class SqlAcademicRepository:
     def has_active_department_children(
         self, tenant_id: UUID, department_id: UUID
     ) -> bool:
-        return self._has_active_child(
-            Programme, tenant_id, Programme.department_id, department_id
-        ) or self._has_active_child(
-            Subject, tenant_id, Subject.department_id, department_id
+        return (
+            self.session.scalar(
+                select(literal(True)).where(
+                    or_(
+                        select(Programme.id)
+                        .where(
+                            Programme.tenant_id == tenant_id,
+                            Programme.department_id == department_id,
+                            Programme.active.is_(True),
+                        )
+                        .exists(),
+                        select(Subject.id)
+                        .where(
+                            Subject.tenant_id == tenant_id,
+                            Subject.department_id == department_id,
+                            Subject.active.is_(True),
+                        )
+                        .exists(),
+                    )
+                )
+            )
+            is True
         )
 
     def list_programmes(
@@ -657,25 +727,7 @@ class SqlAcademicRepository:
     ) -> Page[ProgrammeSummary]:
         stmt = select(Programme).where(Programme.tenant_id == tenant_id)
         if actor_id is not None:
-            stmt = (
-                stmt.join(
-                    Department,
-                    and_(
-                        Department.tenant_id == Programme.tenant_id,
-                        Department.id == Programme.department_id,
-                    ),
-                )
-                .join(
-                    DepartmentHead,
-                    and_(
-                        DepartmentHead.tenant_id == Programme.tenant_id,
-                        DepartmentHead.department_id == Programme.department_id,
-                        DepartmentHead.user_id == actor_id,
-                        DepartmentHead.active.is_(True),
-                    ),
-                )
-                .where(Programme.active.is_(True), Department.active.is_(True))
-            )
+            stmt = _dept_head_scope(stmt, Programme, actor_id)
         if department_id is not None:
             stmt = stmt.where(Programme.department_id == department_id)
         if active is not None:
@@ -877,43 +929,14 @@ class SqlAcademicRepository:
     ) -> Page[SectionSummary]:
         stmt = select(Section).where(Section.tenant_id == tenant_id)
         if actor_id is not None:
-            stmt = (
-                stmt.join(
-                    Semester,
-                    and_(
-                        Semester.tenant_id == Section.tenant_id,
-                        Semester.id == Section.semester_id,
-                    ),
-                )
-                .join(
-                    AcademicYear,
-                    and_(
-                        AcademicYear.tenant_id == Semester.tenant_id,
-                        AcademicYear.id == Semester.academic_year_id,
-                    ),
-                )
-                .outerjoin(
-                    Programme,
-                    and_(
-                        Programme.tenant_id == Section.tenant_id,
-                        Programme.id == Section.programme_id,
-                    ),
-                )
-                .join(
-                    ClassCoordinator,
-                    and_(
-                        ClassCoordinator.tenant_id == Section.tenant_id,
-                        ClassCoordinator.section_id == Section.id,
-                        ClassCoordinator.user_id == actor_id,
-                        ClassCoordinator.active.is_(True),
-                    ),
-                )
-                .where(
-                    Section.active.is_(True),
-                    Semester.active.is_(True),
-                    AcademicYear.active.is_(True),
-                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
-                )
+            stmt = _active_section_chain(stmt).join(
+                ClassCoordinator,
+                and_(
+                    ClassCoordinator.tenant_id == Section.tenant_id,
+                    ClassCoordinator.section_id == Section.id,
+                    ClassCoordinator.user_id == actor_id,
+                    ClassCoordinator.active.is_(True),
+                ),
             )
         if semester_id is not None:
             stmt = stmt.where(Section.semester_id == semester_id)
@@ -992,25 +1015,7 @@ class SqlAcademicRepository:
     ) -> Page[SubjectSummary]:
         stmt = select(Subject).where(Subject.tenant_id == tenant_id)
         if actor_id is not None:
-            stmt = (
-                stmt.join(
-                    Department,
-                    and_(
-                        Department.tenant_id == Subject.tenant_id,
-                        Department.id == Subject.department_id,
-                    ),
-                )
-                .join(
-                    DepartmentHead,
-                    and_(
-                        DepartmentHead.tenant_id == Subject.tenant_id,
-                        DepartmentHead.department_id == Subject.department_id,
-                        DepartmentHead.user_id == actor_id,
-                        DepartmentHead.active.is_(True),
-                    ),
-                )
-                .where(Subject.active.is_(True), Department.active.is_(True))
-            )
+            stmt = _dept_head_scope(stmt, Subject, actor_id)
         if department_id is not None:
             stmt = stmt.where(Subject.department_id == department_id)
         if active is not None:
@@ -1116,7 +1121,7 @@ class SqlAcademicRepository:
                 )
             if not filters:
                 return Page(items=(), next_cursor=None)
-            stmt = (
+            stmt = _active_section_chain(
                 stmt.join(
                     Section,
                     and_(
@@ -1124,43 +1129,16 @@ class SqlAcademicRepository:
                         Section.id == SubjectOffering.section_id,
                     ),
                 )
-                .join(
-                    Semester,
-                    and_(
-                        Semester.tenant_id == Section.tenant_id,
-                        Semester.id == Section.semester_id,
-                    ),
-                )
-                .join(
-                    AcademicYear,
-                    and_(
-                        AcademicYear.tenant_id == Semester.tenant_id,
-                        AcademicYear.id == Semester.academic_year_id,
-                    ),
-                )
-                .join(
-                    Subject,
-                    and_(
-                        Subject.tenant_id == SubjectOffering.tenant_id,
-                        Subject.id == SubjectOffering.subject_id,
-                    ),
-                )
-                .outerjoin(
-                    Programme,
-                    and_(
-                        Programme.tenant_id == Section.tenant_id,
-                        Programme.id == Section.programme_id,
-                    ),
-                )
-                .where(
-                    SubjectOffering.active.is_(True),
-                    Section.active.is_(True),
-                    Semester.active.is_(True),
-                    AcademicYear.active.is_(True),
-                    Subject.active.is_(True),
-                    or_(Section.programme_id.is_(None), Programme.active.is_(True)),
-                    or_(*filters),
-                )
+            ).join(
+                Subject,
+                and_(
+                    Subject.tenant_id == SubjectOffering.tenant_id,
+                    Subject.id == SubjectOffering.subject_id,
+                ),
+            ).where(
+                SubjectOffering.active.is_(True),
+                Subject.active.is_(True),
+                or_(*filters),
             )
         if section_id is not None:
             stmt = stmt.where(SubjectOffering.section_id == section_id)

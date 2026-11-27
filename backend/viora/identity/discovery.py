@@ -6,7 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import MembershipRecord, RoleGrant, User
-from .schemas import AccountStatus, DiscoveredMembership, MembershipStatus
+from .schemas import (
+    AccountStatus,
+    DiscoveredMembership,
+    InstitutionRole,
+    MembershipStatus,
+)
 
 
 def discover_memberships(
@@ -23,18 +28,21 @@ def discover_memberships(
         .order_by(MembershipRecord.tenant_id)
     ).all()
     result: list[DiscoveredMembership] = []
+    if not tenants:
+        return ()
+    grants = session.execute(
+        select(RoleGrant.tenant_id, RoleGrant.role).where(
+            RoleGrant.tenant_id.in_(tenants),
+            RoleGrant.user_id == actor_id,
+            RoleGrant.revoked_at.is_(None),
+        )
+    ).all()
+    roles_by_tenant: dict[UUID, list[InstitutionRole]] = {tid: [] for tid in tenants}
+    for tenant_id, role in grants:
+        roles_by_tenant[tenant_id].append(role)
     for tenant_id in tenants:
         roles = tuple(
-            sorted(
-                session.scalars(
-                    select(RoleGrant.role).where(
-                        RoleGrant.tenant_id == tenant_id,
-                        RoleGrant.user_id == actor_id,
-                        RoleGrant.revoked_at.is_(None),
-                    )
-                ).all(),
-                key=lambda role: role.value,
-            )
+            sorted(roles_by_tenant[tenant_id], key=lambda role: role.value)
         )
         result.append(DiscoveredMembership(tenant_id=tenant_id, roles=roles))
     return tuple(result)

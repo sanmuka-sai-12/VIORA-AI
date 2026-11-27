@@ -1,0 +1,224 @@
+{
+  "dataset_id": "viora-dsa-c-eval.v1",
+  "license": "CC0-1.0",
+  "description": "Held-out evaluation set across 8 reasoning categories (paraphrased; never copied verbatim from corpus).",
+  "question_count": 24,
+  "questions": [
+    {
+      "question_id": "eval-def-01",
+      "category": "definitions",
+      "answerable": true,
+      "prompt": "Why does incrementing a `struct Node *ptr` by 1 in C advance by more than one byte, and what happens inside `sizeof(a)` when `a` is passed as a function parameter `int a[]`?",
+      "expected_answer": "Pointer addition scales by sizeof(*ptr) because arrays/pointers step in units of the pointed element size. Inside a function declaration, `int a[]` decays to `int *a`, so `sizeof(a)` evaluates the pointer size rather than the underlying array byte size.",
+      "relevant_concept_ids": ["dsa-c-array-pointer-arithmetic", "dsa-c-struct-memory-layout"],
+      "evaluation_criteria": ["Mentions element-size scaling", "Notes parameter decay to pointer and sizeof behavior"]
+    },
+    {
+      "question_id": "eval-def-02",
+      "category": "definitions",
+      "answerable": true,
+      "prompt": "Contrast the structural role of a sentinel node in a circular doubly linked list with storing an explicit `count` integer in a ring-buffer array queue.",
+      "expected_answer": "A circular sentinel ensures every real list node always has non-NULL `prev` and `next` neighbors so insertion/unlinking avoid empty/boundary special cases. A ring buffer's explicit `count` disambiguates `head == tail` between full (`count == CAP`) and empty (`count == 0`) states without sacrificing one array slot.",
+      "relevant_concept_ids": ["dsa-c-doubly-circular-list", "dsa-c-circular-ring-queue"],
+      "evaluation_criteria": ["Explains sentinel eliminating NULL neighbor branches", "Explains explicit count separating empty vs full"]
+    },
+    {
+      "question_id": "eval-def-03",
+      "category": "definitions",
+      "answerable": true,
+      "prompt": "What distinguishes an open-addressing hash slot in a deleted/tombstone state from a never-occupied empty slot during key lookup and insertion?",
+      "expected_answer": "An empty slot guarantees no key hashed earlier along that probe sequence exists beyond it, terminating lookup immediately. A tombstone marks a formerly occupied slot so lookup keeps probing downstream while insertion may reuse the earliest tombstone only after confirming the key is not already present further down the chain.",
+      "relevant_concept_ids": ["dsa-c-open-address-hash"],
+      "evaluation_criteria": ["Terminates search on empty, continues past tombstone", "Explains checking ahead for duplicate key before reusing tombstone"]
+    },
+    {
+      "question_id": "eval-reas-01",
+      "category": "conceptual_reasoning",
+      "answerable": true,
+      "prompt": "Why can holding an element pointer `&dyn.data[2]` across a `dyn_push(&dyn, x)` call lead to undefined behavior even if `x` is appended cleanly to the back?",
+      "expected_answer": "If `size == capacity`, `dyn_push` invokes `realloc` with doubled capacity, which may allocate a completely new heap block and free the old block, turning `&dyn.data[2]` into a dangling pointer.",
+      "relevant_concept_ids": ["dsa-c-amortized-dynamic-array"],
+      "evaluation_criteria": ["Identifies realloc heap relocation freeing old buffer", "Notes dangling pointer invalidation"]
+    },
+    {
+      "question_id": "eval-reas-02",
+      "category": "conceptual_reasoning",
+      "answerable": true,
+      "prompt": "If a Breadth-First Search marks vertices visited only at pop time rather than when placing them into the queue, what goes wrong mathematically and in a fixed-size C queue `int q[V]`?",
+      "expected_answer": "Enqueue-time marking bounds successful insertions and expansions by V. With adjacency lists it takes O(V + E); with an adjacency matrix it takes O(V^2). Dequeue-time marking with a duplicate-pop guard expands each vertex once, but may insert O(V + E) entries (one start entry plus at most one per scanned edge); it still takes O(V + E) with lists or O(V^2) with a matrix. Without the duplicate-pop guard, marking visited at every pop and checking !visited[v] before enqueue still terminates on every finite graph: after a vertex's first pop no new copies of it can be queued. However, previously queued duplicates are expanded again, potentially causing exponential work in layered graphs. This differs from omitting visited checks entirely, which can run forever on cycles with an unbounded queue. Total insertions and maximum simultaneous occupancy are different: the five-vertex diamond has seven dequeue-mark insertions but peak occupancy four. A linear q[V] with monotonically increasing tail exhausts its five slots; a circular q[V] reuses popped slots and fits this example, though duplicate occupancy can exceed V on other graphs. Both queues must check capacity before writing; otherwise an out-of-bounds C write is undefined behavior. The supplied C fixture uses an adjacency matrix and stops safely when capacity is exhausted.",
+      "relevant_concept_ids": ["dsa-c-graph-adj-bfs"],
+      "evaluation_criteria": ["Distinguishes enqueue marking, guarded dequeue marking, and unguarded dequeue marking with visited checks before enqueue", "Explains finite termination with dequeue marking and neighbor visited checks, even on cycles; distinguishes a traversal that never checks visited", "Explains repeated duplicate expansions and potentially exponential work without a duplicate-pop guard", "Distinguishes total insertions from peak occupancy, and linear tail exhaustion from circular queue capacity", "States adjacency-list O(V + E) versus adjacency-matrix O(V^2) for enqueue marking and guarded dequeue marking", "Requires capacity checks before writes; identifies out-of-bounds C writes as undefined behavior"]
+    },
+    {
+      "question_id": "eval-reas-03",
+      "category": "conceptual_reasoning",
+      "answerable": true,
+      "prompt": "When deleting a sub-tree or clearing an entire Binary Search Tree in C, why must `free(node)` happen in postorder rather than preorder?",
+      "expected_answer": "Preorder frees `node` before reading `node->left` and `node->right`, causing heap use-after-free when traversing children. Postorder frees both subtrees first and frees the parent last.",
+      "relevant_concept_ids": ["dsa-c-binary-search-tree"],
+      "evaluation_criteria": ["Identifies use-after-free on child pointers", "States postorder sequence"]
+    },
+    {
+      "question_id": "eval-comp-01",
+      "category": "complexity_analysis",
+      "answerable": true,
+      "prompt": "Suppose a growable vector increases capacity by a fixed increment `capacity += 32` instead of doubling (`capacity *= 2`) whenever full. What is the total copy time and amortized per-push cost over N pushes?",
+      "expected_answer": "Resizes occur roughly every 32 pushes, copying 32 + 64 + 96 + ... + N elements = Theta(N^2 / 32) = Theta(N^2) total work, making amortized push cost Theta(N) instead of O(1).",
+      "relevant_concept_ids": ["dsa-c-amortized-dynamic-array", "dsa-c-asymptotic-bounds"],
+      "evaluation_criteria": ["Computes arithmetic series total Theta(N^2)", "Concludes amortized O(N) per push"]
+    },
+    {
+      "question_id": "eval-comp-02",
+      "category": "complexity_analysis",
+      "answerable": true,
+      "prompt": "Compare worst-case time and auxiliary space of top-down merge sort versus recursive unbalanced BST insertion of N sorted integers.",
+      "expected_answer": "Merge sort always divides cleanly in half, yielding Theta(N log N) time, O(N) scratch array space plus O(log N) stack depth. Unbalanced BST insertion of N sorted keys produces a skewed chain of height N, yielding Theta(N^2) total insertion time and O(N) stack depth.",
+      "relevant_concept_ids": ["dsa-c-merge-sort", "dsa-c-binary-search-tree", "dsa-c-recurrence-divide-conquer"],
+      "evaluation_criteria": ["States Theta(N log N) time + O(N) space for merge sort", "States Theta(N^2) total time and O(N) stack height for sorted BST"]
+    },
+    {
+      "question_id": "eval-comp-03",
+      "category": "complexity_analysis",
+      "answerable": true,
+      "prompt": "For a sparse graph with |V| = 10,000 vertices and |E| = 18,000 edges, compare the time and space complexity of running BFS using an adjacency matrix versus singly linked adjacency lists.",
+      "expected_answer": "An adjacency matrix consumes Theta(V^2) (~10^8 cells) space and inspects all V columns per popped vertex for O(V^2) time. Adjacency lists consume Theta(V + E) space and visit only existing edges for O(V + E) time.",
+      "relevant_concept_ids": ["dsa-c-graph-adj-bfs", "dsa-c-singly-linked-list"],
+      "evaluation_criteria": ["Gives O(V^2) time & space for matrix", "Gives O(V + E) time & space for adjacency list"]
+    },
+    {
+      "question_id": "eval-impl-01",
+      "category": "code_implementation",
+      "answerable": true,
+      "prompt": "Write a C function `void sll_reverse(SNode **head)` that reverses a singly linked list iteratively in O(1) extra space without allocating nodes.",
+      "expected_answer": "Iterate with `prev = NULL, cur = *head`: save `nxt = cur->next`, set `cur->next = prev`, advance `prev = cur, cur = nxt`, and update `*head = prev` at exit.",
+      "relevant_concept_ids": ["dsa-c-singly-linked-list"],
+      "evaluation_criteria": ["Saves cur->next before mutation", "Updates *head via pointer-to-pointer", "O(1) extra space"]
+    },
+    {
+      "question_id": "eval-impl-02",
+      "category": "code_implementation",
+      "answerable": true,
+      "prompt": "Show how a min-heap array pops its minimum element and restores the heap invariant using `sift-down` in C (`0`-based indexing).",
+      "expected_answer": "Save `root = items[0]`, move `items[--size]` to `items[0]`, and loop while `2*i + 1 < size`: select child `c = 2*i + 1` (incrementing `c` if `c + 1 < size && items[c+1] < items[c]`), break if `items[i] <= items[c]`, otherwise swap and set `i = c`.",
+      "relevant_concept_ids": ["dsa-c-binary-min-heap"],
+      "evaluation_criteria": ["Guards right-child bounds with c + 1 < size", "Compares smaller child vs parent before swap"]
+    },
+    {
+      "question_id": "eval-impl-03",
+      "category": "code_implementation",
+      "answerable": true,
+      "prompt": "Implement stable merging of sorted slices `[lo, mid)` and `[mid, hi)` using a pre-allocated temporary buffer `tmp` in C.",
+      "expected_answer": "Maintain indices `i = lo, j = mid, k = lo`; while `i < mid && j < hi`, copy `arr[i++]` if `arr[i] <= arr[j]` else `arr[j++]`; drain remaining left and right runs; copy `tmp[lo..hi)` back into `arr[lo..hi)`.",
+      "relevant_concept_ids": ["dsa-c-merge-sort"],
+      "evaluation_criteria": ["Uses <= for tie-breaking stability", "Drains both remainder runs and copies back"]
+    },
+    {
+      "question_id": "eval-dbg-01",
+      "category": "debugging",
+      "answerable": true,
+      "prompt": "A developer deletes keys from a linear-probing hash table by setting `slot.state = HT_EMPTY`, after which searches for keys inserted later sporadically return -1 even though those keys were never removed. Diagnose and fix the bug.",
+      "expected_answer": "Setting a deleted slot to HT_EMPTY breaks ongoing probe sequences for colliding keys placed further along the cluster. Mark deleted slots with an HT_TOMBSTONE state so lookups keep probing while inserts can reclaim tombstones once duplicate checks complete.",
+      "relevant_concept_ids": ["dsa-c-open-address-hash"],
+      "evaluation_criteria": ["Identifies premature probe chain truncation", "Prescribes HT_TOMBSTONE state"]
+    },
+    {
+      "question_id": "eval-dbg-02",
+      "category": "debugging",
+      "answerable": true,
+      "prompt": "Spot the bug in `arr->data = realloc(arr->data, new_cap * sizeof(int)); if (!arr->data) return -1;` when memory exhaustion occurs.",
+      "expected_answer": "Overwriting `arr->data` directly with NULL on allocation failure destroys the only pointer to the still-valid original buffer, causing a memory leak. Store `realloc` result in a temporary `int *tmp` first and only assign `arr->data = tmp` when `tmp != NULL`.",
+      "relevant_concept_ids": ["dsa-c-amortized-dynamic-array"],
+      "evaluation_criteria": ["Identifies leaked original pointer on NULL", "Uses temporary pointer"]
+    },
+    {
+      "question_id": "eval-dbg-03",
+      "category": "debugging",
+      "answerable": true,
+      "prompt": "An engineer changes binary search over `size_t lo = 0, hi = n - 1` to loop `while (lo <= hi)` with `hi = mid - 1`. When does this invoke unsigned wrap-around / out-of-bounds trouble?",
+      "expected_answer": "If `n == 0`, `n - 1` wraps unsigned `size_t` to `SIZE_MAX`. Also, if the target is smaller than `arr[0]` and `mid` reaches `0`, setting `hi = mid - 1` wraps `size_t hi` to `SIZE_MAX`, causing invalid indexing or near-infinite looping.",
+      "relevant_concept_ids": ["dsa-c-binary-search"],
+      "evaluation_criteria": ["Identifies unsigned size_t underflow at n==0 and mid==0", "Recommends half-open [lo, hi) or careful bounds"]
+    },
+    {
+      "question_id": "eval-sel-01",
+      "category": "algorithm_selection",
+      "answerable": true,
+      "prompt": "You need a collection in C supporting O(1) arbitrary-item removal given a handle pointer and O(1) push/pop at both ends without dynamic array resizing. Which structure fits best and why?",
+      "expected_answer": "A circular doubly linked list (with sentinel or tail/head). Holding the `DNode *` handle permits O(1) unlinking by updating neighbor links and O(1) insert at head/tail without shifting or reallocating elements.",
+      "relevant_concept_ids": ["dsa-c-doubly-circular-list"],
+      "evaluation_criteria": ["Selects doubly linked list", "Justifies O(1) unlink from node handle without shifting"]
+    },
+    {
+      "question_id": "eval-sel-02",
+      "category": "algorithm_selection",
+      "answerable": true,
+      "prompt": "Between merge sort and binary min-heap extraction, which is preferable when you only need the k smallest elements (k << n) out of an incoming stream without keeping stability across equal keys?",
+      "expected_answer": "A heap-based selection approach (or min-heap build / bounded k-max-heap) avoids sorting all n elements completely into a stable total order when only the smallest k items are needed.",
+      "relevant_concept_ids": ["dsa-c-binary-min-heap", "dsa-c-merge-sort"],
+      "evaluation_criteria": ["Selects heap-based priority structure", "Mentions avoiding full O(n log n) sort when k << n"]
+    },
+    {
+      "question_id": "eval-sel-03",
+      "category": "algorithm_selection",
+      "answerable": true,
+      "prompt": "Which graph representation and traversal structure would you pair in C to find minimum-hop reachability on a sparse road network of 100,000 intersections averaging 4 roads each?",
+      "expected_answer": "Use adjacency lists paired with Breadth-First Search backed by a circular/ring queue (or bounded array queue), achieving O(V + E) time and space rather than an O(V^2) matrix holding ~10^10 entries.",
+      "relevant_concept_ids": ["dsa-c-graph-adj-bfs", "dsa-c-circular-ring-queue"],
+      "evaluation_criteria": ["Selects adjacency list + BFS", "Rejects V^2 matrix for 100k sparse nodes"]
+    },
+    {
+      "question_id": "eval-edge-01",
+      "category": "edge_cases",
+      "answerable": true,
+      "prompt": "What happens in `merge_sort_rec(arr, tmp, lo, hi)` if `lo == hi` (empty slice) or `hi - lo == 1` (single element), and what happens if `binary_search_int` receives `n == 0`?",
+      "expected_answer": "In both routines, the base condition (`hi - lo <= 1` for merge sort; `lo < hi` false immediately when `0 < 0` for binary search) exits safely without touching array elements and returns cleanly (-1 for binary search).",
+      "relevant_concept_ids": ["dsa-c-merge-sort", "dsa-c-binary-search", "dsa-c-recursion-call-stack"],
+      "evaluation_criteria": ["Traces 0-element and 1-element termination", "Confirms zero memory access on n==0"]
+    },
+    {
+      "question_id": "eval-edge-02",
+      "category": "edge_cases",
+      "answerable": true,
+      "prompt": "Suppose a full linear-probing hash table of capacity CAP receives `ht_put` for an existing key vs a brand-new key when tombstones occupy free slots. Describe both behaviors.",
+      "expected_answer": "If the existing key appears anywhere in the probe cycle, its value is updated in place without needing a free slot. If all slots are occupied or tombstoned and the key is absent, insertion fills the earliest tombstone encountered (or returns full/-1 only when neither HT_EMPTY nor HT_TOMBSTONE exists).",
+      "relevant_concept_ids": ["dsa-c-open-address-hash"],
+      "evaluation_criteria": ["Handles in-place update when key matches", "Distinguishes full tombstones from full occupied slots"]
+    },
+    {
+      "question_id": "eval-edge-03",
+      "category": "edge_cases",
+      "answerable": true,
+      "prompt": "Why does `memcmp(&s1, &s2, sizeof(s1)) == 0` fail as an equality check on two C structs initialized member-by-member?",
+      "expected_answer": "C compilers only guarantee copying/setting named fields, leaving alignment padding bytes between or after fields indeterminate unless cleared upfront via memset or zero-initialization; distinct indeterminate padding fails bytewise `memcmp`.",
+      "relevant_concept_ids": ["dsa-c-struct-memory-layout"],
+      "evaluation_criteria": ["Identifies uninitialized padding holes", "Recommends fieldwise comparison or explicit zeroing"]
+    },
+    {
+      "question_id": "eval-ambig-01",
+      "category": "ambiguous_or_unanswerable",
+      "answerable": false,
+      "prompt": "What is the exact runtime in milliseconds for running VIORA's `bst_insert` on 1,000,000 keys?",
+      "expected_answer": "Unanswerable without execution hardware, compiler optimization flags, allocation overhead, and key insertion order (sorted order yields O(n^2) vs random order O(n log n)). Must ask for workload distribution and hardware/benchmark context rather than guessing.",
+      "relevant_concept_ids": ["dsa-c-binary-search-tree", "dsa-c-asymptotic-bounds"],
+      "evaluation_criteria": ["Refuses to fabricate wall-clock milliseconds", "Identifies missing key distribution and hardware factors"]
+    },
+    {
+      "question_id": "eval-ambig-02",
+      "category": "ambiguous_or_unanswerable",
+      "answerable": false,
+      "prompt": "Is `sort` better than `search` for my C assignment?",
+      "expected_answer": "Ambiguous question comparing two different problem classes (reordering vs membership lookup). Must clarify whether the workload performs repeated lookups (amortizing an initial O(n log n) sort + O(log n) binary search) vs one-off lookup (where O(n) linear scan or hashing suffices).",
+      "relevant_concept_ids": ["dsa-c-binary-search", "dsa-c-merge-sort"],
+      "evaluation_criteria": ["Points out distinct operations", "Asks about query-to-update ratio"]
+    },
+    {
+      "question_id": "eval-ambig-03",
+      "category": "ambiguous_or_unanswerable",
+      "answerable": false,
+      "prompt": "Using only the corpus, give the worst-case time complexity of Dijkstra's algorithm with a Fibonacci heap.",
+      "expected_answer": "Not answerable from the corpus alone: the corpus covers binary min-heaps and unweighted BFS, and explicitly notes weighted shortest paths (Dijkstra) as an application rather than specifying Fibonacci heap bounds (decrease-key amortized O(1)). Must flag missing source evidence.",
+      "relevant_concept_ids": ["dsa-c-binary-min-heap", "dsa-c-graph-adj-bfs"],
+      "evaluation_criteria": ["States topic is outside provided corpus evidence", "Does not claim source support"]
+    }
+  ]
+}

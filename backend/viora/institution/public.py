@@ -50,12 +50,14 @@ def offering_actor_access(
     session: Session, tenant_id: UUID, user_id: UUID, offering_id: UUID
 ) -> OfferingActorAccess:
     """Inspect active offering chain, teacher assignment, and student enrolment for one actor."""
-    from ..identity.public import identity_directory
+    from ..identity.public import InstitutionRole, identity_directory
+    from .repository import SqlInstitutionDirectory
 
-    directory = institution_directory(
-        session, identity_directory(session, institution_status(session))
+    identities = identity_directory(session, institution_status(session))
+    directory = SqlInstitutionDirectory(session, identities)
+    active, has_teacher, has_student = directory.offering_access_state(
+        tenant_id, user_id, offering_id, need_teacher=True, need_student=True
     )
-    active = directory.academic_context(tenant_id, offering_id) is not None
     if not active:
         return OfferingActorAccess(
             tenant_id=tenant_id,
@@ -65,15 +67,20 @@ def offering_actor_access(
             is_assigned_teacher=False,
             is_enrolled_student=False,
         )
+    roles = (
+        identities.applicable_roles(user_id, tenant_id)
+        if (has_teacher or has_student)
+        else frozenset()
+    )
+    is_teacher = has_teacher and InstitutionRole.subject_teacher in roles
+    is_student = has_student and InstitutionRole.student in roles
     return OfferingActorAccess(
         tenant_id=tenant_id,
         offering_id=offering_id,
         user_id=user_id,
         academic_active=True,
-        is_assigned_teacher=directory.teacher_assignment(tenant_id, user_id, offering_id)
-        is not None,
-        is_enrolled_student=directory.student_enrolment(tenant_id, user_id, offering_id)
-        is not None,
+        is_assigned_teacher=is_teacher,
+        is_enrolled_student=is_student,
     )
 
 

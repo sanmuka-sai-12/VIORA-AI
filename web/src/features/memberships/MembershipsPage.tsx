@@ -1,14 +1,11 @@
 import { useCallback, useState, type FormEvent } from "react";
-import {
-  normalizeApiError,
-  type InstitutionRole,
-  type MembershipStatus,
-  type MemberSummary,
-  type NormalizedApiError,
+import type {
+  InstitutionRole,
+  MembershipStatus,
+  MemberSummary,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import {
-  AlertBanner,
   ConfirmDialog,
   DataTable,
   FormField,
@@ -27,6 +24,7 @@ import {
 } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
 import { validateRequiredUuid } from "../../tenant/validation";
+import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 
 function statusTone(
@@ -39,15 +37,13 @@ function statusTone(
 }
 
 export function MembershipsPage() {
-  const { apiClient, controller: authController, snapshot: auth } = useAuth();
+  const { apiClient, snapshot: auth } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
   const flags = deriveRoleFlags(tenant.selectedInstitution?.roles ?? []);
+  const feedback = useActionFeedback();
 
   const [statusFilter, setStatusFilter] = useState<MembershipStatus | "all">("all");
-  const [actionError, setActionError] = useState<NormalizedApiError | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-
   const [addUserId, setAddUserId] = useState("");
   const [addStatus, setAddStatus] = useState<"active" | "invited">("active");
   const [adding, setAdding] = useState(false);
@@ -86,161 +82,85 @@ export function MembershipsPage() {
   const handleAddMember = async (e: FormEvent) => {
     e.preventDefault();
     if (!tenantId) return;
-    setActionError(null);
-    setActionSuccess(null);
-
     const problem = validateRequiredUuid(addUserId, "User ID");
     if (problem) {
-      setActionError({ status: 422, code: "validation_error", message: problem });
+      feedback.setValidationError(problem);
       return;
     }
-
-    setAdding(true);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+    await feedback.runApiAction({
+      setBusy: setAdding,
+      call: () =>
         apiClient.POST("/api/v1/tenants/{tenant_id}/memberships", {
           params: { path: { tenant_id: tenantId } },
           body: { user_id: addUserId.trim(), status: addStatus },
         }),
-      );
-      if (res.data) {
+      fallbackError: "Unable to add institutional member.",
+      onSuccess: (data) => {
         setAddUserId("");
-        setActionSuccess(
-          `Added member "${res.data.display_name}" with status "${res.data.status}".`,
-        );
+        feedback.setActionSuccess(`Added member "${data.display_name}" with status "${data.status}".`);
         list.resetToFirstPage();
         list.reload();
-      } else {
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Unable to add institutional member."),
-        );
-      }
-    } catch {
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setAdding(false);
-    }
+      },
+    });
   };
 
   const handleLifecycleChange = async () => {
     if (!tenantId || !confirmLifecycle) return;
-    setBusy(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const { member, nextStatus } = confirmLifecycle;
-      const res = await authController.runWithFreshToken(() =>
+    const { member, nextStatus } = confirmLifecycle;
+    await feedback.runApiAction({
+      setBusy,
+      call: () =>
         apiClient.POST("/api/v1/tenants/{tenant_id}/memberships/{user_id}/lifecycle", {
           params: { path: { tenant_id: tenantId, user_id: member.user_id } },
           body: { status: nextStatus },
         }),
-      );
-      if (res.data) {
-        setConfirmLifecycle(null);
-        setActionSuccess(
-          `Updated ${res.data.display_name} membership status to "${res.data.status}".`,
-        );
-        if (roleModalMember?.user_id === res.data.user_id) {
-          setRoleModalMember(res.data);
-        }
+      fallbackError: "Unable to change membership status.",
+      onSuccess: (data) => {
+        feedback.setActionSuccess(`Updated ${data.display_name} membership status to "${data.status}".`);
+        if (roleModalMember?.user_id === data.user_id) setRoleModalMember(data);
         list.reload();
-      } else {
-        setConfirmLifecycle(null);
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Unable to change membership status."),
-        );
-      }
-    } catch {
-      setConfirmLifecycle(null);
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setBusy(false);
-    }
+      },
+      onFinally: () => setConfirmLifecycle(null),
+    });
   };
 
   const handleGrantRole = async (e: FormEvent) => {
     e.preventDefault();
     if (!tenantId || !roleModalMember) return;
-    setBusy(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await authController.runWithFreshToken(() =>
+    const targetId = roleModalMember.user_id;
+    await feedback.runApiAction({
+      setBusy,
+      call: () =>
         apiClient.POST("/api/v1/tenants/{tenant_id}/memberships/{user_id}/roles", {
-          params: { path: { tenant_id: tenantId, user_id: roleModalMember.user_id } },
+          params: { path: { tenant_id: tenantId, user_id: targetId } },
           body: { role: roleToGrant },
         }),
-      );
-      if (res.data) {
-        setRoleModalMember(res.data);
-        setActionSuccess(
-          `Granted role "${ROLE_LABELS[roleToGrant]}" to ${res.data.display_name}.`,
-        );
+      fallbackError: "Role grant was rejected.",
+      onSuccess: (data) => {
+        setRoleModalMember(data);
+        feedback.setActionSuccess(`Granted role "${ROLE_LABELS[roleToGrant]}" to ${data.display_name}.`);
         list.reload();
-      } else {
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Role grant was rejected."),
-        );
-      }
-    } catch {
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setBusy(false);
-    }
+      },
+    });
   };
 
   const handleConfirmRevokeRole = async () => {
     if (!tenantId || !confirmRevokeRole) return;
-    setBusy(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const { member, role } = confirmRevokeRole;
-      const res = await authController.runWithFreshToken(() =>
-        apiClient.POST(
-          "/api/v1/tenants/{tenant_id}/memberships/{user_id}/roles/{role}/revoke",
-          {
-            params: {
-              path: { tenant_id: tenantId, user_id: member.user_id, role },
-            },
-          },
-        ),
-      );
-      if (res.data) {
-        setConfirmRevokeRole(null);
-        setRoleModalMember(res.data);
-        setActionSuccess(
-          `Revoked role "${ROLE_LABELS[role]}" from ${res.data.display_name}.`,
-        );
+    const { member, role } = confirmRevokeRole;
+    await feedback.runApiAction({
+      setBusy,
+      call: () =>
+        apiClient.POST("/api/v1/tenants/{tenant_id}/memberships/{user_id}/roles/{role}/revoke", {
+          params: { path: { tenant_id: tenantId, user_id: member.user_id, role } },
+        }),
+      fallbackError: "Unable to revoke role.",
+      onSuccess: (data) => {
+        setRoleModalMember(data);
+        feedback.setActionSuccess(`Revoked role "${ROLE_LABELS[role]}" from ${data.display_name}.`);
         list.reload();
-      } else {
-        setConfirmRevokeRole(null);
-        setActionError(
-          normalizeApiError(res.error, res.response.status, "Unable to revoke role."),
-        );
-      }
-    } catch {
-      setConfirmRevokeRole(null);
-      setActionError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setBusy(false);
-    }
+      },
+      onFinally: () => setConfirmRevokeRole(null),
+    });
   };
 
   const availableRolesForModal = roleModalMember
@@ -254,21 +174,7 @@ export function MembershipsPage() {
         subtitle="Associate existing verified global users with this institution, manage lifecycle states, and assign institutional roles."
       />
 
-      {actionSuccess && (
-        <AlertBanner
-          tone="success"
-          message={actionSuccess}
-          onDismiss={() => setActionSuccess(null)}
-        />
-      )}
-      {actionError && (
-        <AlertBanner
-          tone="error"
-          title="Membership operation failed"
-          error={actionError}
-          onDismiss={() => setActionError(null)}
-        />
-      )}
+      {feedback.alerts}
 
       {flags.isAdmin && (
         <SectionCard

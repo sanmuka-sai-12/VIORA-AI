@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import {
-  normalizeApiError,
-  type NormalizedApiError,
-  type OfferingSourcePolicyInfo,
-  type SourceSummary,
-  type SubjectOfferingSummary,
+import type {
+  OfferingSourcePolicyInfo,
+  SourceSummary,
+  SubjectOfferingSummary,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStates";
 import {
-  AlertBanner,
   DataTable,
   FormField,
   PageHeader,
@@ -19,6 +16,7 @@ import {
 } from "../../components/common/UiPrimitives";
 import { deriveRoleFlags } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
+import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { SourceKnowledgePanel } from "./SourceKnowledgePanel";
 import { buildSourceUploadFormData } from "./sourceHelpers";
@@ -28,6 +26,7 @@ export function SourcesPage() {
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
   const flags = deriveRoleFlags(tenant.selectedInstitution?.roles ?? []);
+  const feedback = useActionFeedback();
 
   const [offerings, setOfferings] = useState<SubjectOfferingSummary[]>([]);
   const [offeringId, setOfferingId] = useState("");
@@ -41,8 +40,6 @@ export function SourcesPage() {
   const [fileObj, setFileObj] = useState<File | null>(null);
   const [visibility, setVisibility] = useState<"offering_published" | "teacher_only">("offering_published");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<NormalizedApiError | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -100,75 +97,67 @@ export function SourcesPage() {
   const handleUpload = async (e: FormEvent) => {
     e.preventDefault();
     if (!tenantId || !offeringId) return;
-    setError(null);
-    setSuccess(null);
     if (!title.trim()) {
-      setError({ status: 422, code: "validation_error", message: "Title is required." });
+      feedback.setValidationError("Title is required.");
+      return;
+    }
+    if (mode === "file" && !fileObj) {
+      feedback.setValidationError("Select a document file to upload.");
       return;
     }
 
     const originKind = canUploadTeacher ? "teacher_resource" : "student_submission";
     const vis = canUploadTeacher ? visibility : "owner_private";
-    setSubmitting(true);
-    try {
-      const res =
+    await feedback.runApiAction({
+      setBusy: setSubmitting,
+      call: () =>
         mode === "text"
-          ? await authController.runWithFreshToken(() =>
-              apiClient.POST("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources", {
-                params: { path: { tenant_id: tenantId, offering_id: offeringId } },
-                body: {
-                  title: title.trim(),
-                  input_format: inputFormat,
-                  content,
-                  origin_kind: originKind,
-                  visibility: vis,
-                },
-              }),
-            )
-          : await authController.runWithFreshToken(() => {
-              if (!fileObj) throw new Error("missing_file");
-              return apiClient.POST("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources/files", {
-                params: { path: { tenant_id: tenantId, offering_id: offeringId } },
-                body: buildSourceUploadFormData({
-                  title,
-                  file: fileObj,
-                  originKind,
-                  visibility: vis,
-                }) as never,
-              });
-            });
-      if (res.data) {
+          ? apiClient.POST("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources", {
+              params: { path: { tenant_id: tenantId, offering_id: offeringId } },
+              body: {
+                title: title.trim(),
+                input_format: inputFormat,
+                content,
+                origin_kind: originKind,
+                visibility: vis,
+              },
+            })
+          : apiClient.POST("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources/files", {
+              params: { path: { tenant_id: tenantId, offering_id: offeringId } },
+              body: buildSourceUploadFormData({
+                title,
+                file: fileObj!,
+                originKind,
+                visibility: vis,
+              }) as never,
+            }),
+      fallbackError: "Upload failed.",
+      onSuccess: (data) => {
         setTitle("");
         setContent("");
         setFileObj(null);
-        setSelectedSource(res.data.source);
-        setSuccess(`Uploaded "${res.data.source.title}" (job ${res.data.job_state}).`);
+        setSelectedSource(data.source);
+        feedback.setActionSuccess(`Uploaded "${data.source.title}" (job ${data.job_state}).`);
         list.resetToFirstPage();
         list.reload();
-      } else {
-        setError(normalizeApiError(res.error, res.response.status, "Upload failed."));
-      }
-    } catch {
-      setError({ status: 422, code: "validation_error", message: "Check upload inputs and file selection." });
-    } finally {
-      setSubmitting(false);
-    }
+      },
+    });
   };
 
   const toggleStudentSubmissions = async () => {
     if (!tenantId || !offeringId || !policy) return;
-    const res = await authController.runWithFreshToken(() =>
-      apiClient.PATCH("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/source-policy", {
-        params: { path: { tenant_id: tenantId, offering_id: offeringId } },
-        body: { student_submissions_enabled: !policy.student_submissions_enabled },
-      }),
-    );
-    if (res.data) {
-      setPolicy(res.data);
-      setSuccess(`Student submissions ${res.data.student_submissions_enabled ? "enabled" : "disabled"}.`);
-    } else {
-      setError(normalizeApiError(res.error, res.response.status, "Failed to update source policy."));
-    }
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.PATCH("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/source-policy", {
+          params: { path: { tenant_id: tenantId, offering_id: offeringId } },
+          body: { student_submissions_enabled: !policy.student_submissions_enabled },
+        }),
+      fallbackError: "Failed to update source policy.",
+      onSuccess: (data) => {
+        setPolicy(data);
+        feedback.setActionSuccess(`Student submissions ${data.student_submissions_enabled ? "enabled" : "disabled"}.`);
+      },
+    });
   };
 
   if (!tenantId) return null;
@@ -195,8 +184,7 @@ export function SourcesPage() {
         }
       />
 
-      <AlertBanner tone="error" error={error} onDismiss={() => setError(null)} />
-      <AlertBanner tone="success" message={success ?? undefined} onDismiss={() => setSuccess(null)} />
+      {feedback.alerts}
 
       {policy && (
         <SectionCard

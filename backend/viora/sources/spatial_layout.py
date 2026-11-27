@@ -137,14 +137,28 @@ def _is_header_row(row: tuple[str, ...], body_rows: list[tuple[str, ...]]) -> bo
     )
 
 
+def _prune_table_grid(rows: list[tuple[str, ...]]) -> tuple[list[tuple[str, ...]], int, int, float]:
+    """Drop empty columns and return (rows, non_empty, total_cells, fill_ratio)."""
+    col_count = len(rows[0])
+    keep_cols = [ci for ci in range(col_count) if any(r[ci] != "" for r in rows)]
+    if len(keep_cols) < 2:
+        return [], 0, 0, 0.0
+    compacted = [tuple(r[ci] for ci in keep_cols) for r in rows]
+    non_empty = sum(1 for r in compacted for c in r if c)
+    total_cells = len(compacted) * len(keep_cols)
+    return compacted, non_empty, total_cells, non_empty / max(1, total_cells)
+
+
 def _extract_spatial_tables(
     page: Any,
     pw: float,
     ph: float,
     *,
     allow_borderless: bool = True,
-) -> tuple[list[SpatialTable], list[tuple[str, str, str]]]:
+    raw_words: list[dict[str, Any]] | None = None,
+) -> tuple[list[SpatialTable], list[BoundingBox], list[tuple[str, str, str]]]:
     tables: list[SpatialTable] = []
+    excluded_grid_boxes: list[BoundingBox] = []
     warnings: list[tuple[str, str, str]] = []
 
     has_lines = len(getattr(page, "lines", ()) or ()) >= 4 or len(
@@ -154,100 +168,84 @@ def _extract_spatial_tables(
     def _convert_tables(found: list[Any], strategy: str) -> list[SpatialTable]:
         out: list[SpatialTable] = []
         for tbl in found:
+            if strategy == "lines" and getattr(tbl, "bbox", None):
+                excluded_grid_boxes.append(_clamp_bbox(*tbl.bbox, pw, ph))
             raw_rows = tbl.extract() or []
-            cleaned = [
-                tuple(_clean_cell(c) for c in row)
-                for row in raw_rows
-                if any(_clean_cell(c) for c in row)
-            ]
+            cleaned = []
+            for row in raw_rows:
+                vals = tuple(_clean_cell(c) for c in row)
+                if any(vals):
+                    cleaned.append(vals)
             if len(cleaned) < 2:
                 continue
             col_count = max(len(r) for r in cleaned)
             if col_count < 2:
                 continue
-            normalized_rows = [
-                r + ("",) * (col_count - len(r)) for r in cleaned
-            ]
-            # Drop columns that are completely empty across all rows
-            keep_cols = [
-                ci
-                for ci in range(col_count)
-                if any(r[ci] != "" for r in normalized_rows)
-            ]
-            if len(keep_cols) < 2:
+            normalized_rows = [r + ("",) * (col_count - len(r)) for r in cleaned]
+            final_rows, non_empty, total_cells, fill_ratio = _prune_table_grid(normalized_rows)
+            if not final_rows:
                 continue
-            final_rows = [tuple(r[ci] for ci in keep_cols) for r in normalized_rows]
-            non_empty = sum(1 for r in final_rows for c in r if c)
-            total_cells = len(final_rows) * len(keep_cols)
-            fill_ratio = non_empty / max(1, total_cells)
 
             if strategy == "text":
                 # Trim leading/trailing caption or single-span prose rows accidentally pulled into borderless table
-                while final_rows and (
-                    _CAPTION_RE.match(" ".join(c for c in final_rows[0] if c))
-                    or sum(1 for c in final_rows[0] if c) <= 1
+                first_data_row = 0
+                while first_data_row < len(final_rows) and (
+                    _CAPTION_RE.match(" ".join(c for c in final_rows[first_data_row] if c))
+                    or sum(1 for c in final_rows[first_data_row] if c) <= 1
                 ):
-                    final_rows.pop(0)
+                    first_data_row += 1
+                if first_data_row:
+                    del final_rows[:first_data_row]
+                col_n = len(final_rows[0]) if final_rows else 0
                 while final_rows and (
                     sum(1 for c in final_rows[-1] if c) <= 1
-                    or (
-                        sum(1 for c in final_rows[-1] if c) == 2
-                        and len(keep_cols) >= 3
-                    )
+                    or (sum(1 for c in final_rows[-1] if c) == 2 and col_n >= 3)
                 ):
                     final_rows.pop()
                 if len(final_rows) < 3:
                     continue
-                # Recompute populated columns after trimming
-                keep_cols = [
-                    ci
-                    for ci in range(len(final_rows[0]))
-                    if any(r[ci] != "" for r in final_rows)
-                ]
-                if len(keep_cols) < 2:
+                final_rows, non_empty, total_cells, fill_ratio = _prune_table_grid(final_rows)
+                if not final_rows:
                     continue
-                final_rows = [tuple(r[ci] for ci in keep_cols) for r in final_rows]
-                non_empty = sum(1 for r in final_rows for c in r if c)
-                total_cells = len(final_rows) * len(keep_cols)
-                fill_ratio = non_empty / max(1, total_cells)
                 # Guard against misclassifying 2-column prose as a borderless table
-                avg_words = sum(len(c.split()) for r in final_rows for c in r if c) / max(
-                    1, non_empty
-                )
-                if len(final_rows) == 2 and avg_words > 4.0:
-                    continue
-                if len(keep_cols) == 2 and avg_words > 4.0:
+                avg_words = sum(len(c.split()) for r in final_rows for c in r if c) / max(1, non_empty)
+                if (len(final_rows) == 2 or len(final_rows[0]) == 2) and avg_words > 4.0:
                     continue
                 if fill_ratio < 0.55:
                     continue
 
             # Tighten bbox to actual non-trimmed rows when borderless rows were trimmed
             if strategy == "text" and hasattr(tbl, "rows") and tbl.rows:
-                cell_words = [
-                    w
-                    for w in (page.extract_words(x_tolerance=3, y_tolerance=3) or [])
-                    if tbl.bbox[0] - 2 <= float(w["x0"])
-                    and float(w["x1"]) <= tbl.bbox[2] + 2
-                    and tbl.bbox[1] - 2 <= float(w["top"])
-                    and float(w["bottom"]) <= tbl.bbox[3] + 2
-                    and not _CAPTION_RE.match(str(w["text"]))
-                ]
-                caption_tops = [
-                    float(w["top"])
-                    for w in cell_words
-                    if _CAPTION_RE.match(str(w["text"]))
-                ]
+                words_src = (
+                    raw_words
+                    if raw_words is not None
+                    else (page.extract_words(x_tolerance=3, y_tolerance=3) or [])
+                )
+                cell_words: list[dict[str, Any]] = []
+                caption_tops: list[float] = []
+                bx0, by0, bx1, by1 = tbl.bbox
+                for w in words_src:
+                    if (
+                        bx0 - 2 <= float(w["x0"])
+                        and float(w["x1"]) <= bx1 + 2
+                        and by0 - 2 <= float(w["top"])
+                        and float(w["bottom"]) <= by1 + 2
+                    ):
+                        if _CAPTION_RE.match(str(w["text"])):
+                            caption_tops.append(float(w["top"]))
+                        else:
+                            cell_words.append(w)
                 min_data_top = (max(caption_tops) + 6.0) if caption_tops else -1.0
+                cell_tokens: set[str] = set()
+                for row in final_rows:
+                    for cell in row:
+                        if cell:
+                            cell_tokens.add(cell)
+                            cell_tokens.update(cell.split())
                 matching = [
                     w
                     for w in cell_words
-                    if float(w["top"]) >= min_data_top
-                    and any(
-                        str(w["text"]) == cell or str(w["text"]) in cell.split()
-                        for row in final_rows
-                        for cell in row
-                        if cell
-                    )
+                    if float(w["top"]) >= min_data_top and str(w["text"]) in cell_tokens
                 ]
                 if matching:
                     bbox = _clamp_bbox(
@@ -326,7 +324,7 @@ def _extract_spatial_tables(
         )
         tables.extend(_convert_tables(borderless or [], "text"))
 
-    return tables, warnings
+    return tables, excluded_grid_boxes, warnings
 
 
 def _detect_figures_and_diagrams(
@@ -374,36 +372,33 @@ def _detect_figures_and_diagrams(
         prims.append(box)
 
     if len(prims) >= 3:
-        clusters: list[list[BoundingBox]] = []
-        for pbox in prims:
-            placed = False
-            for cl in clusters:
-                if any(_boxes_overlap(pbox, existing, pad=18.0) for existing in cl):
-                    cl.append(pbox)
-                    placed = True
-                    break
-            if not placed:
-                clusters.append([pbox])
+        prims.sort(key=lambda b: (b.y0, b.x0))
+        n = len(prims)
+        parent = list(range(n))
 
-        # Merge clusters that touch after additions
-        merged = True
-        while merged and len(clusters) > 1:
-            merged = False
-            for i in range(len(clusters)):
-                for j in range(i + 1, len(clusters)):
-                    if any(
-                        _boxes_overlap(a, b, pad=18.0)
-                        for a in clusters[i]
-                        for b in clusters[j]
-                    ):
-                        clusters[i].extend(clusters[j])
-                        clusters.pop(j)
-                        merged = True
-                        break
-                if merged:
-                    break
+        def _find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
 
-        for cl in clusters:
+        for i in range(n):
+            a = prims[i]
+            y_limit = a.y1 + 18.0
+            for j in range(i + 1, n):
+                b = prims[j]
+                if b.y0 > y_limit:
+                    break
+                if not (a.x1 + 18.0 < b.x0 or b.x1 + 18.0 < a.x0):
+                    ri, rj = _find(i), _find(j)
+                    if ri != rj:
+                        parent[rj] = ri
+
+        groups: dict[int, list[BoundingBox]] = {}
+        for i, pbox in enumerate(prims):
+            groups.setdefault(_find(i), []).append(pbox)
+
+        for cl in groups.values():
             if len(cl) < 3:
                 continue
             bx0 = min(b.x0 for b in cl)
@@ -495,10 +490,10 @@ def _detect_column_gutter(
     pw: float,
 ) -> float | None:
     """Find a vertical whitespace gutter separating multi-column body text."""
-    if pw < 200.0 or len(rows) < 4:
+    if pw < 200.0 or len(rows) < 3:
         return None
     int_w = max(1, int(pw))
-    occupancy = [0] * (int_w + 1)
+    diff = [0] * (int_w + 2)
     left_rows = 0
     right_rows = 0
     mid_lo = int(pw * 0.28)
@@ -522,18 +517,22 @@ def _detect_column_gutter(
         for w in row_sorted:
             s = max(0, int(float(w["x0"])))
             e = min(int_w, int(float(w["x1"])))
-            for x in range(s, e + 1):
-                occupancy[x] += 1
+            diff[s] += 1
+            diff[e + 1] -= 1
 
     if len(candidate_rows) < 2:
         return None
 
-    max_cross = max(1, int(len(candidate_rows) * 0.15))
+    max_cross = max(1, int(len(candidate_rows) * 0.15)) if len(candidate_rows) >= 4 else 0
     best_run_start = -1
     best_run_len = 0
     cur_start = -1
-    for x in range(mid_lo, mid_hi):
-        if occupancy[x] <= max_cross:
+    running = 0
+    for x in range(mid_hi):
+        running += diff[x]
+        if x < mid_lo:
+            continue
+        if running <= max_cross:
             if cur_start == -1:
                 cur_start = x
         else:
@@ -788,16 +787,6 @@ def analyze_page_spatial(
     ph = float(getattr(page, "height", 792.0) or 792.0)
     warnings: list[tuple[str, str, str]] = []
 
-    tables: list[SpatialTable] = []
-    if extract_tables:
-        tables, tbl_warnings = _extract_spatial_tables(
-            page, pw, ph, allow_borderless=allow_borderless_tables
-        )
-        warnings.extend(tbl_warnings)
-    table_boxes = [t.bbox for t in tables]
-
-    figures = _detect_figures_and_diagrams(page, pw, ph, table_boxes)
-
     raw_words = (
         page.extract_words(
             x_tolerance=3,
@@ -808,6 +797,24 @@ def analyze_page_spatial(
         )
         or []
     )
+
+    tables: list[SpatialTable] = []
+    excluded_grid_boxes: list[BoundingBox] = []
+    if extract_tables:
+        tables, excluded_grid_boxes, tbl_warnings = _extract_spatial_tables(
+            page,
+            pw,
+            ph,
+            allow_borderless=allow_borderless_tables,
+            raw_words=raw_words,
+        )
+        warnings.extend(tbl_warnings)
+    table_boxes = [t.bbox for t in tables]
+
+    figures = _detect_figures_and_diagrams(
+        page, pw, ph, table_boxes + excluded_grid_boxes
+    )
+
     if len(raw_words) > 25_000:
         raw_words = raw_words[:25_000]
         warnings.append(

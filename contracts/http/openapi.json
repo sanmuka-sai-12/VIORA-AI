@@ -2998,6 +2998,11 @@
             "title": "Allow General Knowledge",
             "type": "boolean"
           },
+          "allow_interpretation": {
+            "default": false,
+            "title": "Allow Interpretation",
+            "type": "boolean"
+          },
           "candidate_k": {
             "default": 20,
             "maximum": 50.0,
@@ -3117,6 +3122,14 @@
               }
             ]
           },
+          "interpretations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/QAInterpretation"
+            },
+            "title": "Interpretations",
+            "type": "array"
+          },
           "question": {
             "title": "Question",
             "type": "string"
@@ -3135,13 +3148,21 @@
             "type": "array"
           },
           "status": {
-            "enum": [
-              "answered",
-              "clarification_needed",
-              "insufficient_evidence"
+            "anyOf": [
+              {
+                "enum": [
+                  "answered",
+                  "clarification_needed",
+                  "insufficient_evidence"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "interpreted",
+                "type": "string"
+              }
             ],
-            "title": "Status",
-            "type": "string"
+            "title": "Status"
           },
           "validation": {
             "$ref": "#/components/schemas/QAValidationReport"
@@ -5183,6 +5204,37 @@
         "title": "QAGeneralKnowledge",
         "type": "object"
       },
+      "QAInterpretation": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/QACitation"
+            },
+            "minItems": 1,
+            "title": "Citations",
+            "type": "array"
+          },
+          "entailment_verified": {
+            "const": false,
+            "default": false,
+            "title": "Entailment Verified",
+            "type": "boolean"
+          },
+          "statement": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement",
+          "citations"
+        ],
+        "title": "QAInterpretation",
+        "type": "object"
+      },
       "QAValidationReport": {
         "additionalProperties": false,
         "properties": {
@@ -5250,7 +5302,7 @@
             "type": "integer"
           },
           "prompt_version": {
-            "default": "qa_prompt:1.0",
+            "default": "qa_prompt:1.1",
             "title": "Prompt Version",
             "type": "string"
           },

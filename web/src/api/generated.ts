@@ -2610,6 +2610,11 @@ export interface components {
              */
             allow_general_knowledge: boolean;
             /**
+             * Allow Interpretation
+             * @default false
+             */
+            allow_interpretation: boolean;
+            /**
              * Candidate K
              * @default 20
              */
@@ -2662,6 +2667,11 @@ export interface components {
             citations: components["schemas"]["QACitation"][];
             clarification?: components["schemas"]["QAClarification"] | null;
             general_knowledge?: components["schemas"]["QAGeneralKnowledge"] | null;
+            /**
+             * Interpretations
+             * @default []
+             */
+            interpretations: components["schemas"]["QAInterpretation"][];
             /** Question */
             question: string;
             /**
@@ -2674,11 +2684,8 @@ export interface components {
              * @default []
              */
             source_grounded_claims: components["schemas"]["GroundedQAClaim"][];
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "answered" | "clarification_needed" | "insufficient_evidence";
+            /** Status */
+            status: ("answered" | "clarification_needed" | "insufficient_evidence") | "interpreted";
             validation: components["schemas"]["QAValidationReport"];
         };
         /** KnowledgeRetrievalResult */
@@ -3545,6 +3552,19 @@ export interface components {
              */
             label: string;
         };
+        /** QAInterpretation */
+        QAInterpretation: {
+            /** Citations */
+            citations: components["schemas"]["QACitation"][];
+            /**
+             * Entailment Verified
+             * @default false
+             * @constant
+             */
+            entailment_verified: false;
+            /** Statement */
+            statement: string;
+        };
         /** QAValidationReport */
         QAValidationReport: {
             /** Authorized Chunks Count */
@@ -3579,7 +3599,7 @@ export interface components {
             prompt_injection_signals_detected: number;
             /**
              * Prompt Version
-             * @default qa_prompt:1.0
+             * @default qa_prompt:1.1
              */
             prompt_version: string;
             /** Provider */

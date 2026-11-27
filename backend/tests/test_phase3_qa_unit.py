@@ -179,6 +179,50 @@ def test_valid_reference_cannot_rescue_unsupported_claim(
     assert result.validation.rejected_citations_count == 1
 
 
+@pytest.mark.parametrize(
+    ("ref", "quote", "expected_status"),
+    [
+        ("C1", None, "interpreted"),
+        ("C1", "Each pass halves the remaining range.", "interpreted"),
+        ("C1", "The algorithm takes exactly four passes.", "insufficient_evidence"),
+        ("C99", None, "insufficient_evidence"),
+    ],
+)
+def test_opt_in_interpretation_keeps_reasoning_separate(
+    ref: str, quote: str | None, expected_status: str
+) -> None:
+    statement = "Eight candidates shrink to one after three halvings."
+    raw = RawQAAnswer(
+        status="answered",
+        answer=statement,
+        claims=[
+            RawQAClaim(
+                statement=statement,
+                citations=[RawQACitation(chunk_ref=ref, quote=quote)],
+            )
+        ],
+    )
+    gateway = FakeAIGateway(structured_payloads={RawQAAnswer: raw})
+    result = GroundedKnowledgeQA(gateway).answer(
+        context=_ctx(),
+        request=KnowledgeQARequest(question="How many passes?", allow_interpretation=True),
+        retrieval=_retrieval((_chunk(text="Each pass halves the remaining range."),)),
+    )
+    assert result.status == expected_status
+    assert result.source_grounded_claims == result.citations == ()
+    assert statement not in result.answer
+    assert result.validation.inference_requests == 1
+    if expected_status == "interpreted":
+        assert len(result.interpretations) == 1
+        interpretation = result.interpretations[0]
+        assert interpretation.statement == statement
+        assert interpretation.entailment_verified is False
+        assert interpretation.citations[0].quote_verified is (quote is not None)
+    else:
+        assert result.interpretations == ()
+        assert result.abstention is not None
+
+
 def test_ungrounded_answer_fails_closed_to_insufficient_evidence() -> None:
     c1 = _chunk(evidence_ids=("ev-1",))
     raw = RawQAAnswer(

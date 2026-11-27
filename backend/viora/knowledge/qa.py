@@ -6,6 +6,7 @@ import json
 import re
 import time
 from collections import Counter
+from typing import Literal
 from uuid import UUID
 
 from ..ai.public import (
@@ -28,6 +29,7 @@ from .schemas import (
     QACitation,
     QAClarification,
     QAGeneralKnowledge,
+    QAInterpretation,
     QAStatus,
     QAValidationReport,
     RawQAAnswer,
@@ -158,6 +160,7 @@ class GroundedKnowledgeQA:
             max_input_chars=effective_limits.max_input_chars,
             schema_overhead_chars=_QA_SCHEMA_OVERHEAD_CHARS,
             allow_general_knowledge=request.allow_general_knowledge,
+            allow_interpretation=request.allow_interpretation,
         )
 
         t_inf0 = time.monotonic_ns()
@@ -238,6 +241,7 @@ class GroundedKnowledgeQA:
         rejected_citations = 0
         dropped_claims = 0
         validated_claims: list[GroundedQAClaim] = []
+        interpretations: list[QAInterpretation] = []
         all_citations_map: dict[tuple[UUID, str | None], QACitation] = {}
 
         for raw_claim in raw.claims:
@@ -245,7 +249,8 @@ class GroundedKnowledgeQA:
             if not stmt:
                 continue
             claim_cits: list[QACitation] = []
-            seen_claim_cits: set[tuple[UUID, str | None]] = set()
+            interpretation_cits: list[QACitation] = []
+            seen_claim_cits: set[tuple[UUID, str | None, bool]] = set()
             for raw_cit in raw_claim.citations:
                 resolved = _resolve_chunk(raw_cit.chunk_ref)
                 if resolved is None:
@@ -257,17 +262,29 @@ class GroundedKnowledgeQA:
                     rejected_citations += 1
                     continue
                 cit_key = (chunk.chunk_record_id, ev_id)
-                if cit_key in seen_claim_cits:
-                    continue
                 quote = stmt if raw_cit.quote is None else raw_cit.quote
                 excerpt = _WHITESPACE_RE.sub(" ", quote).strip()
-                if (
-                    not _verbatim_quote_in_text(excerpt, chunk.rendered_text)
-                    or not _verbatim_quote_in_text(stmt, excerpt[:500])
+                if raw_cit.quote is not None and not _verbatim_quote_in_text(
+                    excerpt, chunk.rendered_text
                 ):
                     rejected_citations += 1
                     continue
-                seen_claim_cits.add(cit_key)
+                verified = _verbatim_quote_in_text(
+                    excerpt, chunk.rendered_text
+                ) and _verbatim_quote_in_text(stmt, excerpt[:500])
+                if not verified:
+                    if not request.allow_interpretation or raw.status != "answered":
+                        rejected_citations += 1
+                        continue
+                    if raw_cit.quote is None:
+                        excerpt = _WHITESPACE_RE.sub(" ", chunk.rendered_text).strip()[:280]
+                    if not excerpt:
+                        rejected_citations += 1
+                        continue
+                dedup_key = (*cit_key, verified)
+                if dedup_key in seen_claim_cits:
+                    continue
+                seen_claim_cits.add(dedup_key)
 
                 cit_obj = QACitation(
                     citation_ref=cite_id,
@@ -287,10 +304,18 @@ class GroundedKnowledgeQA:
                     excerpt=excerpt[:500],
                     quote_verified=raw_cit.quote is not None,
                 )
-                claim_cits.append(cit_obj)
-                all_citations_map.setdefault(cit_key, cit_obj)
+                if verified:
+                    claim_cits.append(cit_obj)
+                    all_citations_map.setdefault(cit_key, cit_obj)
+                else:
+                    interpretation_cits.append(cit_obj)
 
             if not claim_cits:
+                if interpretation_cits:
+                    interpretations.append(QAInterpretation(
+                        statement=stmt, citations=tuple(interpretation_cits)
+                    ))
+                    continue
                 dropped_claims += 1
                 continue
 
@@ -335,10 +360,13 @@ class GroundedKnowledgeQA:
 
         clarification: QAClarification | None = None
         abstention: QAAbstention | None = None
-        status: QAStatus = raw.status
+        status: QAStatus | Literal["interpreted"] = raw.status
 
         if status == "answered":
-            if not validated_claims:
+            if not validated_claims and interpretations:
+                status = "interpreted"
+                answer = "Evidence-linked interpretation is available. Its conclusions are unverified."
+            elif not validated_claims:
                 status = "insufficient_evidence"
                 reason = "No claims could be verified against authorized source citations."
                 answer = "Insufficient verified source evidence to answer this question from the authorized course materials."
@@ -404,6 +432,7 @@ class GroundedKnowledgeQA:
             question=request.question,
             answer=answer,
             source_grounded_claims=tuple(validated_claims),
+            interpretations=tuple(interpretations),
             citations=tuple(all_citations_map.values()),
             clarification=clarification,
             abstention=abstention,

@@ -571,7 +571,7 @@ class KnowledgeRetrievalResult(Contract):
     retrieval_ms: float = Field(ge=0.0)
 
 
-QA_PROMPT_VERSION = "qa_prompt:1.0"
+QA_PROMPT_VERSION = "qa_prompt:1.1"
 QA_SCHEMA_VERSION = "1.0"
 QAStatus = Literal["answered", "clarification_needed", "insufficient_evidence"]
 QAClaimGrounding = Literal["source_supported", "source_synthesized"]
@@ -617,6 +617,7 @@ class KnowledgeQARequest(Contract):
     published_only: bool = False
     max_graph_hops: int = Field(default=2, ge=1, le=2)
     allow_general_knowledge: bool = False
+    allow_interpretation: bool = False
 
 
 class QACitation(Contract):
@@ -642,6 +643,12 @@ class GroundedQAClaim(Contract):
     claim_id: str = Field(min_length=1, max_length=32)
     statement: str = Field(min_length=1, max_length=1000)
     grounding: QAClaimGrounding
+    citations: tuple[QACitation, ...] = Field(min_length=1)
+
+
+class QAInterpretation(Contract):
+    entailment_verified: Literal[False] = False
+    statement: str = Field(min_length=1, max_length=1000)
     citations: tuple[QACitation, ...] = Field(min_length=1)
 
 
@@ -691,10 +698,11 @@ class QAValidationReport(Contract):
 
 class KnowledgeQAResult(Contract):
     schema_version: str = QA_SCHEMA_VERSION
-    status: QAStatus
+    status: QAStatus | Literal["interpreted"]
     question: str
     answer: str
     source_grounded_claims: tuple[GroundedQAClaim, ...] = ()
+    interpretations: tuple[QAInterpretation, ...] = ()
     citations: tuple[QACitation, ...] = ()
     clarification: QAClarification | None = None
     abstention: QAAbstention | None = None

@@ -1,4 +1,11 @@
-import type { OfferingSourcePolicyInfo, SourceSummary } from "../../api/client";
+import type {
+  KnowledgePublicationState,
+  KnowledgeQARequest,
+  KnowledgeQAResult,
+  LessonBlueprintRecord,
+  OfferingSourcePolicyInfo,
+  SourceSummary,
+} from "../../api/client";
 
 export type BadgeTone = "success" | "warning" | "danger" | "neutral" | "brand";
 
@@ -22,6 +29,26 @@ export function reviewTone(status: string): BadgeTone {
   return "warning";
 }
 
+export function qaStatusTone(status: KnowledgeQAResult["status"]): BadgeTone {
+  if (status === "answered") return "success";
+  if (status === "interpreted") return "brand";
+  if (status === "clarification_needed") return "warning";
+  return "danger";
+}
+
+const INTERPRETATION_LABELS: Record<string, string> = {
+  verbatim_source: "Verbatim Source",
+  synthesized_source: "Synthesized Source",
+  pedagogical_adaptation: "Pedagogical Adaptation",
+  worked_derivation: "Worked Derivation",
+  syllabus_request: "Syllabus Learning Request (Non-Evidentiary)",
+  unverified_draft: "Unverified Draft (Needs Review)",
+};
+
+export function formatInterpretationLabel(label: string): string {
+  return INTERPRETATION_LABELS[label] ?? label;
+}
+
 export function canTeacherManageSource(
   isSubjectTeacher: boolean,
   source: Pick<SourceSummary, "origin_kind" | "lifecycle_state">,
@@ -31,6 +58,59 @@ export function canTeacherManageSource(
     source.origin_kind === "teacher_resource" &&
     source.lifecycle_state === "active"
   );
+}
+
+export function canTriggerLessonBlueprint(
+  isSubjectTeacher: boolean,
+  source: Pick<SourceSummary, "origin_kind" | "lifecycle_state">,
+  pubState: KnowledgePublicationState | null,
+): boolean {
+  return Boolean(
+    canTeacherManageSource(isSubjectTeacher, source) && pubState?.teacher_approved,
+  );
+}
+
+export function canApproveLessonBlueprint(
+  isSubjectTeacher: boolean,
+  source: Pick<SourceSummary, "origin_kind" | "lifecycle_state">,
+  pubState: KnowledgePublicationState | null,
+  blueprint: LessonBlueprintRecord | null,
+): boolean {
+  return Boolean(
+    canTriggerLessonBlueprint(isSubjectTeacher, source, pubState) && blueprint,
+  );
+}
+
+export function hasExposedAnswerKeyFields(item: Record<string, unknown>): boolean {
+  return (
+    "correct_answer" in item ||
+    "correct_option_index" in item ||
+    "accepted_aliases" in item ||
+    "answer_key_verified" in item
+  );
+}
+
+export function buildKnowledgeQABody(input: {
+  question: string;
+  offeringId: string;
+  mode: KnowledgeQARequest["mode"];
+  allowInterpretation: boolean;
+  allowGeneralKnowledge: boolean;
+  publishedOnly: boolean;
+}): KnowledgeQARequest {
+  return {
+    question: input.question.trim(),
+    offering_id: input.offeringId || null,
+    mode: input.mode,
+    top_k: 5,
+    candidate_k: 20,
+    max_context_tokens: 1800,
+    max_graph_hops: 2,
+    include_student_submissions: !input.publishedOnly,
+    published_only: input.publishedOnly,
+    allow_general_knowledge: input.allowGeneralKnowledge,
+    allow_interpretation: input.allowInterpretation,
+  };
 }
 
 export function canOwnerStudentProcess(

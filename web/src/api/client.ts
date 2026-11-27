@@ -36,6 +36,23 @@ export type ConceptExtractionRecord = ApiSchema<"ConceptExtractionRecord">;
 export type KnowledgePublicationState = ApiSchema<"KnowledgePublicationState">;
 export type KnowledgeReviewRecord = ApiSchema<"KnowledgeReviewRecord">;
 export type PublishedLessonPackage = ApiSchema<"PublishedLessonPackage">;
+export type KnowledgeIndexStatus = ApiSchema<"KnowledgeIndexStatus">;
+export type KnowledgeQARequest = ApiSchema<"KnowledgeQARequest">;
+export type KnowledgeQAResult = ApiSchema<"KnowledgeQAResult">;
+export type QACitation = ApiSchema<"QACitation">;
+export type GroundedQAClaim = ApiSchema<"GroundedQAClaim">;
+export type QAInterpretation = ApiSchema<"QAInterpretation">;
+export type QAClarification = ApiSchema<"QAClarification">;
+export type QAAbstention = ApiSchema<"QAAbstention">;
+export type LessonBlueprint = ApiSchema<"LessonBlueprint">;
+export type LessonBlueprintRecord = ApiSchema<"LessonBlueprintRecord">;
+export type LessonBlueprintSummary = ApiSchema<"LessonBlueprintSummary">;
+export type LessonBlueprintApprovalRequest = ApiSchema<"LessonBlueprintApprovalRequest">;
+export type LessonBlueprintApprovalState = ApiSchema<"LessonBlueprintApprovalState">;
+export type PublishedLessonBlueprint = ApiSchema<"PublishedLessonBlueprint">;
+export type BlueprintAssessmentItem = ApiSchema<"BlueprintAssessmentItem">;
+export type StudentSafeAssessmentItem = ApiSchema<"StudentSafeAssessmentItem">;
+export type TypedVisualSceneSpec = ApiSchema<"TypedVisualSceneSpec">;
 
 export interface NormalizedApiError {
   status: number;

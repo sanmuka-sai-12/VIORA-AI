@@ -23,6 +23,7 @@ from .models import (
     KnowledgePublication,
     KnowledgeReview,
 )
+from .publication import publication_complete, reviewed_graph
 from .schemas import (
     ConceptCandidate,
     ConceptEvidenceBinding,
@@ -453,6 +454,19 @@ class SqlConceptExtractionRepository:
         )
         return self._publication_dto(row) if row is not None else None
 
+    def get_approved_review(
+        self, publication: KnowledgePublicationState
+    ) -> KnowledgeReviewRecord | None:
+        row = self.session.scalar(select(KnowledgeReview).where(
+            KnowledgeReview.tenant_id == publication.tenant_id,
+            KnowledgeReview.source_id == publication.source_id,
+            KnowledgeReview.version_id == publication.version_id,
+            KnowledgeReview.concept_extraction_id == publication.concept_extraction_id,
+            KnowledgeReview.review_id == publication.approved_review_id,
+            KnowledgeReview.decision == "approved",
+        ))
+        return self._review_dto(row) if row is not None else None
+
     def list_reviews(
         self, tenant_id: UUID, version_id: UUID, *, limit: int = 20
     ) -> Page[KnowledgeReviewRecord]:
@@ -485,6 +499,12 @@ class SqlConceptExtractionRepository:
         reviewed_by_user_id: UUID,
         now: datetime,
     ) -> tuple[KnowledgeReviewRecord, KnowledgePublicationState]:
+        if decision == "approved" and not publication_complete(
+            reviewed_graph(extraction.knowledge, rejected_concept_ids)
+        ):
+            raise AccessError(
+                409, "incomplete_publication", "A complete lesson is required for approval"
+            )
         last_rev = self.session.scalar(
             select(KnowledgeReview)
             .where(
@@ -591,6 +611,20 @@ class SqlConceptExtractionRepository:
                 "teacher_approval_required",
                 "Educational knowledge requires explicit teacher approval before publication",
             )
+        if publish:
+            review = self.get_approved_review(self._publication_dto(pub_row))
+            extraction = self.get_by_id(tenant_id, concept_extraction_id)
+            if (
+                review is None or extraction is None
+                or extraction.source_id != pub_row.source_id
+                or extraction.version_id != version_id
+                or not publication_complete(reviewed_graph(
+                    extraction.knowledge, review.rejected_concept_ids
+                ))
+            ):
+                raise AccessError(
+                    409, "incomplete_publication", "A complete approved lesson is required"
+                )
         pub_row.published_to_students = publish
         pub_row.published_by_user_id = actor_id if publish else None
         pub_row.published_at = now if publish else None

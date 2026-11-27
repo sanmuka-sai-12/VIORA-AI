@@ -16,6 +16,7 @@ from ..sources.public import SqlSourceRepository
 from ..workflow.public import ConcurrentJobConflict
 from .curriculum import generate_lesson_outline
 from .ports import ConceptExtractionRepository
+from .publication import publication_complete, reviewed_graph
 from .schemas import (
     ConceptExtractionRecord,
     ConceptExtractionTriggerResult,
@@ -290,6 +291,12 @@ class ConceptKnowledgeService:
                     "unknown_concept_id",
                     "Review references unknown concept_id for this extraction",
                 )
+            if req.decision == "approved" and not publication_complete(
+                reviewed_graph(ext.knowledge, req.rejected_concept_ids)
+            ):
+                raise AccessError(
+                    409, "incomplete_publication", "A complete lesson is required for approval"
+                )
             outline = generate_lesson_outline(ext.knowledge)
             rev, pub = repo.record_review(
                 tenant_id=tenant_id,
@@ -417,12 +424,25 @@ class ConceptKnowledgeService:
                     "No approved educational lesson has been published for this version",
                 )
             ext = repo.get_by_id(tenant_id, pub.concept_extraction_id)
-            if ext is None:
+            review = repo.get_approved_review(pub)
+            if (
+                ext is None or review is None
+                or pub.source_id != source_id
+                or ext.source_id != source_id or ext.version_id != version_id
+                or ext.concept_version != pub.concept_version
+                or ext.knowledge.source_sha256 != pub.source_sha256
+            ):
                 raise AccessError(
                     404,
                     "published_knowledge_not_found",
                     "Approved concept extraction record unavailable",
                 )
+            graph = reviewed_graph(ext.knowledge, review.rejected_concept_ids)
+            if not publication_complete(graph):
+                raise AccessError(
+                    404, "published_knowledge_not_found", "Approved lesson is incomplete"
+                )
+            outline = generate_lesson_outline(graph)
             return PublishedLessonPackage(
                 tenant_id=tenant_id,
                 source_id=source_id,
@@ -436,11 +456,11 @@ class ConceptKnowledgeService:
                 title=ext.knowledge.title,
                 teacher_approved=True,
                 published_to_students=True,
-                learning_request_only=pub.learning_request_only,
-                all_evidence_verified=pub.all_evidence_verified,
+                learning_request_only=outline.learning_request_only,
+                all_evidence_verified=outline.all_evidence_verified,
                 published_at=pub.published_at,
-                knowledge=ext.knowledge.model_copy(
+                knowledge=graph.model_copy(
                     update={"published_to_students": True}
                 ),
-                outline=pub.outline,
+                outline=outline,
             )

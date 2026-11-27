@@ -50,6 +50,10 @@ class ConceptExtractionRepository(Protocol):
         now: datetime,
     ) -> tuple[KnowledgeReviewRecord, KnowledgePublicationState]: ...
 
+    def get_approved_review(
+        self, publication: KnowledgePublicationState
+    ) -> KnowledgeReviewRecord | None: ...
+
     def list_reviews(
         self, tenant_id: UUID, version_id: UUID, *, limit: int = 20
     ) -> Page[KnowledgeReviewRecord]: ...

@@ -630,6 +630,29 @@ def test_prerequisite_dag_cycle_detection_and_structured_lesson_outline() -> Non
     assert outline.modules[-1].steps[0].concept_name == "Acceleration"
     assert outline.estimated_total_minutes > 0
 
+    from viora.knowledge.publication import publication_complete, reviewed_graph
+
+    velocity = next(c for c in kg.concepts if c.name == "Velocity")
+    filtered = reviewed_graph(kg, (velocity.concept_id,))
+    assert {c.name for c in filtered.concepts} == {"Displacement", "Acceleration"}
+    assert filtered.relationships == ()
+    assert all(not c.prerequisites for c in filtered.concepts)
+    assert {
+        step.concept_name
+        for module in generate_lesson_outline(filtered).modules
+        for step in module.steps
+    } == {"Displacement", "Acceleration"}
+    assert not publication_complete(
+        reviewed_graph(kg, tuple(c.concept_id for c in kg.concepts))
+    )
+    for completeness, allowed in ((False, False), (None, True), (True, True)):
+        graph = kg.model_copy(update={
+            "validation": kg.validation.model_copy(
+                update={"required_fields_complete": completeness}
+            )
+        })
+        assert publication_complete(graph) is allowed
+
 
 def test_concept_extractor_counts_schema_overhead_in_json_schema_mode() -> None:
     from viora.ai.public import AIRequestConfig, AIResourceLimitError, AIResourceLimits

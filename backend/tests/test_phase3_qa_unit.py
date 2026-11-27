@@ -107,13 +107,13 @@ def test_grounded_qa_validates_citations_and_rejects_fabricated_or_ambiguous_ref
         answer="Binary search takes O(log n) time, and quicksort is always O(n).",
         claims=[
             RawQAClaim(
-                statement="Binary search runs in O(log n) worst-case time on a sorted array.",
+                statement="Binary search requires a sorted array and runs in O(log n) worst-case time.",
                 grounding="source_supported",
                 citations=[
                     RawQACitation(
                         chunk_ref="C1",
                         evidence_id="ev-1",
-                        quote="runs in O(log n) worst-case time",
+                        quote="Binary search requires a sorted array and runs in O(log n) worst-case time.",
                     ),
                     # Cross-chunk evidence_id mismatch (ev-2 belongs to C2, not C1) -> rejected
                     RawQACitation(chunk_ref="C1", evidence_id="ev-2"),
@@ -148,6 +148,35 @@ def test_grounded_qa_validates_citations_and_rejects_fabricated_or_ambiguous_ref
     # Rebuilt answer must exclude dropped claim text
     assert "Fabricated unverified claim" not in res.answer
     assert "quicksort is always O(n)" not in res.answer
+
+
+@pytest.mark.parametrize(
+    ("statement", "quote"),
+    [
+        ("Binary search needs sorted inputs.", "Binary search works on any input."),
+        ("Binary search works on any input.", "Binary search needs sorted inputs."),
+        ("Binary search works on any input.", None),
+    ],
+)
+def test_valid_reference_cannot_rescue_unsupported_claim(
+    statement: str, quote: str | None
+) -> None:
+    raw = RawQAAnswer(
+        status="answered",
+        answer=statement,
+        claims=[RawQAClaim(
+            statement=statement,
+            citations=[RawQACitation(chunk_ref="C1", quote=quote)],
+        )],
+    )
+    result = GroundedKnowledgeQA(FakeAIGateway(structured_payloads={RawQAAnswer: raw})).answer(
+        context=_ctx(),
+        request=KnowledgeQARequest(question="What inputs does binary search need?"),
+        retrieval=_retrieval((_chunk(text="Binary search needs sorted inputs."),)),
+    )
+    assert result.status == "insufficient_evidence"
+    assert result.citations == ()
+    assert result.validation.rejected_citations_count == 1
 
 
 def test_ungrounded_answer_fails_closed_to_insufficient_evidence() -> None:
@@ -322,7 +351,7 @@ def test_resource_limits_one_inference_max_and_bounded_context() -> None:
         answer="C1 supported; C5 excluded.",
         claims=[
             RawQAClaim(
-                statement="Chunk 1 states sorted binary search invariant.",
+                statement="sorted binary search invariant",
                 citations=[RawQACitation(chunk_ref="C1", evidence_id="ev-1")],
             ),
             RawQAClaim(
@@ -422,7 +451,7 @@ def test_evaluate_24_dsa_questions_distinguishing_contract_correctness_from_accu
                     answer=f"[Deterministic stub for {q_info['question_id']}] Grounded against authorized DSA corpus concept.",
                     claims=[
                         RawQAClaim(
-                            statement=f"Authorized corpus material covers {', '.join(q_info['relevant_concept_ids'])}.",  # type: ignore[arg-type]
+                            statement=concepts_by_id[q_info["relevant_concept_ids"][0]]["definition"],
                             grounding="source_supported",
                             citations=[RawQACitation(chunk_ref="C1", evidence_id="ev-1")],
                         )

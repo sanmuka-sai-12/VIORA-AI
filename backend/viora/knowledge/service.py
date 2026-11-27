@@ -660,11 +660,11 @@ class ConceptKnowledgeService:
                 published_only=req.published_only,
                 max_graph_hops=req.max_graph_hops,
             )
-            retrieval = HybridKnowledgeRetriever(scope.session, self.embedder).retrieve(
-                scoped_context, retrieve_req
-            )
+            retriever = HybridKnowledgeRetriever(scope.session, self.embedder)
+            retrieval = retriever.retrieve(scoped_context, retrieve_req)
+            evidence = retriever.evidence_snapshot
         try:
-            return GroundedKnowledgeQA(self.ai_gateway).answer(
+            answer = GroundedKnowledgeQA(self.ai_gateway).answer(
                 context=scoped_context,
                 request=req,
                 retrieval=retrieval,
@@ -673,3 +673,12 @@ class ConceptKnowledgeService:
             raise AccessError(422, exc.code, exc.message) from None
         except AIError as exc:
             raise AccessError(503, exc.code, exc.message) from None
+        with access.transaction(bearer, action, ref) as scope:
+            if scope.context != scoped_context:
+                raise AccessError(
+                    403, "access_changed", "Knowledge access changed during inference"
+                )
+            HybridKnowledgeRetriever(scope.session).recheck_evidence(
+                scope.context, retrieve_req, evidence
+            )
+            return answer

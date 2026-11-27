@@ -259,19 +259,15 @@ class GroundedKnowledgeQA:
                 cit_key = (chunk.chunk_record_id, ev_id)
                 if cit_key in seen_claim_cits:
                     continue
+                quote = stmt if raw_cit.quote is None else raw_cit.quote
+                excerpt = _WHITESPACE_RE.sub(" ", quote).strip()
+                if (
+                    not _verbatim_quote_in_text(excerpt, chunk.rendered_text)
+                    or not _verbatim_quote_in_text(stmt, excerpt[:500])
+                ):
+                    rejected_citations += 1
+                    continue
                 seen_claim_cits.add(cit_key)
-
-                quote_verified = False
-                clean_rendered = _WHITESPACE_RE.sub(" ", chunk.rendered_text).strip()
-                excerpt = clean_rendered[:280]
-                if raw_cit.quote and raw_cit.quote.strip():
-                    if _verbatim_quote_in_text(raw_cit.quote, chunk.rendered_text):
-                        quote_verified = True
-                        excerpt = _WHITESPACE_RE.sub(" ", raw_cit.quote).strip()[:500]
-                    else:
-                        notes.append(
-                            f"Replaced unverified quote on {cite_id} with authorized source excerpt."
-                        )
 
                 cit_obj = QACitation(
                     citation_ref=cite_id,
@@ -288,8 +284,8 @@ class GroundedKnowledgeQA:
                     page_end=chunk.page_end,
                     evidence_id=ev_id,
                     origin_kind=chunk.origin_kind,
-                    excerpt=excerpt,
-                    quote_verified=quote_verified,
+                    excerpt=excerpt[:500],
+                    quote_verified=raw_cit.quote is not None,
                 )
                 claim_cits.append(cit_obj)
                 all_citations_map.setdefault(cit_key, cit_obj)
@@ -351,10 +347,8 @@ class GroundedKnowledgeQA:
                     missing_evidence_topics=missing_topics or (request.question[:160],),
                 )
                 notes.append("Downgraded ungrounded answer to insufficient_evidence.")
-            elif had_rejections or not raw_answer:
-                answer = " ".join(c.statement for c in validated_claims)[:2000]
             else:
-                answer = raw_answer[:2000]
+                answer = " ".join(c.statement for c in validated_claims)[:2000]
         elif status == "clarification_needed":
             if not clarifying_questions:
                 if ambiguities:

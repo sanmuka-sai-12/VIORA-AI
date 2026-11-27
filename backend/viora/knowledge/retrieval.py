@@ -160,6 +160,7 @@ _SELECT_COLS = """
     s.origin_kind,
     s.visibility,
     kp.approved_review_id,
+    kp.published_at,
     (
       s.origin_kind = 'teacher_resource'
       AND (ta.user_id IS NULL OR CAST(:published_only AS boolean))
@@ -524,6 +525,41 @@ class HybridKnowledgeRetriever:
     def __init__(self, session: Session, embedder: TextEmbedder | None = None) -> None:
         self.session = session
         self.embedder = embedder
+        self.evidence_snapshot: dict[UUID, tuple[object, ...]] = {}
+
+    @staticmethod
+    def _authorization_params(
+        context: TenantContext, req: KnowledgeRetrieveRequest
+    ) -> dict[str, object]:
+        return {
+            "tenant_id": context.tenant_id,
+            "actor_id": context.actor_id,
+            "offering_id": req.offering_id,
+            "is_teacher_eligible": "subject_teacher" in context.roles,
+            "is_student_eligible": "student" in context.roles,
+            "include_student_submissions": req.include_student_submissions,
+            "published_only": req.published_only,
+        }
+
+    def recheck_evidence(
+        self,
+        context: TenantContext,
+        req: KnowledgeRetrieveRequest,
+        snapshot: dict[UUID, tuple[object, ...]],
+    ) -> None:
+        if not snapshot:
+            return
+        rows = self.session.execute(
+            text(
+                f"SELECT {_SELECT_COLS} {_AUTH_FROM_AND_WHERE} "
+                "AND kic.chunk_record_id = ANY(:chunk_ids)"
+            ),
+            {**self._authorization_params(context, req), "chunk_ids": list(snapshot)},
+        )
+        if {row.chunk_record_id: tuple(row) for row in rows} != snapshot:
+            raise AccessError(
+                403, "evidence_changed", "Knowledge evidence changed during inference"
+            )
 
     def vector_schema(self) -> str | None:
         val = self.session.scalar(
@@ -555,19 +591,13 @@ class HybridKnowledgeRetriever:
         else:
             effective_mode = req.mode
 
-        is_teacher = "subject_teacher" in context.roles
-        is_student = "student" in context.roles
         auth_params: dict[str, object] = {
-            "tenant_id": context.tenant_id,
-            "actor_id": context.actor_id,
-            "offering_id": req.offering_id,
-            "is_teacher_eligible": is_teacher,
-            "is_student_eligible": is_student,
-            "include_student_submissions": req.include_student_submissions,
-            "published_only": req.published_only,
+            **self._authorization_params(context, req),
             "candidate_k": req.candidate_k,
         }
 
+        self.evidence_snapshot = {}
+        snapshots: dict[UUID, tuple[object, ...]] = {}
         candidates_by_id: dict[UUID, _CandidateRow] = {}
         lexical_order: list[UUID] = []
         semantic_order: list[UUID] = []
@@ -604,6 +634,7 @@ class HybridKnowledgeRetriever:
                 if cand is None:
                     cand = _row_to_candidate(row)
                     candidates_by_id[row.chunk_record_id] = cand
+                    snapshots[row.chunk_record_id] = tuple(row)[:-1]
                 cand.lexical_score = float(row.lex_score or 0.0)
                 cand.lexical_rank = rank_idx
                 lexical_order.append(row.chunk_record_id)
@@ -670,6 +701,7 @@ class HybridKnowledgeRetriever:
                 if cand is None:
                     cand = _row_to_candidate(row)
                     candidates_by_id[row.chunk_record_id] = cand
+                    snapshots[row.chunk_record_id] = tuple(row)[:-1]
                 cand.semantic_score = float(score)
                 cand.semantic_rank = rank_idx
                 semantic_order.append(row.chunk_record_id)
@@ -766,6 +798,10 @@ class HybridKnowledgeRetriever:
             graph_concepts=graph_concepts,
             max_context_tokens=req.max_context_tokens,
         )
+        # Graph enrichment can use selected rows omitted by the final text budget.
+        self.evidence_snapshot = {
+            row.chunk_record_id: snapshots[row.chunk_record_id] for row in selected
+        }
 
         retrieval_ms = round((time.monotonic_ns() - t0) / 1_000_000.0, 3)
         return KnowledgeRetrievalResult(

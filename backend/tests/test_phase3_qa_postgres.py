@@ -128,12 +128,17 @@ class _ScriptedGateway(FakeAIGateway):
                 tok in q_txt and tok in src_body
                 for tok in ("ApprovedPartitionToken", "PrivateStudentRingBufferToken")
             ):
+                statement = (
+                    "ApprovedPartitionToken divides keys around a pivot cleanly."
+                    if "ApprovedPartitionToken" in q_txt
+                    else "PrivateStudentRingBufferToken uses head and count."
+                )
                 payload = RawQAAnswer(
                     status="answered",
                     answer="Grounded answer derived from authorized chunk C1.",
                     claims=[
                         RawQAClaim(
-                            statement="Authorized passage C1 supports the answer.",
+                            statement=statement,
                             grounding="source_supported",
                             citations=[RawQACitation(chunk_ref="C1", evidence_id=ev_id)],
                         )
@@ -272,7 +277,9 @@ def _seed_tenant(admin: Engine, schema: str, db: Database, settings: Settings, s
     )
 
 
-def test_phase3_qa_http_authz_no_rejected_leakage_and_injection_defense(pg_env: _PgEnv) -> None:
+def test_phase3_qa_http_authz_no_rejected_leakage_and_injection_defense(
+    pg_env: _PgEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
     embedder = DeterministicFakeEmbedder()
     gw = _ScriptedGateway()
     app_no_ai = create_app(settings=pg_env.settings, database=pg_env.app_db)
@@ -372,6 +379,35 @@ def test_phase3_qa_http_authz_no_rejected_leakage_and_injection_defense(pg_env: 
             assert ok_body["validation"]["inference_requests"] == 1
             assert "ForbiddenRejectedToken" not in str(ok_body)
 
+            # Replace the approved review during inference while keeping the
+            # extraction and publication eligible for subsequent requests.
+            original_complete = gw.complete_structured
+
+            def replace_review(context, messages, response_model, config=None):
+                result = original_complete(context, messages, response_model, config)
+                if response_model is RawQAAnswer:
+                    assert client.post(
+                        f"/api/v1/tenants/{a.tenant}/sources/{sid}/versions/{vid}/concepts/review",
+                        headers=_hdr(a.teacher_token),
+                        json={
+                            "concept_extraction_id": ce_id,
+                            "decision": "approved",
+                            "approved_concept_ids": [c_ok],
+                            "rejected_concept_ids": [c_bad],
+                        },
+                    ).status_code == 200
+                return result
+
+            with monkeypatch.context() as patch:
+                patch.setattr(gw, "complete_structured", replace_review)
+                stale = client.post(
+                    f"/api/v1/tenants/{a.tenant}/knowledge/qa",
+                    headers=_hdr(a.student1_token),
+                    json={"question": "How does ApprovedPartitionToken work?", "offering_id": str(a.offering)},
+                )
+            assert stale.status_code == 403
+            assert "ApprovedPartitionToken" not in stale.text
+
             # 2. Rejected content, unpublished teacher draft, and other student's private submission never leak
             #    - Lexical mode yields 0 chunks -> abstains with 0 inference calls
             #    - Hybrid/graph mode yields zero forbidden tokens in context/citations and abstains
@@ -443,12 +479,26 @@ def test_phase3_qa_http_authz_no_rejected_leakage_and_injection_defense(pg_env: 
                 headers=_hdr(b.teacher_token),
                 json={"question": "ApprovedPartitionToken", "offering_id": str(a.offering)},
             ).status_code == 403
-            with pg_env.admin.begin() as c:
-                c.execute(text(f"SET LOCAL search_path TO {pg_env.schema}, public"))
-                c.execute(
-                    text("UPDATE student_enrolments SET active=false WHERE tenant_id=:t AND user_id=:u AND offering_id=:o"),
-                    {"t": a.tenant, "u": a.student2, "o": a.offering},
+            def withdraw_student(context, messages, response_model, config=None):
+                assert response_model is RawQAAnswer
+                result = original_complete(context, messages, response_model, config)
+                with pg_env.admin.begin() as c:
+                    c.execute(text(f"SET LOCAL search_path TO {pg_env.schema}, public"))
+                    c.execute(
+                        text("UPDATE student_enrolments SET active=false WHERE tenant_id=:t AND user_id=:u AND offering_id=:o"),
+                        {"t": a.tenant, "u": a.student2, "o": a.offering},
+                    )
+                return result
+
+            with monkeypatch.context() as patch:
+                patch.setattr(gw, "complete_structured", withdraw_student)
+                revoked = client.post(
+                    f"/api/v1/tenants/{a.tenant}/knowledge/qa",
+                    headers=_hdr(a.student2_token),
+                    json={"question": "ApprovedPartitionToken", "offering_id": str(a.offering)},
                 )
+            assert revoked.status_code == 403
+            assert "ApprovedPartitionToken" not in revoked.text
             assert client.post(
                 f"/api/v1/tenants/{a.tenant}/knowledge/qa",
                 headers=_hdr(a.student2_token),

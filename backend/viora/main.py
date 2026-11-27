@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .ai.public import AIGateway
 from .authorization.public import AuthorizationService
 from .authorization.public import register_models as register_authorization
 from .config import Settings
@@ -18,6 +19,7 @@ from .institution.public import router as institution_router
 from .knowledge import public as knowledge
 from .security import Access
 from .sources import public as sources
+from .storage.public import ArtifactStore
 from .workflow.public import register_models as register_workflow
 
 
@@ -25,6 +27,9 @@ def create_app(
     settings: Settings | None = None,
     database: Database | None = None,
     access: Access | None = None,
+    *,
+    ai_gateway: AIGateway | None = None,
+    artifact_store: ArtifactStore | None = None,
 ) -> FastAPI:
     register_authorization()
     register_institution()
@@ -89,7 +94,19 @@ def create_app(
     if isinstance(effective_access, AuthorizationService):
         api.include_router(membership_router(effective_access))
         api.include_router(institution_router(effective_access))
-    api.include_router(sources.router(db, effective_access, settings=config))
-    api.include_router(knowledge.router(effective_access, db))
+    api.include_router(
+        sources.router(
+            db, effective_access, settings=config, artifact_store=artifact_store
+        )
+    )
+    api.include_router(
+        knowledge.router(
+            effective_access,
+            db,
+            settings=config,
+            ai_gateway=ai_gateway,
+            artifact_store=artifact_store,
+        )
+    )
     app.include_router(api)
     return app

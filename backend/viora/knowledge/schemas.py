@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..contracts import Contract, Digest, JobState
+from ..contracts import ArtifactVersionRef, Contract, Digest, JobState
 from ..sources.public import SourceInputFormat
 
 CHUNK_ALGORITHM_VERSION = "struct_chunk:1.0"
@@ -506,7 +506,7 @@ class KnowledgeIndexStatus(Contract):
 class KnowledgeRetrieveRequest(Contract):
     query: str = Field(min_length=2, max_length=1000)
     offering_id: UUID | None = None
-    mode: RetrievalMode = "hybrid_graph"
+    mode: RetrievalMode = "hybrid"
     top_k: int = Field(default=5, ge=1, le=20)
     candidate_k: int = Field(default=20, ge=1, le=50)
     max_context_tokens: int = Field(default=1800, ge=128, le=6000)
@@ -569,3 +569,622 @@ class KnowledgeRetrievalResult(Contract):
     lexical_candidates: int = Field(ge=0)
     semantic_candidates: int = Field(ge=0)
     retrieval_ms: float = Field(ge=0.0)
+
+
+QA_PROMPT_VERSION = "qa_prompt:1.1"
+QA_SCHEMA_VERSION = "1.0"
+QAStatus = Literal["answered", "clarification_needed", "insufficient_evidence"]
+QAClaimGrounding = Literal["source_supported", "source_synthesized"]
+
+
+class RawQACitation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    chunk_ref: str = Field(min_length=1, max_length=64)
+    evidence_id: str | None = Field(default=None, max_length=64)
+    quote: str | None = Field(default=None, max_length=320)
+
+
+class RawQAClaim(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    statement: str = Field(min_length=1, max_length=800)
+    grounding: QAClaimGrounding = "source_supported"
+    citations: list[RawQACitation] = Field(default_factory=list, max_length=8)
+
+
+class RawQAAnswer(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    status: QAStatus = "insufficient_evidence"
+    answer: str = Field(default="", max_length=2000)
+    claims: list[RawQAClaim] = Field(default_factory=list, max_length=12)
+    ambiguities: list[str] = Field(default_factory=list, max_length=6)
+    clarifying_questions: list[str] = Field(default_factory=list, max_length=6)
+    missing_evidence_topics: list[str] = Field(default_factory=list, max_length=6)
+    abstention_reason: str | None = Field(default=None, max_length=400)
+    general_knowledge_answer: str | None = Field(default=None, max_length=1500)
+
+
+class KnowledgeQARequest(Contract):
+    question: str = Field(min_length=2, max_length=1000)
+    offering_id: UUID | None = None
+    mode: RetrievalMode = "hybrid_graph"
+    top_k: int = Field(default=5, ge=1, le=12)
+    candidate_k: int = Field(default=20, ge=1, le=50)
+    max_context_tokens: int = Field(default=1800, ge=128, le=4000)
+    include_student_submissions: bool = True
+    published_only: bool = False
+    max_graph_hops: int = Field(default=2, ge=1, le=2)
+    allow_general_knowledge: bool = False
+    allow_interpretation: bool = False
+
+
+class QACitation(Contract):
+    citation_ref: str = Field(min_length=1, max_length=32)
+    chunk_record_id: UUID
+    source_id: UUID
+    version_id: UUID
+    derived_extraction_id: UUID
+    concept_extraction_id: UUID | None = None
+    chunk_id: str
+    section_id: str
+    section_path: tuple[str, ...] = ()
+    heading_title: str | None = None
+    page_start: int = Field(ge=1)
+    page_end: int = Field(ge=1)
+    evidence_id: str | None = None
+    origin_kind: str
+    excerpt: str = Field(max_length=500)
+    quote_verified: bool = False
+
+
+class GroundedQAClaim(Contract):
+    claim_id: str = Field(min_length=1, max_length=32)
+    statement: str = Field(min_length=1, max_length=1000)
+    grounding: QAClaimGrounding
+    citations: tuple[QACitation, ...] = Field(min_length=1)
+
+
+class QAInterpretation(Contract):
+    entailment_verified: Literal[False] = False
+    statement: str = Field(min_length=1, max_length=1000)
+    citations: tuple[QACitation, ...] = Field(min_length=1)
+
+
+class QAClarification(Contract):
+    reason: str = Field(min_length=1, max_length=600)
+    ambiguities: tuple[str, ...] = ()
+    clarifying_questions: tuple[str, ...] = Field(min_length=1)
+
+
+class QAAbstention(Contract):
+    reason: str = Field(min_length=1, max_length=600)
+    missing_evidence_topics: tuple[str, ...] = ()
+
+
+class QAGeneralKnowledge(Contract):
+    is_source_grounded: Literal[False] = False
+    label: str = (
+        "General educational knowledge (not verified against authorized course sources)"
+    )
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class QAValidationReport(Contract):
+    schema_version: str = QA_SCHEMA_VERSION
+    prompt_version: str = QA_PROMPT_VERSION
+    retrieval_mode: RetrievalMode
+    authorized_chunks_count: int = Field(ge=0)
+    authorized_graph_concepts_count: int = Field(ge=0)
+    context_tokens: int = Field(ge=0)
+    valid_citations_count: int = Field(ge=0)
+    rejected_citations_count: int = Field(ge=0)
+    dropped_ungrounded_claims_count: int = Field(ge=0)
+    general_knowledge_suppressed: bool = False
+    prompt_injection_signals_detected: int = Field(ge=0)
+    inference_requests: int = Field(ge=0, le=1)
+    retrieval_ms: float = Field(ge=0.0)
+    inference_ms: float = Field(ge=0.0)
+    validation_ms: float = Field(ge=0.0)
+    total_ms: float = Field(ge=0.0)
+    provider: str
+    model: str
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    notes: tuple[str, ...] = ()
+
+
+class KnowledgeQAResult(Contract):
+    schema_version: str = QA_SCHEMA_VERSION
+    status: QAStatus | Literal["interpreted"]
+    question: str
+    answer: str
+    source_grounded_claims: tuple[GroundedQAClaim, ...] = ()
+    interpretations: tuple[QAInterpretation, ...] = ()
+    citations: tuple[QACitation, ...] = ()
+    clarification: QAClarification | None = None
+    abstention: QAAbstention | None = None
+    general_knowledge: QAGeneralKnowledge | None = None
+    validation: QAValidationReport
+
+
+# ---------------------------------------------------------------------------
+# Batch 3.5A: Structured Lesson Blueprint contracts (FR-002..FR-005)
+# ---------------------------------------------------------------------------
+
+BLUEPRINT_PROMPT_VERSION = "lesson_blueprint_prompt:1.0"
+BLUEPRINT_SCHEMA_VERSION = "1.0"
+
+InterpretationLabel = Literal[
+    "verbatim_source",
+    "synthesized_source",
+    "pedagogical_adaptation",
+    "worked_derivation",
+    "syllabus_request",
+    "unverified_draft",
+]
+SceneTemplateType = Literal[
+    "vector_force",
+    "process_flow",
+    "parts_of_whole",
+    "plot_relationship",
+    "labeled_diagram",
+]
+SceneObjectKind = Literal[
+    "rectangle",
+    "circle",
+    "vector_arrow",
+    "node",
+    "edge",
+    "region",
+    "axis",
+    "curve",
+    "point",
+    "callout",
+    "text_label",
+    "array_cells",
+]
+SceneActionKind = Literal[
+    "appear",
+    "disappear",
+    "highlight",
+    "move",
+    "increase_vector",
+    "decrease_vector",
+    "state_change",
+    "reveal_step",
+    "trace_path",
+    "compare",
+]
+SceneEasing = Literal["linear", "ease_in", "ease_out", "ease_in_out"]
+SceneStyleToken = Literal["primary", "secondary", "accent", "muted", "warning"]
+AssessmentQuestionType = Literal["mcq", "short_answer", "concept_check"]
+AssessmentDifficulty = Literal["foundational", "intermediate", "applied"]
+AssessmentGradingMethod = Literal[
+    "deterministic_mcq", "deterministic_exact", "formative_rubric"
+]
+
+
+class RawBlueprintObjective(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    concept_id: str = Field(min_length=1, max_length=64)
+    statement: str = Field(min_length=1, max_length=600)
+    bloom_level: BloomLevel = "understand"
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class RawBlueprintExplanation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    concept_id: str = Field(min_length=1, max_length=64)
+    explanation: str = Field(min_length=1, max_length=1800)
+    key_points: list[str] = Field(default_factory=list, max_length=8)
+    formulas: list[str] = Field(default_factory=list, max_length=6)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class RawBlueprintWorkedExample(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    concept_id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=200)
+    problem_statement: str = Field(min_length=1, max_length=1000)
+    steps: list[str] = Field(default_factory=list, max_length=10)
+    final_answer: str = Field(min_length=1, max_length=600)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class RawSceneObject(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=64)
+    kind: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=160)
+    x: float = 100.0
+    y: float = 100.0
+    width: float = 160.0
+    height: float = 80.0
+    style_token: str = "primary"
+
+
+class RawSceneAction(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    kind: str = Field(min_length=1, max_length=64)
+    target_object_id: str = Field(min_length=1, max_length=64)
+    anchor: str = Field(min_length=1, max_length=48)
+    duration_seconds: float = 1.0
+    easing: SceneEasing = "ease_in_out"
+    delta_x: float = 0.0
+    delta_y: float = 0.0
+    scale_factor: float = 1.0
+    note: str | None = Field(default=None, max_length=240)
+
+
+class RawBlueprintScene(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    scene_id: str = Field(min_length=1, max_length=64)
+    concept_ids: list[str] = Field(default_factory=list, max_length=8)
+    objective_indices: list[int] = Field(default_factory=list, max_length=8)
+    template: str = Field(min_length=1, max_length=64)
+    visual_intent: str = Field(min_length=1, max_length=400)
+    duration_seconds: float = 12.0
+    timing_anchors: list[str] = Field(default_factory=list, max_length=16)
+    objects: list[RawSceneObject] = Field(default_factory=list, max_length=24)
+    actions: list[RawSceneAction] = Field(default_factory=list, max_length=40)
+    asset_refs: list[str] = Field(default_factory=list, max_length=8)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class RawNarrationCue(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    cue_id: str = Field(min_length=1, max_length=64)
+    anchor: str = Field(min_length=1, max_length=48)
+    spoken_phrase: str = Field(min_length=1, max_length=240)
+    offset_hint_seconds: float | None = None
+
+
+class RawBlueprintNarration(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    scene_id: str = Field(min_length=1, max_length=64)
+    concept_ids: list[str] = Field(default_factory=list, max_length=8)
+    script_text: str = Field(min_length=1, max_length=2000)
+    caption_text: str = Field(default="", max_length=2000)
+    estimated_duration_seconds: float = 12.0
+    cues: list[RawNarrationCue] = Field(default_factory=list, max_length=16)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class RawBlueprintAssessment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    concept_id: str = Field(min_length=1, max_length=64)
+    question_type: AssessmentQuestionType = "mcq"
+    difficulty: AssessmentDifficulty = "foundational"
+    stem: str = Field(min_length=1, max_length=800)
+    options: list[str] = Field(default_factory=list, max_length=6)
+    correct_option_index: int | None = None
+    correct_answer: str = Field(default="", max_length=400)
+    accepted_aliases: list[str] = Field(default_factory=list, max_length=6)
+    explanation: str = Field(min_length=1, max_length=1000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class RawLessonBlueprintBatch(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    lesson_summary: str = Field(default="", max_length=1600)
+    objectives: list[RawBlueprintObjective] = Field(default_factory=list, max_length=24)
+    explanations: list[RawBlueprintExplanation] = Field(default_factory=list, max_length=24)
+    worked_examples: list[RawBlueprintWorkedExample] = Field(default_factory=list, max_length=16)
+    scenes: list[RawBlueprintScene] = Field(default_factory=list, max_length=24)
+    narrations: list[RawBlueprintNarration] = Field(default_factory=list, max_length=24)
+    assessments: list[RawBlueprintAssessment] = Field(default_factory=list, max_length=20)
+    warnings: list[str] = Field(default_factory=list, max_length=12)
+
+
+class BlueprintLearningObjective(Contract):
+    objective_id: str = Field(min_length=1, max_length=64)
+    concept_id: str = Field(min_length=1, max_length=64)
+    statement: str = Field(min_length=1, max_length=600)
+    bloom_level: BloomLevel
+    grounding: GroundingClassification
+    interpretation_label: InterpretationLabel
+    evidence_bindings: tuple[ConceptEvidenceBinding, ...] = ()
+    needs_review: bool = True
+
+
+class BlueprintExplanationStep(Contract):
+    step_index: int = Field(ge=1)
+    depth_level: int = Field(ge=0)
+    concept_id: str = Field(min_length=1, max_length=64)
+    concept_name: str = Field(min_length=1, max_length=160)
+    prerequisite_concept_ids: tuple[str, ...] = ()
+    explanation: str = Field(min_length=1, max_length=2000)
+    key_points: tuple[str, ...] = ()
+    formulas: tuple[str, ...] = ()
+    supported_by_source: bool = False
+    grounding: GroundingClassification
+    interpretation_label: InterpretationLabel
+    evidence_bindings: tuple[ConceptEvidenceBinding, ...] = ()
+    needs_review: bool = True
+
+
+class BlueprintWorkedExample(Contract):
+    example_id: str = Field(min_length=1, max_length=64)
+    concept_id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=200)
+    problem_statement: str = Field(min_length=1, max_length=1000)
+    steps: tuple[str, ...] = Field(min_length=1)
+    final_answer: str = Field(min_length=1, max_length=600)
+    grounding: GroundingClassification
+    interpretation_label: InterpretationLabel
+    evidence_bindings: tuple[ConceptEvidenceBinding, ...] = ()
+    needs_review: bool = True
+
+
+class SceneCoordinateSpace(Contract):
+    width: int = Field(default=1280, ge=320, le=3840)
+    height: int = Field(default=720, ge=240, le=2160)
+    unit: Literal["px"] = "px"
+
+
+class SceneObjectSpec(Contract):
+    id: str = Field(min_length=1, max_length=64)
+    kind: SceneObjectKind
+    label: str = Field(min_length=1, max_length=160)
+    x: float = Field(ge=0.0, le=1280.0)
+    y: float = Field(ge=0.0, le=720.0)
+    width: float = Field(gt=0.0, le=1280.0)
+    height: float = Field(gt=0.0, le=720.0)
+    style_token: SceneStyleToken = "primary"
+
+
+class SceneActionSpec(Contract):
+    kind: SceneActionKind
+    target_object_id: str = Field(min_length=1, max_length=64)
+    anchor: str = Field(min_length=1, max_length=48)
+    duration_seconds: float = Field(ge=0.1, le=30.0)
+    easing: SceneEasing = "ease_in_out"
+    delta_x: float = Field(default=0.0, ge=-1280.0, le=1280.0)
+    delta_y: float = Field(default=0.0, ge=-720.0, le=720.0)
+    scale_factor: float = Field(default=1.0, ge=0.1, le=10.0)
+    note: str | None = Field(default=None, max_length=240)
+
+
+class TypedVisualSceneSpec(Contract):
+    scene_id: str = Field(min_length=1, max_length=64)
+    order_index: int = Field(ge=1)
+    concept_ids: tuple[str, ...] = Field(min_length=1)
+    objective_ids: tuple[str, ...] = ()
+    template: SceneTemplateType
+    visual_intent: str = Field(min_length=1, max_length=400)
+    coordinate_space: SceneCoordinateSpace = Field(default_factory=SceneCoordinateSpace)
+    duration_seconds: float = Field(ge=1.0, le=120.0)
+    timing_anchors: tuple[str, ...] = Field(min_length=1)
+    objects: tuple[SceneObjectSpec, ...] = Field(min_length=1, max_length=24)
+    actions: tuple[SceneActionSpec, ...] = Field(min_length=1, max_length=40)
+    narration_cue_ids: tuple[str, ...] = ()
+    asset_refs: tuple[str, ...] = ()
+    executable_code_allowed: Literal[False] = False
+    grounding: GroundingClassification
+    interpretation_label: InterpretationLabel
+    evidence_bindings: tuple[ConceptEvidenceBinding, ...] = ()
+    needs_review: bool = True
+
+
+class NarrationCueSpec(Contract):
+    cue_id: str = Field(min_length=1, max_length=64)
+    anchor: str = Field(min_length=1, max_length=48)
+    spoken_phrase: str = Field(min_length=1, max_length=240)
+    offset_hint_seconds: float | None = Field(default=None, ge=0.0, le=120.0)
+
+
+class BlueprintNarrationSegment(Contract):
+    segment_id: str = Field(min_length=1, max_length=64)
+    order_index: int = Field(ge=1)
+    scene_id: str = Field(min_length=1, max_length=64)
+    concept_ids: tuple[str, ...] = ()
+    script_text: str = Field(min_length=1, max_length=2000)
+    caption_text: str = Field(min_length=1, max_length=2000)
+    estimated_duration_seconds: float = Field(ge=1.0, le=120.0)
+    cues: tuple[NarrationCueSpec, ...] = ()
+    grounding: GroundingClassification
+    interpretation_label: InterpretationLabel
+    evidence_bindings: tuple[ConceptEvidenceBinding, ...] = ()
+    needs_review: bool = True
+
+
+class BlueprintAssessmentItem(Contract):
+    question_id: str = Field(min_length=1, max_length=64)
+    concept_id: str = Field(min_length=1, max_length=64)
+    objective_ids: tuple[str, ...] = ()
+    question_type: AssessmentQuestionType
+    difficulty: AssessmentDifficulty
+    stem: str = Field(min_length=1, max_length=800)
+    options: tuple[str, ...] = ()
+    correct_option_index: int | None = None
+    correct_answer: str = Field(min_length=1, max_length=400)
+    accepted_aliases: tuple[str, ...] = ()
+    explanation: str = Field(min_length=1, max_length=1000)
+    grading_method: AssessmentGradingMethod
+    answer_key_verified: bool = True
+    grounding: GroundingClassification
+    interpretation_label: InterpretationLabel
+    evidence_bindings: tuple[ConceptEvidenceBinding, ...] = ()
+    needs_review: bool = True
+
+
+class StudentSafeAssessmentItem(Contract):
+    """Student-facing assessment item with secret answer key and aliases stripped."""
+
+    question_id: str = Field(min_length=1, max_length=64)
+    concept_id: str = Field(min_length=1, max_length=64)
+    objective_ids: tuple[str, ...] = ()
+    question_type: AssessmentQuestionType
+    difficulty: AssessmentDifficulty
+    stem: str = Field(min_length=1, max_length=800)
+    options: tuple[str, ...] = ()
+    grading_method: AssessmentGradingMethod
+    grounding: GroundingClassification
+    interpretation_label: InterpretationLabel
+    evidence_bindings: tuple[ConceptEvidenceBinding, ...] = ()
+
+
+class BlueprintValidationReport(Contract):
+    schema_version: str = BLUEPRINT_SCHEMA_VERSION
+    prompt_version: str = BLUEPRINT_PROMPT_VERSION
+    outline_version: str = CURRICULUM_ALGORITHM_VERSION
+    prerequisite_order_preserved: bool = True
+    learning_request_only: bool = False
+    all_evidence_verified: bool = False
+    executable_scene_code_blocked: Literal[True] = True
+    rejected_evidence_refs_count: int = Field(ge=0)
+    rejected_scenes_count: int = Field(ge=0)
+    rejected_scene_commands_count: int = Field(ge=0)
+    rejected_assessment_items_count: int = Field(ge=0)
+    requires_teacher_review: bool = True
+    notes: tuple[str, ...] = ()
+
+
+class LessonBlueprint(Contract):
+    blueprint_schema_version: str = BLUEPRINT_SCHEMA_VERSION
+    source_id: UUID
+    version_id: UUID
+    derived_extraction_id: UUID
+    concept_extraction_id: UUID
+    approved_review_id: UUID
+    source_sha256: Digest
+    input_format: SourceInputFormat
+    title: str
+    lesson_summary: str
+    learning_request_only: bool = False
+    prerequisite_order: tuple[str, ...] = ()
+    learning_objectives: tuple[BlueprintLearningObjective, ...] = ()
+    explanations: tuple[BlueprintExplanationStep, ...] = ()
+    worked_examples: tuple[BlueprintWorkedExample, ...] = ()
+    scenes: tuple[TypedVisualSceneSpec, ...] = ()
+    narration_language: str = "en"
+    tts_synthesized: Literal[False] = False
+    narrations: tuple[BlueprintNarrationSegment, ...] = ()
+    assessments: tuple[BlueprintAssessmentItem, ...] = ()
+    validation: BlueprintValidationReport
+    created_at: datetime
+
+
+class LessonBlueprintRecord(Contract):
+    blueprint_id: UUID
+    tenant_id: UUID
+    source_id: UUID
+    version_id: UUID
+    derived_extraction_id: UUID
+    concept_extraction_id: UUID
+    approved_review_id: UUID
+    blueprint_version: int = Field(ge=1)
+    job_id: UUID | None = None
+    provider: str
+    model: str
+    prompt_version: str
+    schema_version: str
+    outline_version: str
+    input_fingerprint: Digest
+    source_sha256: Digest
+    artifact_ref: ArtifactVersionRef
+    byte_size: int = Field(ge=1)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    inference_requests: int = Field(ge=0)
+    generation_ms: float = Field(ge=0.0)
+    validation_ms: float = Field(ge=0.0)
+    blueprint: LessonBlueprint
+    created_at: datetime
+
+
+class LessonBlueprintSummary(Contract):
+    blueprint_id: UUID
+    tenant_id: UUID
+    source_id: UUID
+    version_id: UUID
+    concept_extraction_id: UUID
+    approved_review_id: UUID
+    blueprint_version: int = Field(ge=1)
+    job_id: UUID | None = None
+    provider: str
+    model: str
+    artifact_ref: ArtifactVersionRef
+    byte_size: int = Field(ge=1)
+    created_at: datetime
+
+
+class PublishedLessonBlueprint(Contract):
+    """Student-accessible approved lesson blueprint with answer keys removed."""
+
+    blueprint_id: UUID
+    tenant_id: UUID
+    source_id: UUID
+    version_id: UUID
+    concept_extraction_id: UUID
+    approved_review_id: UUID
+    blueprint_version: int = Field(ge=1)
+    source_sha256: Digest
+    title: str
+    lesson_summary: str
+    teacher_approved: Literal[True] = True
+    published_to_students: Literal[True] = True
+    learning_request_only: bool = False
+    prerequisite_order: tuple[str, ...] = ()
+    learning_objectives: tuple[BlueprintLearningObjective, ...] = ()
+    explanations: tuple[BlueprintExplanationStep, ...] = ()
+    worked_examples: tuple[BlueprintWorkedExample, ...] = ()
+    scenes: tuple[TypedVisualSceneSpec, ...] = ()
+    narration_language: str = "en"
+    tts_synthesized: Literal[False] = False
+    narrations: tuple[BlueprintNarrationSegment, ...] = ()
+    assessments: tuple[StudentSafeAssessmentItem, ...] = ()
+    validation: BlueprintValidationReport
+    published_at: datetime
+
+
+class LessonBlueprintTriggerRequest(Contract):
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class LessonBlueprintTriggerResult(Contract):
+    job_id: UUID
+    job_state: JobState
+    concept_extraction_id: UUID
+    approved_review_id: UUID
+    blueprint_id: UUID | None = None
+    idempotent_replay: bool = False
+
+
+class LessonBlueprintApprovalRequest(Contract):
+    blueprint_id: UUID
+    decision: ReviewDecision
+    publish: bool = False
+    review_notes: str | None = Field(default=None, max_length=1500)
+
+
+class LessonBlueprintApprovalState(Contract):
+    tenant_id: UUID
+    source_id: UUID
+    version_id: UUID
+    blueprint_id: UUID | None = None
+    concept_extraction_id: UUID | None = None
+    approved_review_id: UUID | None = None
+    approval_status: PublicationReviewStatus
+    teacher_approved: bool
+    published_to_students: bool
+    reviewed_by_user_id: UUID | None = None
+    review_notes: str | None = None
+    reviewed_at: datetime | None = None
+    published_by_user_id: UUID | None = None
+    published_at: datetime | None = None
+    updated_at: datetime

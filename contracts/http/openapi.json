@@ -160,6 +160,628 @@
         "title": "AuthenticatedUser",
         "type": "object"
       },
+      "BlueprintAssessmentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_aliases": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Aliases",
+            "type": "array"
+          },
+          "answer_key_verified": {
+            "default": true,
+            "title": "Answer Key Verified",
+            "type": "boolean"
+          },
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "correct_answer": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Correct Answer",
+            "type": "string"
+          },
+          "correct_option_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correct Option Index"
+          },
+          "difficulty": {
+            "enum": [
+              "foundational",
+              "intermediate",
+              "applied"
+            ],
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "explanation": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Explanation",
+            "type": "string"
+          },
+          "grading_method": {
+            "enum": [
+              "deterministic_mcq",
+              "deterministic_exact",
+              "formative_rubric"
+            ],
+            "title": "Grading Method",
+            "type": "string"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "interpretation_label": {
+            "enum": [
+              "verbatim_source",
+              "synthesized_source",
+              "pedagogical_adaptation",
+              "worked_derivation",
+              "syllabus_request",
+              "unverified_draft"
+            ],
+            "title": "Interpretation Label",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "objective_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Objective Ids",
+            "type": "array"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "question_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Question Id",
+            "type": "string"
+          },
+          "question_type": {
+            "enum": [
+              "mcq",
+              "short_answer",
+              "concept_check"
+            ],
+            "title": "Question Type",
+            "type": "string"
+          },
+          "stem": {
+            "maxLength": 800,
+            "minLength": 1,
+            "title": "Stem",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "concept_id",
+          "question_type",
+          "difficulty",
+          "stem",
+          "correct_answer",
+          "explanation",
+          "grading_method",
+          "grounding",
+          "interpretation_label"
+        ],
+        "title": "BlueprintAssessmentItem",
+        "type": "object"
+      },
+      "BlueprintExplanationStep": {
+        "additionalProperties": false,
+        "properties": {
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "concept_name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Concept Name",
+            "type": "string"
+          },
+          "depth_level": {
+            "minimum": 0.0,
+            "title": "Depth Level",
+            "type": "integer"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "explanation": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Explanation",
+            "type": "string"
+          },
+          "formulas": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Formulas",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "interpretation_label": {
+            "enum": [
+              "verbatim_source",
+              "synthesized_source",
+              "pedagogical_adaptation",
+              "worked_derivation",
+              "syllabus_request",
+              "unverified_draft"
+            ],
+            "title": "Interpretation Label",
+            "type": "string"
+          },
+          "key_points": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Key Points",
+            "type": "array"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "prerequisite_concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisite Concept Ids",
+            "type": "array"
+          },
+          "step_index": {
+            "minimum": 1.0,
+            "title": "Step Index",
+            "type": "integer"
+          },
+          "supported_by_source": {
+            "default": false,
+            "title": "Supported By Source",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "step_index",
+          "depth_level",
+          "concept_id",
+          "concept_name",
+          "explanation",
+          "grounding",
+          "interpretation_label"
+        ],
+        "title": "BlueprintExplanationStep",
+        "type": "object"
+      },
+      "BlueprintLearningObjective": {
+        "additionalProperties": false,
+        "properties": {
+          "bloom_level": {
+            "enum": [
+              "remember",
+              "understand",
+              "apply",
+              "analyze"
+            ],
+            "title": "Bloom Level",
+            "type": "string"
+          },
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "interpretation_label": {
+            "enum": [
+              "verbatim_source",
+              "synthesized_source",
+              "pedagogical_adaptation",
+              "worked_derivation",
+              "syllabus_request",
+              "unverified_draft"
+            ],
+            "title": "Interpretation Label",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "objective_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Objective Id",
+            "type": "string"
+          },
+          "statement": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "objective_id",
+          "concept_id",
+          "statement",
+          "bloom_level",
+          "grounding",
+          "interpretation_label"
+        ],
+        "title": "BlueprintLearningObjective",
+        "type": "object"
+      },
+      "BlueprintNarrationSegment": {
+        "additionalProperties": false,
+        "properties": {
+          "caption_text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Caption Text",
+            "type": "string"
+          },
+          "concept_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Concept Ids",
+            "type": "array"
+          },
+          "cues": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NarrationCueSpec"
+            },
+            "title": "Cues",
+            "type": "array"
+          },
+          "estimated_duration_seconds": {
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Estimated Duration Seconds",
+            "type": "number"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "interpretation_label": {
+            "enum": [
+              "verbatim_source",
+              "synthesized_source",
+              "pedagogical_adaptation",
+              "worked_derivation",
+              "syllabus_request",
+              "unverified_draft"
+            ],
+            "title": "Interpretation Label",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "order_index": {
+            "minimum": 1.0,
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "scene_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "script_text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Script Text",
+            "type": "string"
+          },
+          "segment_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Segment Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segment_id",
+          "order_index",
+          "scene_id",
+          "script_text",
+          "caption_text",
+          "estimated_duration_seconds",
+          "grounding",
+          "interpretation_label"
+        ],
+        "title": "BlueprintNarrationSegment",
+        "type": "object"
+      },
+      "BlueprintValidationReport": {
+        "additionalProperties": false,
+        "properties": {
+          "all_evidence_verified": {
+            "default": false,
+            "title": "All Evidence Verified",
+            "type": "boolean"
+          },
+          "executable_scene_code_blocked": {
+            "const": true,
+            "default": true,
+            "title": "Executable Scene Code Blocked",
+            "type": "boolean"
+          },
+          "learning_request_only": {
+            "default": false,
+            "title": "Learning Request Only",
+            "type": "boolean"
+          },
+          "notes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "outline_version": {
+            "default": "curriculum_dag:1.0",
+            "title": "Outline Version",
+            "type": "string"
+          },
+          "prerequisite_order_preserved": {
+            "default": true,
+            "title": "Prerequisite Order Preserved",
+            "type": "boolean"
+          },
+          "prompt_version": {
+            "default": "lesson_blueprint_prompt:1.0",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "rejected_assessment_items_count": {
+            "minimum": 0.0,
+            "title": "Rejected Assessment Items Count",
+            "type": "integer"
+          },
+          "rejected_evidence_refs_count": {
+            "minimum": 0.0,
+            "title": "Rejected Evidence Refs Count",
+            "type": "integer"
+          },
+          "rejected_scene_commands_count": {
+            "minimum": 0.0,
+            "title": "Rejected Scene Commands Count",
+            "type": "integer"
+          },
+          "rejected_scenes_count": {
+            "minimum": 0.0,
+            "title": "Rejected Scenes Count",
+            "type": "integer"
+          },
+          "requires_teacher_review": {
+            "default": true,
+            "title": "Requires Teacher Review",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rejected_evidence_refs_count",
+          "rejected_scenes_count",
+          "rejected_scene_commands_count",
+          "rejected_assessment_items_count"
+        ],
+        "title": "BlueprintValidationReport",
+        "type": "object"
+      },
+      "BlueprintWorkedExample": {
+        "additionalProperties": false,
+        "properties": {
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "example_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Example Id",
+            "type": "string"
+          },
+          "final_answer": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Final Answer",
+            "type": "string"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "interpretation_label": {
+            "enum": [
+              "verbatim_source",
+              "synthesized_source",
+              "pedagogical_adaptation",
+              "worked_derivation",
+              "syllabus_request",
+              "unverified_draft"
+            ],
+            "title": "Interpretation Label",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "problem_statement": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Problem Statement",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Steps",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "example_id",
+          "concept_id",
+          "title",
+          "problem_statement",
+          "steps",
+          "final_answer",
+          "grounding",
+          "interpretation_label"
+        ],
+        "title": "BlueprintWorkedExample",
+        "type": "object"
+      },
       "Body_createFileSourceVersion": {
         "properties": {
           "file": {
@@ -2271,6 +2893,134 @@
         "title": "FormulaReference",
         "type": "object"
       },
+      "GraphEnrichmentConcept": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_summary": {
+            "title": "Canonical Summary",
+            "type": "string"
+          },
+          "concept_id": {
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "definitions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Definitions",
+            "type": "array"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "hop_distance": {
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Hop Distance",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prerequisites": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "relation_paths": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Relation Paths",
+            "type": "array"
+          },
+          "sense_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sense Label"
+          }
+        },
+        "required": [
+          "concept_id",
+          "name",
+          "grounding",
+          "canonical_summary",
+          "hop_distance"
+        ],
+        "title": "GraphEnrichmentConcept",
+        "type": "object"
+      },
+      "GroundedQAClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/QACitation"
+            },
+            "minItems": 1,
+            "title": "Citations",
+            "type": "array"
+          },
+          "claim_id": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Claim Id",
+            "type": "string"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "statement": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "claim_id",
+          "statement",
+          "grounding",
+          "citations"
+        ],
+        "title": "GroundedQAClaim",
+        "type": "object"
+      },
       "GuardianLinkCreate": {
         "additionalProperties": false,
         "properties": {
@@ -2517,6 +3267,197 @@
         "title": "JobStatus",
         "type": "object"
       },
+      "KnowledgeIndexStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_algorithm_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Algorithm Version"
+          },
+          "chunk_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived Extraction Id"
+          },
+          "embedding_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model"
+          },
+          "embedding_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Version"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "indexed": {
+            "title": "Indexed",
+            "type": "boolean"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "indexed"
+        ],
+        "title": "KnowledgeIndexStatus",
+        "type": "object"
+      },
+      "KnowledgeIndexTriggerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "title": "KnowledgeIndexTriggerRequest",
+        "type": "object"
+      },
+      "KnowledgeIndexTriggerResult": {
+        "additionalProperties": false,
+        "properties": {
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "idempotent_replay": {
+            "default": false,
+            "title": "Idempotent Replay",
+            "type": "boolean"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_state": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_state",
+          "derived_extraction_id"
+        ],
+        "title": "KnowledgeIndexTriggerResult",
+        "type": "object"
+      },
       "KnowledgePublicationState": {
         "additionalProperties": false,
         "properties": {
@@ -2669,6 +3610,373 @@
           "concept_extraction_id"
         ],
         "title": "KnowledgePublishRequest",
+        "type": "object"
+      },
+      "KnowledgeQARequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_general_knowledge": {
+            "default": false,
+            "title": "Allow General Knowledge",
+            "type": "boolean"
+          },
+          "allow_interpretation": {
+            "default": false,
+            "title": "Allow Interpretation",
+            "type": "boolean"
+          },
+          "candidate_k": {
+            "default": 20,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Candidate K",
+            "type": "integer"
+          },
+          "include_student_submissions": {
+            "default": true,
+            "title": "Include Student Submissions",
+            "type": "boolean"
+          },
+          "max_context_tokens": {
+            "default": 1800,
+            "maximum": 4000.0,
+            "minimum": 128.0,
+            "title": "Max Context Tokens",
+            "type": "integer"
+          },
+          "max_graph_hops": {
+            "default": 2,
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Max Graph Hops",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "hybrid_graph",
+            "enum": [
+              "lexical",
+              "semantic",
+              "hybrid",
+              "hybrid_graph"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "offering_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offering Id"
+          },
+          "published_only": {
+            "default": false,
+            "title": "Published Only",
+            "type": "boolean"
+          },
+          "question": {
+            "maxLength": 1000,
+            "minLength": 2,
+            "title": "Question",
+            "type": "string"
+          },
+          "top_k": {
+            "default": 5,
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "KnowledgeQARequest",
+        "type": "object"
+      },
+      "KnowledgeQAResult": {
+        "additionalProperties": false,
+        "properties": {
+          "abstention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QAAbstention"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "citations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/QACitation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QAClarification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "general_knowledge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QAGeneralKnowledge"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interpretations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/QAInterpretation"
+            },
+            "title": "Interpretations",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_grounded_claims": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/GroundedQAClaim"
+            },
+            "title": "Source Grounded Claims",
+            "type": "array"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "answered",
+                  "clarification_needed",
+                  "insufficient_evidence"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "interpreted",
+                "type": "string"
+              }
+            ],
+            "title": "Status"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/QAValidationReport"
+          }
+        },
+        "required": [
+          "status",
+          "question",
+          "answer",
+          "validation"
+        ],
+        "title": "KnowledgeQAResult",
+        "type": "object"
+      },
+      "KnowledgeRetrievalResult": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm_version": {
+            "default": "hybrid_graph_rrf:1.0",
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "chunks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RetrievedEvidenceChunk"
+            },
+            "title": "Chunks",
+            "type": "array"
+          },
+          "context_text": {
+            "default": "",
+            "title": "Context Text",
+            "type": "string"
+          },
+          "context_tokens": {
+            "minimum": 0.0,
+            "title": "Context Tokens",
+            "type": "integer"
+          },
+          "cycles_avoided": {
+            "minimum": 0.0,
+            "title": "Cycles Avoided",
+            "type": "integer"
+          },
+          "duplicate_chunks_removed": {
+            "minimum": 0.0,
+            "title": "Duplicate Chunks Removed",
+            "type": "integer"
+          },
+          "embedding_model": {
+            "title": "Embedding Model",
+            "type": "string"
+          },
+          "embedding_model_version": {
+            "title": "Embedding Model Version",
+            "type": "string"
+          },
+          "graph_concepts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/GraphEnrichmentConcept"
+            },
+            "title": "Graph Concepts",
+            "type": "array"
+          },
+          "hops_traversed": {
+            "minimum": 0.0,
+            "title": "Hops Traversed",
+            "type": "integer"
+          },
+          "lexical_candidates": {
+            "minimum": 0.0,
+            "title": "Lexical Candidates",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "lexical",
+              "semantic",
+              "hybrid",
+              "hybrid_graph"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "retrieval_ms": {
+            "minimum": 0.0,
+            "title": "Retrieval Ms",
+            "type": "number"
+          },
+          "semantic_candidates": {
+            "minimum": 0.0,
+            "title": "Semantic Candidates",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode",
+          "query",
+          "embedding_model",
+          "embedding_model_version",
+          "context_tokens",
+          "duplicate_chunks_removed",
+          "cycles_avoided",
+          "hops_traversed",
+          "lexical_candidates",
+          "semantic_candidates",
+          "retrieval_ms"
+        ],
+        "title": "KnowledgeRetrievalResult",
+        "type": "object"
+      },
+      "KnowledgeRetrieveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_k": {
+            "default": 20,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Candidate K",
+            "type": "integer"
+          },
+          "include_student_submissions": {
+            "default": true,
+            "title": "Include Student Submissions",
+            "type": "boolean"
+          },
+          "max_context_tokens": {
+            "default": 1800,
+            "maximum": 6000.0,
+            "minimum": 128.0,
+            "title": "Max Context Tokens",
+            "type": "integer"
+          },
+          "max_graph_hops": {
+            "default": 2,
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Max Graph Hops",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "hybrid",
+            "enum": [
+              "lexical",
+              "semantic",
+              "hybrid",
+              "hybrid_graph"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "offering_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offering Id"
+          },
+          "published_only": {
+            "default": false,
+            "title": "Published Only",
+            "type": "boolean"
+          },
+          "query": {
+            "maxLength": 1000,
+            "minLength": 2,
+            "title": "Query",
+            "type": "string"
+          },
+          "top_k": {
+            "default": 5,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "KnowledgeRetrieveRequest",
         "type": "object"
       },
       "KnowledgeReviewRecord": {
@@ -3002,6 +4310,672 @@
         "title": "LearningObjectiveCandidate",
         "type": "object"
       },
+      "LessonBlueprint": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_review_id": {
+            "format": "uuid",
+            "title": "Approved Review Id",
+            "type": "string"
+          },
+          "assessments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintAssessmentItem"
+            },
+            "title": "Assessments",
+            "type": "array"
+          },
+          "blueprint_schema_version": {
+            "default": "1.0",
+            "title": "Blueprint Schema Version",
+            "type": "string"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "explanations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintExplanationStep"
+            },
+            "title": "Explanations",
+            "type": "array"
+          },
+          "input_format": {
+            "enum": [
+              "plain_text",
+              "typed_notes",
+              "topic_description",
+              "digital_pdf",
+              "scanned_pdf",
+              "png",
+              "jpeg"
+            ],
+            "title": "Input Format",
+            "type": "string"
+          },
+          "learning_objectives": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintLearningObjective"
+            },
+            "title": "Learning Objectives",
+            "type": "array"
+          },
+          "learning_request_only": {
+            "default": false,
+            "title": "Learning Request Only",
+            "type": "boolean"
+          },
+          "lesson_summary": {
+            "title": "Lesson Summary",
+            "type": "string"
+          },
+          "narration_language": {
+            "default": "en",
+            "title": "Narration Language",
+            "type": "string"
+          },
+          "narrations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintNarrationSegment"
+            },
+            "title": "Narrations",
+            "type": "array"
+          },
+          "prerequisite_order": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisite Order",
+            "type": "array"
+          },
+          "scenes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TypedVisualSceneSpec"
+            },
+            "title": "Scenes",
+            "type": "array"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tts_synthesized": {
+            "const": false,
+            "default": false,
+            "title": "Tts Synthesized",
+            "type": "boolean"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/BlueprintValidationReport"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          },
+          "worked_examples": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintWorkedExample"
+            },
+            "title": "Worked Examples",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "concept_extraction_id",
+          "approved_review_id",
+          "source_sha256",
+          "input_format",
+          "title",
+          "lesson_summary",
+          "validation",
+          "created_at"
+        ],
+        "title": "LessonBlueprint",
+        "type": "object"
+      },
+      "LessonBlueprintApprovalRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "blueprint_id": {
+            "format": "uuid",
+            "title": "Blueprint Id",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "changes_requested",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "publish": {
+            "default": false,
+            "title": "Publish",
+            "type": "boolean"
+          },
+          "review_notes": {
+            "anyOf": [
+              {
+                "maxLength": 1500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notes"
+          }
+        },
+        "required": [
+          "blueprint_id",
+          "decision"
+        ],
+        "title": "LessonBlueprintApprovalRequest",
+        "type": "object"
+      },
+      "LessonBlueprintApprovalState": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_status": {
+            "enum": [
+              "pending_review",
+              "approved",
+              "changes_requested",
+              "rejected"
+            ],
+            "title": "Approval Status",
+            "type": "string"
+          },
+          "approved_review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved Review Id"
+          },
+          "blueprint_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blueprint Id"
+          },
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "published_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published By User Id"
+          },
+          "published_to_students": {
+            "title": "Published To Students",
+            "type": "boolean"
+          },
+          "review_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notes"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By User Id"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "teacher_approved": {
+            "title": "Teacher Approved",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "approval_status",
+          "teacher_approved",
+          "published_to_students",
+          "updated_at"
+        ],
+        "title": "LessonBlueprintApprovalState",
+        "type": "object"
+      },
+      "LessonBlueprintRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_review_id": {
+            "format": "uuid",
+            "title": "Approved Review Id",
+            "type": "string"
+          },
+          "artifact_ref": {
+            "$ref": "#/components/schemas/ArtifactVersionRef"
+          },
+          "blueprint": {
+            "$ref": "#/components/schemas/LessonBlueprint"
+          },
+          "blueprint_id": {
+            "format": "uuid",
+            "title": "Blueprint Id",
+            "type": "string"
+          },
+          "blueprint_version": {
+            "minimum": 1.0,
+            "title": "Blueprint Version",
+            "type": "integer"
+          },
+          "byte_size": {
+            "minimum": 1.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "generation_ms": {
+            "minimum": 0.0,
+            "title": "Generation Ms",
+            "type": "number"
+          },
+          "inference_requests": {
+            "minimum": 0.0,
+            "title": "Inference Requests",
+            "type": "integer"
+          },
+          "input_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Input Fingerprint",
+            "type": "string"
+          },
+          "input_tokens": {
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "outline_version": {
+            "title": "Outline Version",
+            "type": "string"
+          },
+          "output_tokens": {
+            "minimum": 0.0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "total_tokens": {
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "validation_ms": {
+            "minimum": 0.0,
+            "title": "Validation Ms",
+            "type": "number"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_id",
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "concept_extraction_id",
+          "approved_review_id",
+          "blueprint_version",
+          "provider",
+          "model",
+          "prompt_version",
+          "schema_version",
+          "outline_version",
+          "input_fingerprint",
+          "source_sha256",
+          "artifact_ref",
+          "byte_size",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens",
+          "inference_requests",
+          "generation_ms",
+          "validation_ms",
+          "blueprint",
+          "created_at"
+        ],
+        "title": "LessonBlueprintRecord",
+        "type": "object"
+      },
+      "LessonBlueprintSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_review_id": {
+            "format": "uuid",
+            "title": "Approved Review Id",
+            "type": "string"
+          },
+          "artifact_ref": {
+            "$ref": "#/components/schemas/ArtifactVersionRef"
+          },
+          "blueprint_id": {
+            "format": "uuid",
+            "title": "Blueprint Id",
+            "type": "string"
+          },
+          "blueprint_version": {
+            "minimum": 1.0,
+            "title": "Blueprint Version",
+            "type": "integer"
+          },
+          "byte_size": {
+            "minimum": 1.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_id",
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "concept_extraction_id",
+          "approved_review_id",
+          "blueprint_version",
+          "provider",
+          "model",
+          "artifact_ref",
+          "byte_size",
+          "created_at"
+        ],
+        "title": "LessonBlueprintSummary",
+        "type": "object"
+      },
+      "LessonBlueprintTriggerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "title": "LessonBlueprintTriggerRequest",
+        "type": "object"
+      },
+      "LessonBlueprintTriggerResult": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_review_id": {
+            "format": "uuid",
+            "title": "Approved Review Id",
+            "type": "string"
+          },
+          "blueprint_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blueprint Id"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "idempotent_replay": {
+            "default": false,
+            "title": "Idempotent Replay",
+            "type": "boolean"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_state": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_state",
+          "concept_extraction_id",
+          "approved_review_id"
+        ],
+        "title": "LessonBlueprintTriggerResult",
+        "type": "object"
+      },
       "LessonModule": {
         "additionalProperties": false,
         "description": "Cohesive teaching module grouped by prerequisite depth.",
@@ -3306,6 +5280,49 @@
         ],
         "title": "MembershipStatus",
         "type": "string"
+      },
+      "NarrationCueSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor": {
+            "maxLength": 48,
+            "minLength": 1,
+            "title": "Anchor",
+            "type": "string"
+          },
+          "cue_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Cue Id",
+            "type": "string"
+          },
+          "offset_hint_seconds": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset Hint Seconds"
+          },
+          "spoken_phrase": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Spoken Phrase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cue_id",
+          "anchor",
+          "spoken_phrase"
+        ],
+        "title": "NarrationCueSpec",
+        "type": "object"
       },
       "OfferingAssignmentSummary": {
         "additionalProperties": false,
@@ -3673,6 +5690,34 @@
           "items"
         ],
         "title": "Page[KnowledgeReviewRecord]",
+        "type": "object"
+      },
+      "Page_LessonBlueprintSummary_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LessonBlueprintSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[LessonBlueprintSummary]",
         "type": "object"
       },
       "Page_MemberSummary_": {
@@ -4203,6 +6248,168 @@
         "title": "ProgrammeUpdate",
         "type": "object"
       },
+      "PublishedLessonBlueprint": {
+        "additionalProperties": false,
+        "description": "Student-accessible approved lesson blueprint with answer keys removed.",
+        "properties": {
+          "approved_review_id": {
+            "format": "uuid",
+            "title": "Approved Review Id",
+            "type": "string"
+          },
+          "assessments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StudentSafeAssessmentItem"
+            },
+            "title": "Assessments",
+            "type": "array"
+          },
+          "blueprint_id": {
+            "format": "uuid",
+            "title": "Blueprint Id",
+            "type": "string"
+          },
+          "blueprint_version": {
+            "minimum": 1.0,
+            "title": "Blueprint Version",
+            "type": "integer"
+          },
+          "concept_extraction_id": {
+            "format": "uuid",
+            "title": "Concept Extraction Id",
+            "type": "string"
+          },
+          "explanations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintExplanationStep"
+            },
+            "title": "Explanations",
+            "type": "array"
+          },
+          "learning_objectives": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintLearningObjective"
+            },
+            "title": "Learning Objectives",
+            "type": "array"
+          },
+          "learning_request_only": {
+            "default": false,
+            "title": "Learning Request Only",
+            "type": "boolean"
+          },
+          "lesson_summary": {
+            "title": "Lesson Summary",
+            "type": "string"
+          },
+          "narration_language": {
+            "default": "en",
+            "title": "Narration Language",
+            "type": "string"
+          },
+          "narrations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintNarrationSegment"
+            },
+            "title": "Narrations",
+            "type": "array"
+          },
+          "prerequisite_order": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisite Order",
+            "type": "array"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "published_to_students": {
+            "const": true,
+            "default": true,
+            "title": "Published To Students",
+            "type": "boolean"
+          },
+          "scenes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TypedVisualSceneSpec"
+            },
+            "title": "Scenes",
+            "type": "array"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "teacher_approved": {
+            "const": true,
+            "default": true,
+            "title": "Teacher Approved",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tts_synthesized": {
+            "const": false,
+            "default": false,
+            "title": "Tts Synthesized",
+            "type": "boolean"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/BlueprintValidationReport"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          },
+          "worked_examples": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BlueprintWorkedExample"
+            },
+            "title": "Worked Examples",
+            "type": "array"
+          }
+        },
+        "required": [
+          "blueprint_id",
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "concept_extraction_id",
+          "approved_review_id",
+          "blueprint_version",
+          "source_sha256",
+          "title",
+          "lesson_summary",
+          "validation",
+          "published_at"
+        ],
+        "title": "PublishedLessonBlueprint",
+        "type": "object"
+      },
       "PublishedLessonPackage": {
         "additionalProperties": false,
         "description": "Student-accessible educational knowledge and lesson outline after approval and publication.",
@@ -4314,6 +6521,538 @@
         "title": "PublishedLessonPackage",
         "type": "object"
       },
+      "QAAbstention": {
+        "additionalProperties": false,
+        "properties": {
+          "missing_evidence_topics": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Evidence Topics",
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "QAAbstention",
+        "type": "object"
+      },
+      "QACitation": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "chunk_record_id": {
+            "format": "uuid",
+            "title": "Chunk Record Id",
+            "type": "string"
+          },
+          "citation_ref": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Citation Ref",
+            "type": "string"
+          },
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "evidence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Id"
+          },
+          "excerpt": {
+            "maxLength": 500,
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "heading_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Title"
+          },
+          "origin_kind": {
+            "title": "Origin Kind",
+            "type": "string"
+          },
+          "page_end": {
+            "minimum": 1.0,
+            "title": "Page End",
+            "type": "integer"
+          },
+          "page_start": {
+            "minimum": 1.0,
+            "title": "Page Start",
+            "type": "integer"
+          },
+          "quote_verified": {
+            "default": false,
+            "title": "Quote Verified",
+            "type": "boolean"
+          },
+          "section_id": {
+            "title": "Section Id",
+            "type": "string"
+          },
+          "section_path": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Section Path",
+            "type": "array"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "citation_ref",
+          "chunk_record_id",
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "chunk_id",
+          "section_id",
+          "page_start",
+          "page_end",
+          "origin_kind",
+          "excerpt"
+        ],
+        "title": "QACitation",
+        "type": "object"
+      },
+      "QAClarification": {
+        "additionalProperties": false,
+        "properties": {
+          "ambiguities": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Ambiguities",
+            "type": "array"
+          },
+          "clarifying_questions": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Clarifying Questions",
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "clarifying_questions"
+        ],
+        "title": "QAClarification",
+        "type": "object"
+      },
+      "QAGeneralKnowledge": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "is_source_grounded": {
+            "const": false,
+            "default": false,
+            "title": "Is Source Grounded",
+            "type": "boolean"
+          },
+          "label": {
+            "default": "General educational knowledge (not verified against authorized course sources)",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "QAGeneralKnowledge",
+        "type": "object"
+      },
+      "QAInterpretation": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/QACitation"
+            },
+            "minItems": 1,
+            "title": "Citations",
+            "type": "array"
+          },
+          "entailment_verified": {
+            "const": false,
+            "default": false,
+            "title": "Entailment Verified",
+            "type": "boolean"
+          },
+          "statement": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement",
+          "citations"
+        ],
+        "title": "QAInterpretation",
+        "type": "object"
+      },
+      "QAValidationReport": {
+        "additionalProperties": false,
+        "properties": {
+          "authorized_chunks_count": {
+            "minimum": 0.0,
+            "title": "Authorized Chunks Count",
+            "type": "integer"
+          },
+          "authorized_graph_concepts_count": {
+            "minimum": 0.0,
+            "title": "Authorized Graph Concepts Count",
+            "type": "integer"
+          },
+          "context_tokens": {
+            "minimum": 0.0,
+            "title": "Context Tokens",
+            "type": "integer"
+          },
+          "dropped_ungrounded_claims_count": {
+            "minimum": 0.0,
+            "title": "Dropped Ungrounded Claims Count",
+            "type": "integer"
+          },
+          "general_knowledge_suppressed": {
+            "default": false,
+            "title": "General Knowledge Suppressed",
+            "type": "boolean"
+          },
+          "inference_ms": {
+            "minimum": 0.0,
+            "title": "Inference Ms",
+            "type": "number"
+          },
+          "inference_requests": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Inference Requests",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "notes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "output_tokens": {
+            "minimum": 0.0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "prompt_injection_signals_detected": {
+            "minimum": 0.0,
+            "title": "Prompt Injection Signals Detected",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "default": "qa_prompt:1.1",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "rejected_citations_count": {
+            "minimum": 0.0,
+            "title": "Rejected Citations Count",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "enum": [
+              "lexical",
+              "semantic",
+              "hybrid",
+              "hybrid_graph"
+            ],
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "retrieval_ms": {
+            "minimum": 0.0,
+            "title": "Retrieval Ms",
+            "type": "number"
+          },
+          "schema_version": {
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "total_ms": {
+            "minimum": 0.0,
+            "title": "Total Ms",
+            "type": "number"
+          },
+          "total_tokens": {
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "valid_citations_count": {
+            "minimum": 0.0,
+            "title": "Valid Citations Count",
+            "type": "integer"
+          },
+          "validation_ms": {
+            "minimum": 0.0,
+            "title": "Validation Ms",
+            "type": "number"
+          }
+        },
+        "required": [
+          "retrieval_mode",
+          "authorized_chunks_count",
+          "authorized_graph_concepts_count",
+          "context_tokens",
+          "valid_citations_count",
+          "rejected_citations_count",
+          "dropped_ungrounded_claims_count",
+          "prompt_injection_signals_detected",
+          "inference_requests",
+          "retrieval_ms",
+          "inference_ms",
+          "validation_ms",
+          "total_ms",
+          "provider",
+          "model",
+          "input_tokens",
+          "output_tokens",
+          "total_tokens"
+        ],
+        "title": "QAValidationReport",
+        "type": "object"
+      },
+      "RetrievedEvidenceChunk": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "chunk_index": {
+            "minimum": 0.0,
+            "title": "Chunk Index",
+            "type": "integer"
+          },
+          "chunk_record_id": {
+            "format": "uuid",
+            "title": "Chunk Record Id",
+            "type": "string"
+          },
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "estimated_tokens": {
+            "minimum": 1.0,
+            "title": "Estimated Tokens",
+            "type": "integer"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "heading_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Title"
+          },
+          "index_version": {
+            "minimum": 1.0,
+            "title": "Index Version",
+            "type": "integer"
+          },
+          "lexical_score": {
+            "default": 0.0,
+            "title": "Lexical Score",
+            "type": "number"
+          },
+          "origin_kind": {
+            "title": "Origin Kind",
+            "type": "string"
+          },
+          "page_end": {
+            "minimum": 1.0,
+            "title": "Page End",
+            "type": "integer"
+          },
+          "page_start": {
+            "minimum": 1.0,
+            "title": "Page Start",
+            "type": "integer"
+          },
+          "parent_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Context"
+          },
+          "rendered_text": {
+            "title": "Rendered Text",
+            "type": "string"
+          },
+          "rrf_score": {
+            "default": 0.0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "section_id": {
+            "title": "Section Id",
+            "type": "string"
+          },
+          "section_path": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Section Path",
+            "type": "array"
+          },
+          "semantic_score": {
+            "default": 0.0,
+            "title": "Semantic Score",
+            "type": "number"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_record_id",
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "index_version",
+          "chunk_id",
+          "chunk_index",
+          "section_id",
+          "page_start",
+          "page_end",
+          "origin_kind",
+          "visibility",
+          "rendered_text",
+          "estimated_tokens"
+        ],
+        "title": "RetrievedEvidenceChunk",
+        "type": "object"
+      },
       "RoleGrantCreate": {
         "additionalProperties": false,
         "properties": {
@@ -4325,6 +7064,206 @@
           "role"
         ],
         "title": "RoleGrantCreate",
+        "type": "object"
+      },
+      "SceneActionSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor": {
+            "maxLength": 48,
+            "minLength": 1,
+            "title": "Anchor",
+            "type": "string"
+          },
+          "delta_x": {
+            "default": 0.0,
+            "maximum": 1280.0,
+            "minimum": -1280.0,
+            "title": "Delta X",
+            "type": "number"
+          },
+          "delta_y": {
+            "default": 0.0,
+            "maximum": 720.0,
+            "minimum": -720.0,
+            "title": "Delta Y",
+            "type": "number"
+          },
+          "duration_seconds": {
+            "maximum": 30.0,
+            "minimum": 0.1,
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "easing": {
+            "default": "ease_in_out",
+            "enum": [
+              "linear",
+              "ease_in",
+              "ease_out",
+              "ease_in_out"
+            ],
+            "title": "Easing",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "appear",
+              "disappear",
+              "highlight",
+              "move",
+              "increase_vector",
+              "decrease_vector",
+              "state_change",
+              "reveal_step",
+              "trace_path",
+              "compare"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "scale_factor": {
+            "default": 1.0,
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Scale Factor",
+            "type": "number"
+          },
+          "target_object_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Target Object Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "target_object_id",
+          "anchor",
+          "duration_seconds"
+        ],
+        "title": "SceneActionSpec",
+        "type": "object"
+      },
+      "SceneCoordinateSpace": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "default": 720,
+            "maximum": 2160.0,
+            "minimum": 240.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "unit": {
+            "const": "px",
+            "default": "px",
+            "title": "Unit",
+            "type": "string"
+          },
+          "width": {
+            "default": 1280,
+            "maximum": 3840.0,
+            "minimum": 320.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "SceneCoordinateSpace",
+        "type": "object"
+      },
+      "SceneObjectSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 720.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rectangle",
+              "circle",
+              "vector_arrow",
+              "node",
+              "edge",
+              "region",
+              "axis",
+              "curve",
+              "point",
+              "callout",
+              "text_label",
+              "array_cells"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "style_token": {
+            "default": "primary",
+            "enum": [
+              "primary",
+              "secondary",
+              "accent",
+              "muted",
+              "warning"
+            ],
+            "title": "Style Token",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1280.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "maximum": 1280.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "SceneObjectSpec",
         "type": "object"
       },
       "SectionCreate": {
@@ -5722,6 +8661,117 @@
         "title": "StructuredLessonOutline",
         "type": "object"
       },
+      "StudentSafeAssessmentItem": {
+        "additionalProperties": false,
+        "description": "Student-facing assessment item with secret answer key and aliases stripped.",
+        "properties": {
+          "concept_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "difficulty": {
+            "enum": [
+              "foundational",
+              "intermediate",
+              "applied"
+            ],
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "grading_method": {
+            "enum": [
+              "deterministic_mcq",
+              "deterministic_exact",
+              "formative_rubric"
+            ],
+            "title": "Grading Method",
+            "type": "string"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "interpretation_label": {
+            "enum": [
+              "verbatim_source",
+              "synthesized_source",
+              "pedagogical_adaptation",
+              "worked_derivation",
+              "syllabus_request",
+              "unverified_draft"
+            ],
+            "title": "Interpretation Label",
+            "type": "string"
+          },
+          "objective_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Objective Ids",
+            "type": "array"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "question_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Question Id",
+            "type": "string"
+          },
+          "question_type": {
+            "enum": [
+              "mcq",
+              "short_answer",
+              "concept_check"
+            ],
+            "title": "Question Type",
+            "type": "string"
+          },
+          "stem": {
+            "maxLength": 800,
+            "minLength": 1,
+            "title": "Stem",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "concept_id",
+          "question_type",
+          "difficulty",
+          "stem",
+          "grading_method",
+          "grounding",
+          "interpretation_label"
+        ],
+        "title": "StudentSafeAssessmentItem",
+        "type": "object"
+      },
       "StudentSummary": {
         "additionalProperties": false,
         "properties": {
@@ -6335,6 +9385,164 @@
         "title": "TokenResponse",
         "type": "object"
       },
+      "TypedVisualSceneSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/SceneActionSpec"
+            },
+            "maxItems": 40,
+            "minItems": 1,
+            "title": "Actions",
+            "type": "array"
+          },
+          "asset_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Asset Refs",
+            "type": "array"
+          },
+          "concept_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Concept Ids",
+            "type": "array"
+          },
+          "coordinate_space": {
+            "$ref": "#/components/schemas/SceneCoordinateSpace"
+          },
+          "duration_seconds": {
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "evidence_bindings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConceptEvidenceBinding"
+            },
+            "title": "Evidence Bindings",
+            "type": "array"
+          },
+          "executable_code_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Executable Code Allowed",
+            "type": "boolean"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "interpretation_label": {
+            "enum": [
+              "verbatim_source",
+              "synthesized_source",
+              "pedagogical_adaptation",
+              "worked_derivation",
+              "syllabus_request",
+              "unverified_draft"
+            ],
+            "title": "Interpretation Label",
+            "type": "string"
+          },
+          "narration_cue_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Narration Cue Ids",
+            "type": "array"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "objective_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Objective Ids",
+            "type": "array"
+          },
+          "objects": {
+            "items": {
+              "$ref": "#/components/schemas/SceneObjectSpec"
+            },
+            "maxItems": 24,
+            "minItems": 1,
+            "title": "Objects",
+            "type": "array"
+          },
+          "order_index": {
+            "minimum": 1.0,
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "scene_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "template": {
+            "enum": [
+              "vector_force",
+              "process_flow",
+              "parts_of_whole",
+              "plot_relationship",
+              "labeled_diagram"
+            ],
+            "title": "Template",
+            "type": "string"
+          },
+          "timing_anchors": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Timing Anchors",
+            "type": "array"
+          },
+          "visual_intent": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Visual Intent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scene_id",
+          "order_index",
+          "concept_ids",
+          "template",
+          "visual_intent",
+          "duration_seconds",
+          "timing_anchors",
+          "objects",
+          "actions",
+          "grounding",
+          "interpretation_label"
+        ],
+        "title": "TypedVisualSceneSpec",
+        "type": "object"
+      },
       "WorkflowJobDetail": {
         "additionalProperties": false,
         "properties": {
@@ -6465,7 +9673,9 @@
           "operation_kind": {
             "enum": [
               "source_extract",
-              "concept_extract"
+              "concept_extract",
+              "knowledge_index",
+              "lesson_blueprint"
             ],
             "title": "Operation Kind",
             "type": "string"
@@ -6669,7 +9879,9 @@
           "operation_kind": {
             "enum": [
               "source_extract",
-              "concept_extract"
+              "concept_extract",
+              "knowledge_index",
+              "lesson_blueprint"
             ],
             "title": "Operation Kind",
             "type": "string"
@@ -11414,6 +14626,242 @@
         "summary": "Retry Workflow Job",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/knowledge/qa": {
+      "post": {
+        "operationId": "answer_knowledge_question_api_v1_tenants__tenant_id__knowledge_qa_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeQARequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeQAResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Answer Knowledge Question",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/knowledge/retrieve": {
+      "post": {
+        "operationId": "retrieve_knowledge_api_v1_tenants__tenant_id__knowledge_retrieve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeRetrieveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeRetrievalResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retrieve Knowledge",
+        "tags": [
+          "knowledge"
         ]
       }
     },
@@ -17755,6 +21203,829 @@
         ]
       }
     },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint": {
+      "get": {
+        "operationId": "get_latest_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonBlueprintRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Latest Blueprint",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/approval": {
+      "get": {
+        "operationId": "get_blueprint_approval_state_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_approval_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonBlueprintApprovalState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Blueprint Approval State",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/generate": {
+      "post": {
+        "operationId": "trigger_lesson_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LessonBlueprintTriggerRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonBlueprintTriggerResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Lesson Blueprint",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/published": {
+      "get": {
+        "operationId": "get_published_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_published_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedLessonBlueprint"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Published Blueprint",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/review": {
+      "post": {
+        "operationId": "review_lesson_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LessonBlueprintApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonBlueprintApprovalState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Review Lesson Blueprint",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/versions": {
+      "get": {
+        "operationId": "list_blueprint_versions_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_LessonBlueprintSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Blueprint Versions",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
     "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts": {
       "get": {
         "operationId": "get_latest_concepts_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__concepts_get",
@@ -19282,6 +23553,293 @@
         "summary": "List Derived Extractions",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/index": {
+      "get": {
+        "operationId": "get_knowledge_index_status_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeIndexStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Knowledge Index Status",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "post": {
+        "operationId": "trigger_knowledge_index_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/KnowledgeIndexTriggerRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeIndexTriggerResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Knowledge Index",
+        "tags": [
+          "knowledge"
         ]
       }
     },

@@ -184,7 +184,9 @@ class Policy:
             return bool(roles & {"class_coordinator", "subject_teacher", "student"})
         if action == "guardian_link.list":
             return bool(roles & {"student", "guardian"})
-        return False
+        return action == "knowledge.retrieve" and bool(
+            roles & {"subject_teacher", "student"}
+        )
 
     def _permits_membership(
         self, tenant: "UUID", actor: "UUID", target: "UUID", action: str, is_owner: bool, is_admin: bool,

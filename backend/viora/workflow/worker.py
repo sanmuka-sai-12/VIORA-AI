@@ -32,7 +32,14 @@ from ..contracts import Actor, ResourceRef, TenantContext
 from ..db import Database
 from ..identity.public import register_models as register_identity
 from ..institution.public import register_models as register_institution
-from ..knowledge.public import ConceptExtractionWorkerHandler
+from ..knowledge.public import (
+    ConceptExtractionWorkerHandler,
+    KnowledgeIndexingWorkerHandler,
+    LessonBlueprintWorkerHandler,
+    SqlLessonBlueprintRepository,
+    TextEmbedder,
+    build_embedder_from_settings,
+)
 from ..knowledge.public import register_models as register_knowledge
 from ..security import AccessError
 from ..sources.public import (
@@ -445,6 +452,8 @@ class WorkflowWorkerRunner:
         db: Database,
         handler: ExtractionWorkerHandler,
         concept_handler: ConceptExtractionWorkerHandler | None = None,
+        index_handler: KnowledgeIndexingWorkerHandler | None = None,
+        blueprint_handler: LessonBlueprintWorkerHandler | None = None,
         worker_id: str | None = None,
         concurrency: int = 2,
         lease_seconds: int = 30,
@@ -454,6 +463,8 @@ class WorkflowWorkerRunner:
         self.db = db
         self.handler = handler
         self.concept_handler = concept_handler
+        self.index_handler = index_handler
+        self.blueprint_handler = blueprint_handler
         self.worker_id = worker_id or f"viora-worker-{uuid4().hex[:12]}"
         self.concurrency = max(1, concurrency)
         self.lease_seconds = max(5, lease_seconds)
@@ -480,7 +491,9 @@ class WorkflowWorkerRunner:
             with self.db.sessions.begin() as s:
                 require_application_role(s)
                 bind_tenant(s, tenant_id)
-                return SqlSourceRepository(s).list_storage_keys(tenant_id)
+                return SqlSourceRepository(s).list_storage_keys(
+                    tenant_id
+                ) | SqlLessonBlueprintRepository(s).list_storage_keys(tenant_id)
 
         return reconcile_orphan_artifacts(
             store_root,
@@ -501,6 +514,22 @@ class WorkflowWorkerRunner:
                         "No concept extraction handler registered in worker",
                     )
                 self.concept_handler.execute(job, heartbeat=controller)
+            elif job.operation_kind == "knowledge_index":
+                if self.index_handler is None:
+                    raise AccessError(
+                        503,
+                        "index_handler_unavailable",
+                        "No knowledge indexing handler registered in worker",
+                    )
+                self.index_handler.execute(job, heartbeat=controller)
+            elif job.operation_kind == "lesson_blueprint":
+                if self.blueprint_handler is None:
+                    raise AccessError(
+                        503,
+                        "blueprint_handler_unavailable",
+                        "No lesson blueprint handler registered in worker",
+                    )
+                self.blueprint_handler.execute(job, heartbeat=controller)
             else:
                 self.handler.execute(job, heartbeat=controller)
             return "succeeded"
@@ -695,6 +724,7 @@ def build_worker_runner(
     artifact_store: ArtifactStore | None = None,
     ocr_backend: OcrBackend | None = None,
     ai_gateway: AIGateway | None = None,
+    embedder: TextEmbedder | None = None,
     worker_id: str | None = None,
 ) -> WorkflowWorkerRunner:
     """Construct a fully configured worker runner from application Settings."""
@@ -762,10 +792,28 @@ def build_worker_runner(
         cache_ttl_seconds=settings.extraction_cache_ttl_seconds,
         heartbeat_seconds=settings.worker_heartbeat_seconds,
     )
+    effective_embedder = (
+        embedder if embedder is not None else build_embedder_from_settings(settings)
+    )
+    index_handler = KnowledgeIndexingWorkerHandler(
+        db=database,
+        access=access,
+        embedder=effective_embedder,
+        heartbeat_seconds=settings.worker_heartbeat_seconds,
+    )
+    blueprint_handler = LessonBlueprintWorkerHandler(
+        db=database,
+        access=access,
+        artifact_store=store,
+        gateway=effective_gateway,
+        heartbeat_seconds=settings.worker_heartbeat_seconds,
+    )
     return WorkflowWorkerRunner(
         db=database,
         handler=handler,
         concept_handler=concept_handler,
+        index_handler=index_handler,
+        blueprint_handler=blueprint_handler,
         worker_id=worker_id,
         concurrency=effective_concurrency,
         lease_seconds=settings.worker_lease_seconds,

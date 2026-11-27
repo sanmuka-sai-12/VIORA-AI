@@ -18,6 +18,7 @@ import { deriveRoleFlags } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
 import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
+import { OfferingQAPanel } from "./OfferingQAPanel";
 import { SourceKnowledgePanel } from "./SourceKnowledgePanel";
 import { buildSourceUploadFormData } from "./sourceHelpers";
 
@@ -296,6 +297,15 @@ export function SourcesPage() {
           isSubjectTeacher={flags.isSubjectTeacher}
           policy={policy}
           onSourceUpdated={list.reload}
+        />
+      )}
+
+      {offeringId && (flags.isSubjectTeacher || flags.isStudent) && (
+        <OfferingQAPanel
+          tenantId={tenantId}
+          offeringId={offeringId}
+          offeringName={offerings.find((o) => o.id === offeringId)?.name ?? ""}
+          isSubjectTeacher={flags.isSubjectTeacher}
         />
       )}
     </div>

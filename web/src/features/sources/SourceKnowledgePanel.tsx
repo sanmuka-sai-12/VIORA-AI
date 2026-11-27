@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
+  normalizeApiError,
   type ConceptExtractionRecord,
   type DerivedExtractionRecord,
+  type KnowledgeIndexStatus,
   type KnowledgePublicationState,
   type KnowledgeReviewRecord,
+  type LessonBlueprintApprovalState,
+  type LessonBlueprintRecord,
+  type LessonBlueprintSummary,
   type OfferingSourcePolicyInfo,
+  type PublishedLessonBlueprint,
   type PublishedLessonPackage,
   type SourceSummary,
   type SourceVersionSummary,
@@ -20,9 +26,12 @@ import {
   StatusBadge,
 } from "../../components/common/UiPrimitives";
 import { useActionFeedback, type ApiResultLike } from "../common/useActionFeedback";
+import { LessonBlueprintPreview } from "./LessonBlueprintPreview";
 import {
+  canApproveLessonBlueprint,
   canOwnerStudentProcess,
   canTeacherManageSource,
+  canTriggerLessonBlueprint,
   groundingTone,
   jobStateTone,
   reviewTone,
@@ -52,13 +61,20 @@ export function SourceKnowledgePanel({
   const [concepts, setConcepts] = useState<ConceptExtractionRecord | null>(null);
   const [pubState, setPubState] = useState<KnowledgePublicationState | null>(null);
   const [reviews, setReviews] = useState<KnowledgeReviewRecord[]>([]);
+  const [indexStatus, setIndexStatus] = useState<KnowledgeIndexStatus | null>(null);
+  const [bpRecord, setBpRecord] = useState<LessonBlueprintRecord | null>(null);
+  const [bpVersions, setBpVersions] = useState<LessonBlueprintSummary[]>([]);
+  const [bpApproval, setBpApproval] = useState<LessonBlueprintApprovalState | null>(null);
   const [studentPkg, setStudentPkg] = useState<PublishedLessonPackage | null>(null);
+  const [publishedBlueprint, setPublishedBlueprint] = useState<PublishedLessonBlueprint | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [decision, setDecision] = useState<"approved" | "changes_requested" | "rejected">("approved");
   const [reviewNotes, setReviewNotes] = useState("");
   const [ackTopicRequest, setAckTopicRequest] = useState(false);
+  const [bpDecision, setBpDecision] = useState<"approved" | "changes_requested" | "rejected">("approved");
+  const [bpReviewNotes, setBpReviewNotes] = useState("");
 
   const isTeacherManageable = canTeacherManageSource(isSubjectTeacher, source);
   const isOwnerStudent = canOwnerStudentProcess(actorUserId, source, policy);
@@ -70,9 +86,11 @@ export function SourceKnowledgePanel({
     setSelectedVersionId(source.latest_version_id ?? "");
   }, [source.source_id, source.latest_version_id]);
 
-  const loadWorkspace = useCallback(async () => {
+  const loadWorkspace = useCallback(async (preserveFeedback = false) => {
     setLoading(true);
-    clearFeedback();
+    if (!preserveFeedback) {
+      clearFeedback();
+    }
     const freshGet = <T,>(call: () => Promise<ApiResultLike<T>>) => authController.runWithFreshToken(call);
     const sourcePath = { tenant_id: tenantId, source_id: source.source_id };
     try {
@@ -88,26 +106,55 @@ export function SourceKnowledgePanel({
       const versionPath = { ...sourcePath, version_id: verId };
 
       if (canInspectDraft) {
-        const [extRes, conRes, outRes, revRes] = await Promise.all([
+        const [extRes, conRes, outRes, revRes, idxRes, bpRes, bpVerRes, bpAppRes] = await Promise.all([
           freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/extraction", { params: { path: versionPath } })),
           freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts", { params: { path: versionPath } })),
           freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/outline", { params: { path: versionPath } })),
           freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/reviews", { params: { path: versionPath } })),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/index", { params: { path: versionPath } })),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint", { params: { path: versionPath } })),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/versions", { params: { path: versionPath } })),
+          freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/approval", { params: { path: versionPath } })),
         ]);
+        const hardFail = [extRes, conRes, outRes, revRes, idxRes, bpRes, bpVerRes, bpAppRes].find(
+          (r) => r.data === undefined && r.response.status !== 404,
+        );
+        if (hardFail) {
+          setActionError(normalizeApiError(hardFail.error, hardFail.response.status, "Failed to load resource details."));
+        }
         setDerived(extRes.data ?? null);
         setConcepts(conRes.data ?? null);
         setPubState(outRes.data ?? null);
         setReviews(revRes.data?.items ?? []);
+        setIndexStatus(idxRes.data ?? null);
+        setBpRecord(bpRes.data ?? null);
+        setBpVersions(bpVerRes.data?.items ?? []);
+        setBpApproval(bpAppRes.data ?? null);
         setStudentPkg(null);
+        setPublishedBlueprint(null);
       } else {
-        const pubRes = await freshGet(() =>
-          apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/published", { params: { path: versionPath } }),
-        );
+        const [pubRes, bpPubRes] = await Promise.all([
+          freshGet(() =>
+            apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts/published", { params: { path: versionPath } }),
+          ),
+          freshGet(() =>
+            apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/published", { params: { path: versionPath } }),
+          ),
+        ]);
+        const serverErr = [pubRes, bpPubRes].find((r) => r.response.status >= 500);
+        if (serverErr) {
+          setActionError(normalizeApiError(serverErr.error, serverErr.response.status, "Failed to load published lesson."));
+        }
         setStudentPkg(pubRes.data ?? null);
+        setPublishedBlueprint(bpPubRes.data ?? null);
         setDerived(null);
         setConcepts(null);
         setPubState(null);
         setReviews([]);
+        setIndexStatus(null);
+        setBpRecord(null);
+        setBpVersions([]);
+        setBpApproval(null);
       }
     } catch {
       setActionError({ status: 0, code: "network_error", message: "Failed to load resource details." });
@@ -133,7 +180,7 @@ export function SourceKnowledgePanel({
       onSuccess: () => {
         setActionSuccess(successMsg);
         if (refreshSourceList) onSourceUpdated();
-        void loadWorkspace();
+        void loadWorkspace(true);
       },
     });
   };
@@ -230,6 +277,46 @@ export function SourceKnowledgePanel({
                 }
               >
                 Extract Concepts
+              </button>
+            </>
+          )}
+          {isTeacherManageable && (
+            <>
+              <button
+                type="button"
+                className="viora-btn viora-btn-sm"
+                disabled={busy || !derived}
+                onClick={() =>
+                  void runAction(
+                    "Queue knowledge indexing",
+                    () =>
+                      apiClient.POST(
+                        "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/index",
+                        { params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: selectedVersionId } } },
+                      ),
+                    "Knowledge indexing job queued.",
+                  )
+                }
+              >
+                Index for Q&amp;A
+              </button>
+              <button
+                type="button"
+                className="viora-btn viora-btn-sm viora-btn-primary"
+                disabled={busy || !canTriggerLessonBlueprint(isSubjectTeacher, source, pubState)}
+                onClick={() =>
+                  void runAction(
+                    "Queue lesson blueprint generation",
+                    () =>
+                      apiClient.POST(
+                        "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/generate",
+                        { params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: selectedVersionId } } },
+                      ),
+                    "Lesson blueprint generation job queued.",
+                  )
+                }
+              >
+                Generate Blueprint
               </button>
             </>
           )}
@@ -358,6 +445,21 @@ export function SourceKnowledgePanel({
           </p>
         )}
 
+        {canInspectDraft && indexStatus && (
+          <div className="viora-row">
+            <StatusBadge tone={indexStatus.indexed ? "success" : "neutral"}>
+              {indexStatus.indexed
+                ? `Indexed v${indexStatus.index_version ?? 1} (${indexStatus.chunk_count} chunk(s))`
+                : "Not Indexed for Q&A"}
+            </StatusBadge>
+            {indexStatus.embedding_model && (
+              <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                Embedder: <code>{indexStatus.embedding_model}</code>
+              </span>
+            )}
+          </div>
+        )}
+
         {activeKnowledge && activeOutline && (
           <>
             <div className="viora-row">
@@ -430,8 +532,16 @@ export function SourceKnowledgePanel({
           </>
         )}
 
-        {!canInspectDraft && !studentPkg && !loading && (
+        {!canInspectDraft && !studentPkg && !publishedBlueprint && !loading && (
           <AlertBanner tone="info" message="No teacher-approved educational lesson has been published for this resource version yet." />
+        )}
+
+        {!canInspectDraft && studentPkg && !publishedBlueprint && !loading && (
+          <AlertBanner tone="info" message="Curriculum outline is published, but no teacher-approved lesson blueprint is published for this version yet." />
+        )}
+
+        {!canInspectDraft && publishedBlueprint && (
+          <LessonBlueprintPreview mode="student" published={publishedBlueprint} />
         )}
 
         {isTeacherManageable && concepts && pubState && (
@@ -505,6 +615,132 @@ export function SourceKnowledgePanel({
               </p>
             )}
           </div>
+        )}
+
+        {canInspectDraft && bpRecord && (
+          <>
+            <LessonBlueprintPreview
+              mode="teacher"
+              record={bpRecord}
+              approvalState={bpApproval}
+              versions={bpVersions}
+            />
+            {canApproveLessonBlueprint(isSubjectTeacher, source, pubState, bpRecord) && (
+              <div className="viora-stack" style={{ borderTop: "1px solid var(--color-border)", paddingTop: "0.75rem" }}>
+                <strong>Blueprint Approval, Publication &amp; Revocation (v{bpRecord.blueprint_version})</strong>
+                <div className="viora-row">
+                  <FormField label="Blueprint Decision" htmlFor="bp-review-decision">
+                    <select
+                      id="bp-review-decision"
+                      className="viora-select"
+                      value={bpDecision}
+                      onChange={(e) => setBpDecision(e.target.value as "approved" | "changes_requested" | "rejected")}
+                    >
+                      <option value="approved">Approved</option>
+                      <option value="changes_requested">Changes Requested</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </FormField>
+                  <FormField label="Blueprint Review Notes" htmlFor="bp-review-notes">
+                    <input
+                      id="bp-review-notes"
+                      className="viora-input"
+                      value={bpReviewNotes}
+                      onChange={(e) => setBpReviewNotes(e.target.value)}
+                      placeholder="Review scenes, narration, and answer keys"
+                    />
+                  </FormField>
+                </div>
+                <div className="viora-row">
+                  <button
+                    type="button"
+                    className="viora-btn"
+                    disabled={busy}
+                    onClick={() =>
+                      void runAction(
+                        "Save blueprint review",
+                        () =>
+                          apiClient.POST(
+                            "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/review",
+                            {
+                              params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: selectedVersionId } },
+                              body: {
+                                blueprint_id: bpRecord.blueprint_id,
+                                decision: bpDecision,
+                                publish: false,
+                                review_notes: bpReviewNotes.trim() || null,
+                              },
+                            },
+                          ),
+                        `Saved blueprint review (${bpDecision}).`,
+                      )
+                    }
+                  >
+                    Save Blueprint Review
+                  </button>
+                  <button
+                    type="button"
+                    className="viora-btn viora-btn-primary"
+                    disabled={busy || source.visibility !== "offering_published" || !pubState?.published_to_students}
+                    onClick={() =>
+                      void runAction(
+                        "Approve & publish blueprint",
+                        () =>
+                          apiClient.POST(
+                            "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/review",
+                            {
+                              params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: selectedVersionId } },
+                              body: {
+                                blueprint_id: bpRecord.blueprint_id,
+                                decision: "approved",
+                                publish: true,
+                                review_notes: bpReviewNotes.trim() || null,
+                              },
+                            },
+                          ),
+                        "Approved and published lesson blueprint to enrolled students.",
+                      )
+                    }
+                  >
+                    Approve &amp; Publish Blueprint
+                  </button>
+                  {bpApproval?.published_to_students && (
+                    <button
+                      type="button"
+                      className="viora-btn viora-btn-danger"
+                      disabled={busy}
+                      onClick={() =>
+                        void runAction(
+                          "Revoke blueprint publication",
+                          () =>
+                            apiClient.POST(
+                              "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/review",
+                              {
+                                params: { path: { tenant_id: tenantId, source_id: source.source_id, version_id: selectedVersionId } },
+                                body: {
+                                  blueprint_id: bpRecord.blueprint_id,
+                                  decision: "changes_requested",
+                                  publish: false,
+                                  review_notes: bpReviewNotes.trim() || "Publication revoked by teacher",
+                                },
+                              },
+                            ),
+                          "Revoked student access to lesson blueprint.",
+                        )
+                      }
+                    >
+                      Revoke Blueprint Publication
+                    </button>
+                  )}
+                </div>
+                {(source.visibility !== "offering_published" || !pubState?.published_to_students) && (
+                  <p style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
+                    Note: Share source with offering and publish approved curriculum concepts before publishing a blueprint to students.
+                  </p>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </SectionCard>

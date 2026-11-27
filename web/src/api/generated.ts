@@ -509,6 +509,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/knowledge/retrieve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retrieve Knowledge */
+        post: operations["retrieve_knowledge_api_v1_tenants__tenant_id__knowledge_retrieve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/memberships": {
         parameters: {
             query?: never;
@@ -1233,6 +1250,24 @@ export interface paths {
         get: operations["listDerivedExtractions"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Knowledge Index Status */
+        get: operations["get_knowledge_index_status_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_get"];
+        put?: never;
+        /** Trigger Knowledge Index */
+        post: operations["trigger_knowledge_index_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2240,6 +2275,44 @@ export interface components {
             /** Section Id */
             section_id?: string | null;
         };
+        /** GraphEnrichmentConcept */
+        GraphEnrichmentConcept: {
+            /** Canonical Summary */
+            canonical_summary: string;
+            /** Concept Id */
+            concept_id: string;
+            /**
+             * Definitions
+             * @default []
+             */
+            definitions: string[];
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /** Hop Distance */
+            hop_distance: number;
+            /** Name */
+            name: string;
+            /**
+             * Prerequisites
+             * @default []
+             */
+            prerequisites: string[];
+            /**
+             * Relation Paths
+             * @default []
+             */
+            relation_paths: string[];
+            /** Sense Label */
+            sense_label?: string | null;
+        };
         /** GuardianLinkCreate */
         GuardianLinkCreate: {
             /**
@@ -2352,6 +2425,73 @@ export interface components {
             job_id: string;
             state: components["schemas"]["JobState"];
         };
+        /** KnowledgeIndexStatus */
+        KnowledgeIndexStatus: {
+            /** Chunk Algorithm Version */
+            chunk_algorithm_version?: string | null;
+            /**
+             * Chunk Count
+             * @default 0
+             */
+            chunk_count: number;
+            /** Concept Extraction Id */
+            concept_extraction_id?: string | null;
+            /** Derived Extraction Id */
+            derived_extraction_id?: string | null;
+            /** Embedding Model */
+            embedding_model?: string | null;
+            /** Embedding Model Version */
+            embedding_model_version?: string | null;
+            /** Index Version */
+            index_version?: number | null;
+            /** Indexed */
+            indexed: boolean;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** KnowledgeIndexTriggerRequest */
+        KnowledgeIndexTriggerRequest: {
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
+        /** KnowledgeIndexTriggerResult */
+        KnowledgeIndexTriggerResult: {
+            /** Concept Extraction Id */
+            concept_extraction_id?: string | null;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /**
+             * Idempotent Replay
+             * @default false
+             */
+            idempotent_replay: boolean;
+            /** Index Version */
+            index_version?: number | null;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            job_state: components["schemas"]["JobState"];
+        };
         /** KnowledgePublicationState */
         KnowledgePublicationState: {
             /**
@@ -2430,6 +2570,97 @@ export interface components {
              * @default true
              */
             publish: boolean;
+        };
+        /** KnowledgeRetrievalResult */
+        KnowledgeRetrievalResult: {
+            /**
+             * Algorithm Version
+             * @default hybrid_graph_rrf:1.0
+             */
+            algorithm_version: string;
+            /**
+             * Chunks
+             * @default []
+             */
+            chunks: components["schemas"]["RetrievedEvidenceChunk"][];
+            /**
+             * Context Text
+             * @default
+             */
+            context_text: string;
+            /** Context Tokens */
+            context_tokens: number;
+            /** Cycles Avoided */
+            cycles_avoided: number;
+            /** Duplicate Chunks Removed */
+            duplicate_chunks_removed: number;
+            /** Embedding Model */
+            embedding_model: string;
+            /** Embedding Model Version */
+            embedding_model_version: string;
+            /**
+             * Graph Concepts
+             * @default []
+             */
+            graph_concepts: components["schemas"]["GraphEnrichmentConcept"][];
+            /** Hops Traversed */
+            hops_traversed: number;
+            /** Lexical Candidates */
+            lexical_candidates: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "lexical" | "semantic" | "hybrid" | "hybrid_graph";
+            /** Query */
+            query: string;
+            /** Retrieval Ms */
+            retrieval_ms: number;
+            /** Semantic Candidates */
+            semantic_candidates: number;
+        };
+        /** KnowledgeRetrieveRequest */
+        KnowledgeRetrieveRequest: {
+            /**
+             * Candidate K
+             * @default 20
+             */
+            candidate_k: number;
+            /**
+             * Include Student Submissions
+             * @default true
+             */
+            include_student_submissions: boolean;
+            /**
+             * Max Context Tokens
+             * @default 1800
+             */
+            max_context_tokens: number;
+            /**
+             * Max Graph Hops
+             * @default 2
+             */
+            max_graph_hops: number;
+            /**
+             * Mode
+             * @default hybrid
+             * @enum {string}
+             */
+            mode: "lexical" | "semantic" | "hybrid" | "hybrid_graph";
+            /** Offering Id */
+            offering_id?: string | null;
+            /**
+             * Published Only
+             * @default false
+             */
+            published_only: boolean;
+            /** Query */
+            query: string;
+            /**
+             * Top K
+             * @default 5
+             */
+            top_k: number;
         };
         /** KnowledgeReviewRecord */
         KnowledgeReviewRecord: {
@@ -3112,6 +3343,80 @@ export interface components {
              * Format: uuid
              */
             version_id: string;
+        };
+        /** RetrievedEvidenceChunk */
+        RetrievedEvidenceChunk: {
+            /** Chunk Id */
+            chunk_id: string;
+            /** Chunk Index */
+            chunk_index: number;
+            /**
+             * Chunk Record Id
+             * Format: uuid
+             */
+            chunk_record_id: string;
+            /** Concept Extraction Id */
+            concept_extraction_id?: string | null;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /** Estimated Tokens */
+            estimated_tokens: number;
+            /**
+             * Evidence Ids
+             * @default []
+             */
+            evidence_ids: string[];
+            /** Heading Title */
+            heading_title?: string | null;
+            /** Index Version */
+            index_version: number;
+            /**
+             * Lexical Score
+             * @default 0
+             */
+            lexical_score: number;
+            /** Origin Kind */
+            origin_kind: string;
+            /** Page End */
+            page_end: number;
+            /** Page Start */
+            page_start: number;
+            /** Parent Context */
+            parent_context?: string | null;
+            /** Rendered Text */
+            rendered_text: string;
+            /**
+             * Rrf Score
+             * @default 0
+             */
+            rrf_score: number;
+            /** Section Id */
+            section_id: string;
+            /**
+             * Section Path
+             * @default []
+             */
+            section_path: string[];
+            /**
+             * Semantic Score
+             * @default 0
+             */
+            semantic_score: number;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Visibility */
+            visibility: string;
         };
         /** RoleGrantCreate */
         RoleGrantCreate: {
@@ -3902,7 +4207,7 @@ export interface components {
              * Operation Kind
              * @enum {string}
              */
-            operation_kind: "source_extract" | "concept_extract";
+            operation_kind: "source_extract" | "concept_extract" | "knowledge_index";
             /** Progress Metadata */
             progress_metadata?: {
                 [key: string]: string | number | boolean;
@@ -3982,7 +4287,7 @@ export interface components {
              * Operation Kind
              * @enum {string}
              */
-            operation_kind: "source_extract" | "concept_extract";
+            operation_kind: "source_extract" | "concept_extract" | "knowledge_index";
             /** Progress Metadata */
             progress_metadata?: {
                 [key: string]: string | number | boolean;
@@ -7323,6 +7628,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowJobDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retrieve_knowledge_api_v1_tenants__tenant_id__knowledge_retrieve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeRetrieveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeRetrievalResult"];
                 };
             };
             /** @description Unauthorized */
@@ -12495,6 +12889,186 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_DerivedExtractionRecord_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_knowledge_index_status_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeIndexStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    trigger_knowledge_index_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeIndexTriggerRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeIndexTriggerResult"];
                 };
             };
             /** @description Unauthorized */

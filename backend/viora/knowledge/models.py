@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
@@ -18,10 +19,18 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import UserDefinedType
 
 from ..db import Base
+
+
+class _Vector384Type(UserDefinedType):
+    cache_ok = True
+
+    def get_col_spec(self, **_kw: object) -> str:
+        return "vector(384)"
 
 
 class ConceptExtraction(Base):
@@ -319,6 +328,127 @@ class KnowledgePublication(Base):
         DateTime(timezone=True), default=None
     )
     outline: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class KnowledgeIndexChunk(Base):
+    """Versioned, tenant- and scope-isolated searchable chunk + embedding index."""
+
+    __tablename__ = "knowledge_index_chunks"
+    __table_args__ = (
+        CheckConstraint("index_version >= 1", name="ck_kic_index_ver"),
+        CheckConstraint("chunk_index >= 0", name="ck_kic_chunk_idx"),
+        CheckConstraint(
+            "page_start >= 1 AND page_end >= page_start", name="ck_kic_pages"
+        ),
+        CheckConstraint("estimated_tokens >= 1", name="ck_kic_tokens"),
+        CheckConstraint("embedding_dim = 384", name="ck_kic_embed_dim"),
+        CheckConstraint(
+            "content_sha256 ~ '^[0-9a-f]{64}$'", name="ck_kic_content_sha256"
+        ),
+        CheckConstraint(
+            "embedding_fingerprint ~ '^[0-9a-f]{64}$'", name="ck_kic_embed_fp"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_id"],
+            ["sources.tenant_id", "sources.source_id"],
+            name="fk_kic_source",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "version_id"],
+            ["source_versions.tenant_id", "source_versions.version_id"],
+            name="fk_kic_version",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "derived_extraction_id"],
+            ["derived_extractions.tenant_id", "derived_extractions.extraction_id"],
+            name="fk_kic_derived",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "concept_extraction_id"],
+            ["concept_extractions.tenant_id", "concept_extractions.concept_extraction_id"],
+            name="fk_kic_concept",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "version_id",
+            "index_version",
+            "chunk_id",
+            name="uq_kic_ver_chunk",
+        ),
+        Index(
+            "ix_kic_active_lookup",
+            "tenant_id",
+            "version_id",
+            "is_active",
+            "chunk_index",
+        ),
+        Index(
+            "ix_kic_scope_fp",
+            "tenant_id",
+            "scope_key",
+            "embedding_fingerprint",
+        ),
+        Index(
+            "ix_kic_section_lookup",
+            "tenant_id",
+            "derived_extraction_id",
+            "section_id",
+            "chunk_index",
+        ),
+        Index(
+            "ix_kic_search_tsv",
+            "search_tsv",
+            postgresql_using="gin",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    chunk_record_id: Mapped[UUID] = mapped_column(primary_key=True)
+    source_id: Mapped[UUID]
+    version_id: Mapped[UUID]
+    derived_extraction_id: Mapped[UUID]
+    concept_extraction_id: Mapped[UUID | None] = mapped_column(default=None)
+    job_id: Mapped[UUID | None] = mapped_column(default=None)
+    index_version: Mapped[int] = mapped_column(Integer)
+    chunk_id: Mapped[str] = mapped_column(Text)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    section_id: Mapped[str] = mapped_column(Text)
+    section_path: Mapped[list[str]] = mapped_column(JSONB)
+    heading_title: Mapped[str | None] = mapped_column(Text, default=None)
+    page_start: Mapped[int] = mapped_column(Integer)
+    page_end: Mapped[int] = mapped_column(Integer)
+    estimated_tokens: Mapped[int] = mapped_column(Integer)
+    evidence_ids: Mapped[list[str]] = mapped_column(JSONB)
+    block_ids: Mapped[list[str]] = mapped_column(JSONB)
+    rendered_text: Mapped[str] = mapped_column(Text)
+    content_sha256: Mapped[str] = mapped_column(Text)
+    chunk_algorithm_version: Mapped[str] = mapped_column(Text)
+    scope_key: Mapped[str] = mapped_column(Text)
+    embedding_model: Mapped[str] = mapped_column(Text)
+    embedding_model_version: Mapped[str] = mapped_column(Text)
+    embedding_dim: Mapped[int] = mapped_column(Integer)
+    embedding_fingerprint: Mapped[str] = mapped_column(Text)
+    search_tsv: Mapped[Any] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('english', coalesce(heading_title, '') || ' ' || rendered_text)",
+            persisted=True,
+        ),
+    )
+    embedding: Mapped[Any] = mapped_column(_Vector384Type(), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

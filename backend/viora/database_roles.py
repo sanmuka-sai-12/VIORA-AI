@@ -27,6 +27,7 @@ TENANT_TABLES = (
     "page_ocr_cache",
     "concept_extraction_cache",
     "knowledge_publications",
+    "knowledge_index_chunks",
 )
 
 APPEND_ONLY_TENANT_TABLES = (

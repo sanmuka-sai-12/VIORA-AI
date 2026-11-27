@@ -506,7 +506,7 @@ class KnowledgeIndexStatus(Contract):
 class KnowledgeRetrieveRequest(Contract):
     query: str = Field(min_length=2, max_length=1000)
     offering_id: UUID | None = None
-    mode: RetrievalMode = "hybrid_graph"
+    mode: RetrievalMode = "hybrid"
     top_k: int = Field(default=5, ge=1, le=20)
     candidate_k: int = Field(default=20, ge=1, le=50)
     max_context_tokens: int = Field(default=1800, ge=128, le=6000)

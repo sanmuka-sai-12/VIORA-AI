@@ -2271,6 +2271,93 @@
         "title": "FormulaReference",
         "type": "object"
       },
+      "GraphEnrichmentConcept": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_summary": {
+            "title": "Canonical Summary",
+            "type": "string"
+          },
+          "concept_id": {
+            "title": "Concept Id",
+            "type": "string"
+          },
+          "definitions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Definitions",
+            "type": "array"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "grounding": {
+            "enum": [
+              "source_supported",
+              "source_synthesized",
+              "learning_request",
+              "inferred",
+              "uncertain",
+              "unsupported"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "hop_distance": {
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Hop Distance",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prerequisites": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "relation_paths": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Relation Paths",
+            "type": "array"
+          },
+          "sense_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sense Label"
+          }
+        },
+        "required": [
+          "concept_id",
+          "name",
+          "grounding",
+          "canonical_summary",
+          "hop_distance"
+        ],
+        "title": "GraphEnrichmentConcept",
+        "type": "object"
+      },
       "GuardianLinkCreate": {
         "additionalProperties": false,
         "properties": {
@@ -2517,6 +2604,197 @@
         "title": "JobStatus",
         "type": "object"
       },
+      "KnowledgeIndexStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_algorithm_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Algorithm Version"
+          },
+          "chunk_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived Extraction Id"
+          },
+          "embedding_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model"
+          },
+          "embedding_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Version"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "indexed": {
+            "title": "Indexed",
+            "type": "boolean"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "source_id",
+          "version_id",
+          "indexed"
+        ],
+        "title": "KnowledgeIndexStatus",
+        "type": "object"
+      },
+      "KnowledgeIndexTriggerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "title": "KnowledgeIndexTriggerRequest",
+        "type": "object"
+      },
+      "KnowledgeIndexTriggerResult": {
+        "additionalProperties": false,
+        "properties": {
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "idempotent_replay": {
+            "default": false,
+            "title": "Idempotent Replay",
+            "type": "boolean"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_state": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_state",
+          "derived_extraction_id"
+        ],
+        "title": "KnowledgeIndexTriggerResult",
+        "type": "object"
+      },
       "KnowledgePublicationState": {
         "additionalProperties": false,
         "properties": {
@@ -2669,6 +2947,186 @@
           "concept_extraction_id"
         ],
         "title": "KnowledgePublishRequest",
+        "type": "object"
+      },
+      "KnowledgeRetrievalResult": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm_version": {
+            "default": "hybrid_graph_rrf:1.0",
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "chunks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RetrievedEvidenceChunk"
+            },
+            "title": "Chunks",
+            "type": "array"
+          },
+          "context_text": {
+            "default": "",
+            "title": "Context Text",
+            "type": "string"
+          },
+          "context_tokens": {
+            "minimum": 0.0,
+            "title": "Context Tokens",
+            "type": "integer"
+          },
+          "cycles_avoided": {
+            "minimum": 0.0,
+            "title": "Cycles Avoided",
+            "type": "integer"
+          },
+          "duplicate_chunks_removed": {
+            "minimum": 0.0,
+            "title": "Duplicate Chunks Removed",
+            "type": "integer"
+          },
+          "embedding_model": {
+            "title": "Embedding Model",
+            "type": "string"
+          },
+          "embedding_model_version": {
+            "title": "Embedding Model Version",
+            "type": "string"
+          },
+          "graph_concepts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/GraphEnrichmentConcept"
+            },
+            "title": "Graph Concepts",
+            "type": "array"
+          },
+          "hops_traversed": {
+            "minimum": 0.0,
+            "title": "Hops Traversed",
+            "type": "integer"
+          },
+          "lexical_candidates": {
+            "minimum": 0.0,
+            "title": "Lexical Candidates",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "lexical",
+              "semantic",
+              "hybrid",
+              "hybrid_graph"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "retrieval_ms": {
+            "minimum": 0.0,
+            "title": "Retrieval Ms",
+            "type": "number"
+          },
+          "semantic_candidates": {
+            "minimum": 0.0,
+            "title": "Semantic Candidates",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode",
+          "query",
+          "embedding_model",
+          "embedding_model_version",
+          "context_tokens",
+          "duplicate_chunks_removed",
+          "cycles_avoided",
+          "hops_traversed",
+          "lexical_candidates",
+          "semantic_candidates",
+          "retrieval_ms"
+        ],
+        "title": "KnowledgeRetrievalResult",
+        "type": "object"
+      },
+      "KnowledgeRetrieveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_k": {
+            "default": 20,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Candidate K",
+            "type": "integer"
+          },
+          "include_student_submissions": {
+            "default": true,
+            "title": "Include Student Submissions",
+            "type": "boolean"
+          },
+          "max_context_tokens": {
+            "default": 1800,
+            "maximum": 6000.0,
+            "minimum": 128.0,
+            "title": "Max Context Tokens",
+            "type": "integer"
+          },
+          "max_graph_hops": {
+            "default": 2,
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Max Graph Hops",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "hybrid",
+            "enum": [
+              "lexical",
+              "semantic",
+              "hybrid",
+              "hybrid_graph"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "offering_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offering Id"
+          },
+          "published_only": {
+            "default": false,
+            "title": "Published Only",
+            "type": "boolean"
+          },
+          "query": {
+            "maxLength": 1000,
+            "minLength": 2,
+            "title": "Query",
+            "type": "string"
+          },
+          "top_k": {
+            "default": 5,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "KnowledgeRetrieveRequest",
         "type": "object"
       },
       "KnowledgeReviewRecord": {
@@ -4312,6 +4770,159 @@
           "outline"
         ],
         "title": "PublishedLessonPackage",
+        "type": "object"
+      },
+      "RetrievedEvidenceChunk": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "chunk_index": {
+            "minimum": 0.0,
+            "title": "Chunk Index",
+            "type": "integer"
+          },
+          "chunk_record_id": {
+            "format": "uuid",
+            "title": "Chunk Record Id",
+            "type": "string"
+          },
+          "concept_extraction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Extraction Id"
+          },
+          "derived_extraction_id": {
+            "format": "uuid",
+            "title": "Derived Extraction Id",
+            "type": "string"
+          },
+          "estimated_tokens": {
+            "minimum": 1.0,
+            "title": "Estimated Tokens",
+            "type": "integer"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "heading_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Title"
+          },
+          "index_version": {
+            "minimum": 1.0,
+            "title": "Index Version",
+            "type": "integer"
+          },
+          "lexical_score": {
+            "default": 0.0,
+            "title": "Lexical Score",
+            "type": "number"
+          },
+          "origin_kind": {
+            "title": "Origin Kind",
+            "type": "string"
+          },
+          "page_end": {
+            "minimum": 1.0,
+            "title": "Page End",
+            "type": "integer"
+          },
+          "page_start": {
+            "minimum": 1.0,
+            "title": "Page Start",
+            "type": "integer"
+          },
+          "parent_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Context"
+          },
+          "rendered_text": {
+            "title": "Rendered Text",
+            "type": "string"
+          },
+          "rrf_score": {
+            "default": 0.0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "section_id": {
+            "title": "Section Id",
+            "type": "string"
+          },
+          "section_path": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Section Path",
+            "type": "array"
+          },
+          "semantic_score": {
+            "default": 0.0,
+            "title": "Semantic Score",
+            "type": "number"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_record_id",
+          "source_id",
+          "version_id",
+          "derived_extraction_id",
+          "index_version",
+          "chunk_id",
+          "chunk_index",
+          "section_id",
+          "page_start",
+          "page_end",
+          "origin_kind",
+          "visibility",
+          "rendered_text",
+          "estimated_tokens"
+        ],
+        "title": "RetrievedEvidenceChunk",
         "type": "object"
       },
       "RoleGrantCreate": {
@@ -6465,7 +7076,8 @@
           "operation_kind": {
             "enum": [
               "source_extract",
-              "concept_extract"
+              "concept_extract",
+              "knowledge_index"
             ],
             "title": "Operation Kind",
             "type": "string"
@@ -6669,7 +7281,8 @@
           "operation_kind": {
             "enum": [
               "source_extract",
-              "concept_extract"
+              "concept_extract",
+              "knowledge_index"
             ],
             "title": "Operation Kind",
             "type": "string"
@@ -11414,6 +12027,124 @@
         "summary": "Retry Workflow Job",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/knowledge/retrieve": {
+      "post": {
+        "operationId": "retrieve_knowledge_api_v1_tenants__tenant_id__knowledge_retrieve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeRetrieveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeRetrievalResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retrieve Knowledge",
+        "tags": [
+          "knowledge"
         ]
       }
     },
@@ -19282,6 +20013,293 @@
         "summary": "List Derived Extractions",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/index": {
+      "get": {
+        "operationId": "get_knowledge_index_status_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeIndexStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Knowledge Index Status",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "post": {
+        "operationId": "trigger_knowledge_index_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__index_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/KnowledgeIndexTriggerRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeIndexTriggerResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Knowledge Index",
+        "tags": [
+          "knowledge"
         ]
       }
     },

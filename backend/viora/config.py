@@ -64,6 +64,8 @@ class Settings(BaseModel):
     allow_local_ai_endpoint: bool = False
     default_ai_model: str = "gpt-4o-mini"
     default_embedding_model: str = "text-embedding-3-small"
+    embedding_provider: Literal["none", "local_onnx", "fake"] = "local_onnx"
+    local_embedding_model_dir: str | None = "./storage/models/bge-small-en-v1.5-int8"
     source_max_bytes: int = Field(
         default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024
     )
@@ -114,6 +116,8 @@ class Settings(BaseModel):
             raise ValueError(
                 "Local insecure AI endpoints cannot be enabled in production"
             )
+        if self.embedding_provider == "fake" and self.environment != "test":
+            raise ValueError("Fake embedding provider is restricted to test environments")
         return self
 
     @classmethod
@@ -184,6 +188,10 @@ class Settings(BaseModel):
                 "default_ai_model": values.get("DEFAULT_AI_MODEL", "gpt-4o-mini"),
                 "default_embedding_model": values.get(
                     "DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"
+                ),
+                "embedding_provider": values.get("EMBEDDING_PROVIDER", "local_onnx"),
+                "local_embedding_model_dir": values.get(
+                    "LOCAL_EMBEDDING_MODEL_DIR", "./storage/models/bge-small-en-v1.5-int8"
                 ),
                 "source_max_bytes": values.get("SOURCE_MAX_BYTES", 10 * 1024 * 1024),
                 "source_max_pdf_pages": values.get("SOURCE_MAX_PDF_PAGES", 100),

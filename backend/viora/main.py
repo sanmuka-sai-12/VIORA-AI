@@ -90,6 +90,6 @@ def create_app(
         api.include_router(membership_router(effective_access))
         api.include_router(institution_router(effective_access))
     api.include_router(sources.router(db, effective_access, settings=config))
-    api.include_router(knowledge.router(effective_access, db))
+    api.include_router(knowledge.router(effective_access, db, settings=config))
     app.include_router(api)
     return app

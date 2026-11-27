@@ -15,13 +15,20 @@ from ..security import AccessError, TransactionalAccess
 from ..sources.public import SqlSourceRepository
 from ..workflow.public import ConcurrentJobConflict
 from .curriculum import generate_lesson_outline
+from .embeddings import TextEmbedder
+from .indexing import SqlKnowledgeIndexRepository
 from .ports import ConceptExtractionRepository
 from .publication import publication_complete, reviewed_graph
+from .retrieval import HybridKnowledgeRetriever
 from .schemas import (
     ConceptExtractionRecord,
     ConceptExtractionTriggerResult,
+    KnowledgeIndexStatus,
+    KnowledgeIndexTriggerResult,
     KnowledgePublicationState,
     KnowledgePublishRequest,
+    KnowledgeRetrievalResult,
+    KnowledgeRetrieveRequest,
     KnowledgeReviewRecord,
     KnowledgeReviewRequest,
     PublishedLessonPackage,
@@ -59,9 +66,11 @@ class ConceptKnowledgeService:
         self,
         repo_factory: Callable[[Session], ConceptExtractionRepository],
         source_repo_factory: Callable[[Session], SqlSourceRepository] = SqlSourceRepository,
+        embedder: TextEmbedder | None = None,
     ) -> None:
         self.repo_factory = repo_factory
         self.source_repo_factory = source_repo_factory
+        self.embedder: TextEmbedder | None = embedder
 
     def trigger_concept_extraction(
         self,
@@ -462,4 +471,149 @@ class ConceptKnowledgeService:
                     update={"published_to_students": True}
                 ),
                 outline=outline,
+            )
+
+    def trigger_knowledge_indexing(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        *,
+        idempotency_key: str | None = None,
+    ) -> KnowledgeIndexTriggerResult:
+        clean_key = (
+            idempotency_key.strip()
+            if idempotency_key and idempotency_key.strip()
+            else None
+        )
+        for attempt in range(2):
+            try:
+                with access.transaction(
+                    bearer, "source.extract", _source_ref(tenant_id, source_id)
+                ) as scope:
+                    src_repo = self.source_repo_factory(scope.session)
+                    src_info = src_repo.get_source_access(tenant_id, source_id)
+                    ver = src_repo.get_version(tenant_id, source_id, version_id)
+                    derived = src_repo.get_latest_derived_extraction(
+                        tenant_id, source_id, version_id
+                    )
+                    if src_info is None or ver is None:
+                        raise AccessError(
+                            404, "version_not_found", "Source version not found"
+                        )
+                    if src_info.lifecycle_state != "active":
+                        raise AccessError(
+                            409,
+                            "source_archived",
+                            "Archived sources cannot be indexed",
+                        )
+                    if derived is None:
+                        raise AccessError(
+                            409,
+                            "extraction_required",
+                            "Derived document extraction must complete before indexing",
+                        )
+                    concept_rec = self.repo_factory(
+                        scope.session
+                    ).get_latest_for_version(tenant_id, version_id)
+                    concept_ext_id = (
+                        concept_rec.concept_extraction_id
+                        if concept_rec is not None
+                        and concept_rec.derived_extraction_id == derived.extraction_id
+                        else None
+                    )
+                    digest = hashlib.sha256(
+                        json.dumps(
+                            {
+                                "op": "knowledge_index",
+                                "source_id": str(source_id),
+                                "version_id": str(version_id),
+                                "derived_extraction_id": str(derived.extraction_id),
+                                "concept_extraction_id": str(concept_ext_id)
+                                if concept_ext_id
+                                else None,
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    idx_repo = SqlKnowledgeIndexRepository(scope.session)
+                    job_id, job_state, replay = idx_repo.enqueue_index_job(
+                        tenant_id=tenant_id,
+                        offering_id=src_info.offering_id,
+                        source_id=source_id,
+                        version_id=version_id,
+                        submitted_by_user_id=scope.context.actor_id,
+                        input_artifact=ver.storage_ref,
+                        idempotency_key=clean_key,
+                        request_digest=digest,
+                        now=datetime.now(UTC),
+                    )
+                    status = idx_repo.get_index_status(tenant_id, source_id, version_id)
+                    if not replay:
+                        scope.audit.change(
+                            scope.context,
+                            "source.knowledge.index_queued",
+                            _source_ref(tenant_id, source_id),
+                        )
+                    return KnowledgeIndexTriggerResult(
+                        job_id=job_id,
+                        job_state=job_state,
+                        derived_extraction_id=derived.extraction_id,
+                        concept_extraction_id=concept_ext_id,
+                        index_version=status.index_version,
+                        idempotent_replay=replay,
+                    )
+            except ConcurrentJobConflict:
+                if attempt == 0:
+                    continue
+                raise AccessError(
+                    409,
+                    "concurrent_index_job",
+                    "Concurrent knowledge indexing request collided; retry",
+                ) from None
+        raise AccessError(409, "concurrent_index_job", "Failed to schedule indexing job")
+
+    def get_knowledge_index_status(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+    ) -> KnowledgeIndexStatus:
+        with access.transaction(
+            bearer, "source.version.read", _source_ref(tenant_id, source_id)
+        ) as scope:
+            ver = self.source_repo_factory(scope.session).get_version(
+                tenant_id, source_id, version_id
+            )
+            if ver is None:
+                raise AccessError(404, "version_not_found", "Source version not found")
+            return SqlKnowledgeIndexRepository(scope.session).get_index_status(
+                tenant_id, source_id, version_id
+            )
+
+    def retrieve_knowledge(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        req: KnowledgeRetrieveRequest,
+    ) -> KnowledgeRetrievalResult:
+        if req.offering_id is not None:
+            action = "offering.read"
+            ref = ResourceRef(
+                tenant_id=tenant_id, kind="offering", resource_id=req.offering_id
+            )
+        else:
+            action = "knowledge.retrieve"
+            ref = ResourceRef(
+                tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+            )
+        with access.transaction(bearer, action, ref) as scope:
+            return HybridKnowledgeRetriever(scope.session, self.embedder).retrieve(
+                scope.context, req
             )

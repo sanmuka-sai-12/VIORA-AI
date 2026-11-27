@@ -27,7 +27,7 @@ class WorkflowJob(Base):
     __tablename__ = "workflow_jobs"
     __table_args__ = (
         CheckConstraint(
-            "operation_kind IN ('source_extract', 'concept_extract', 'knowledge_index')",
+            "operation_kind IN ('source_extract', 'concept_extract', 'knowledge_index', 'lesson_blueprint')",
             name="ck_workflow_jobs_op",
         ),
         CheckConstraint(

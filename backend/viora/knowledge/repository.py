@@ -22,6 +22,7 @@ from .models import (
     ConceptExtractionCacheEntry,
     KnowledgePublication,
     KnowledgeReview,
+    LessonBlueprintPublicationModel,
 )
 from .publication import publication_complete, reviewed_graph
 from .schemas import (
@@ -561,6 +562,7 @@ class SqlConceptExtractionRepository:
             self.session.add(pub_row)
         else:
             prev_extraction_id = existing_pub.concept_extraction_id
+            prev_approved_review_id = existing_pub.approved_review_id
             existing_pub.concept_extraction_id = extraction.concept_extraction_id
             existing_pub.concept_version = extraction.concept_version
             existing_pub.source_sha256 = extraction.knowledge.source_sha256
@@ -575,6 +577,26 @@ class SqlConceptExtractionRepository:
             existing_pub.outline = outline_json
             existing_pub.updated_at = now
             pub_row = existing_pub
+            if (
+                decision != "approved"
+                or prev_extraction_id != extraction.concept_extraction_id
+                or prev_approved_review_id != approved_id
+            ):
+                bp_pub_row = self.session.scalar(
+                    select(LessonBlueprintPublicationModel)
+                    .where(
+                        LessonBlueprintPublicationModel.tenant_id == tenant_id,
+                        LessonBlueprintPublicationModel.version_id == version_id,
+                    )
+                    .with_for_update()
+                )
+                if bp_pub_row is not None and bp_pub_row.published_to_students:
+                    bp_pub_row.published_to_students = False
+                    bp_pub_row.published_by_user_id = None
+                    bp_pub_row.published_at = None
+                    if decision != "approved":
+                        bp_pub_row.approval_status = "changes_requested"
+                    bp_pub_row.updated_at = now
 
         self.session.flush()
         return self._review_dto(rev_row), self._publication_dto(pub_row)
@@ -629,6 +651,20 @@ class SqlConceptExtractionRepository:
         pub_row.published_by_user_id = actor_id if publish else None
         pub_row.published_at = now if publish else None
         pub_row.updated_at = now
+        if not publish:
+            bp_pub_row = self.session.scalar(
+                select(LessonBlueprintPublicationModel)
+                .where(
+                    LessonBlueprintPublicationModel.tenant_id == tenant_id,
+                    LessonBlueprintPublicationModel.version_id == version_id,
+                )
+                .with_for_update()
+            )
+            if bp_pub_row is not None and bp_pub_row.published_to_students:
+                bp_pub_row.published_to_students = False
+                bp_pub_row.published_by_user_id = None
+                bp_pub_row.published_at = None
+                bp_pub_row.updated_at = now
         self.session.flush()
         return self._publication_dto(pub_row)
 

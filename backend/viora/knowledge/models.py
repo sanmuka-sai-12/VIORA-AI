@@ -452,3 +452,183 @@ class KnowledgeIndexChunk(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class LessonBlueprintRecordModel(Base):
+    """Append-only versioned lesson blueprint metadata backed by ArtifactStore JSON."""
+
+    __tablename__ = "lesson_blueprints"
+    __table_args__ = (
+        CheckConstraint("blueprint_version >= 1", name="ck_lesson_blueprints_ver"),
+        CheckConstraint("byte_size >= 1", name="ck_lesson_blueprints_bytes"),
+        CheckConstraint(
+            "source_sha256 ~ '^[0-9a-f]{64}$'", name="ck_lesson_blueprints_src_sha"
+        ),
+        CheckConstraint(
+            "storage_sha256 ~ '^[0-9a-f]{64}$'", name="ck_lesson_blueprints_art_sha"
+        ),
+        CheckConstraint(
+            "input_fingerprint ~ '^[0-9a-f]{64}$'", name="ck_lesson_blueprints_fp"
+        ),
+        CheckConstraint(
+            "input_tokens >= 0 AND output_tokens >= 0 AND total_tokens >= 0",
+            name="ck_lesson_blueprints_tokens",
+        ),
+        CheckConstraint(
+            "inference_requests >= 0 AND generation_ms >= 0 AND validation_ms >= 0",
+            name="ck_lesson_blueprints_metrics",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_id"],
+            ["sources.tenant_id", "sources.source_id"],
+            name="fk_lesson_blueprints_source",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "version_id"],
+            ["source_versions.tenant_id", "source_versions.version_id"],
+            name="fk_lesson_blueprints_version",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "derived_extraction_id"],
+            ["derived_extractions.tenant_id", "derived_extractions.extraction_id"],
+            name="fk_lesson_blueprints_derived",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "concept_extraction_id"],
+            ["concept_extractions.tenant_id", "concept_extractions.concept_extraction_id"],
+            name="fk_lesson_blueprints_concept",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "approved_review_id"],
+            ["knowledge_reviews.tenant_id", "knowledge_reviews.review_id"],
+            name="fk_lesson_blueprints_review",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "version_id",
+            "blueprint_version",
+            name="uq_lesson_blueprints_ver_num",
+        ),
+        Index(
+            "ix_lesson_blueprints_lookup",
+            "tenant_id",
+            "version_id",
+            "blueprint_version",
+        ),
+        Index(
+            "uq_lesson_blueprints_job",
+            "tenant_id",
+            "job_id",
+            unique=True,
+            postgresql_where=text("job_id IS NOT NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    blueprint_id: Mapped[UUID] = mapped_column(primary_key=True)
+    source_id: Mapped[UUID]
+    version_id: Mapped[UUID]
+    derived_extraction_id: Mapped[UUID]
+    concept_extraction_id: Mapped[UUID]
+    approved_review_id: Mapped[UUID]
+    job_id: Mapped[UUID | None] = mapped_column(default=None)
+    blueprint_version: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text)
+    schema_version: Mapped[str] = mapped_column(Text)
+    outline_version: Mapped[str] = mapped_column(Text)
+    input_fingerprint: Mapped[str] = mapped_column(Text)
+    source_sha256: Mapped[str] = mapped_column(Text)
+    storage_kind: Mapped[str] = mapped_column(Text)
+    storage_resource_id: Mapped[UUID]
+    storage_version_id: Mapped[UUID]
+    storage_sha256: Mapped[str] = mapped_column(Text)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    input_tokens: Mapped[int] = mapped_column(Integer)
+    output_tokens: Mapped[int] = mapped_column(Integer)
+    total_tokens: Mapped[int] = mapped_column(Integer)
+    inference_requests: Mapped[int] = mapped_column(Integer)
+    generation_ms: Mapped[float] = mapped_column(Float)
+    validation_ms: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class LessonBlueprintPublicationModel(Base):
+    """Tenant-scoped teacher approval and student publication state per lesson blueprint."""
+
+    __tablename__ = "lesson_blueprint_publications"
+    __table_args__ = (
+        CheckConstraint("source_sha256 ~ '^[0-9a-f]{64}$'", name="ck_lbp_sha256"),
+        CheckConstraint(
+            "approval_status IN ('pending_review', 'approved', 'changes_requested', 'rejected')",
+            name="ck_lbp_status",
+        ),
+        CheckConstraint(
+            "(NOT published_to_students) OR (approval_status = 'approved' AND published_at IS NOT NULL)",
+            name="ck_lbp_requires_approval",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_id"],
+            ["sources.tenant_id", "sources.source_id"],
+            name="fk_lbp_source",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "version_id"],
+            ["source_versions.tenant_id", "source_versions.version_id"],
+            name="fk_lbp_version",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "blueprint_id"],
+            ["lesson_blueprints.tenant_id", "lesson_blueprints.blueprint_id"],
+            name="fk_lbp_blueprint",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "concept_extraction_id"],
+            ["concept_extractions.tenant_id", "concept_extractions.concept_extraction_id"],
+            name="fk_lbp_concept",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "approved_review_id"],
+            ["knowledge_reviews.tenant_id", "knowledge_reviews.review_id"],
+            name="fk_lbp_review",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    version_id: Mapped[UUID] = mapped_column(primary_key=True)
+    source_id: Mapped[UUID]
+    blueprint_id: Mapped[UUID]
+    concept_extraction_id: Mapped[UUID]
+    approved_review_id: Mapped[UUID]
+    source_sha256: Mapped[str] = mapped_column(Text)
+    approval_status: Mapped[str] = mapped_column(Text, server_default="pending_review")
+    published_to_students: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    reviewed_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="RESTRICT")
+    )
+    review_notes: Mapped[str | None] = mapped_column(Text, default=None)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_by_user_id: Mapped[UUID | None] = mapped_column(default=None)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

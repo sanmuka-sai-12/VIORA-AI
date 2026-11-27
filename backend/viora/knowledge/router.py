@@ -11,6 +11,7 @@ from ..config import Settings
 from ..contracts import Page
 from ..db import Database
 from ..security import Access, TransactionalAccess
+from ..storage.public import ArtifactStore, local_artifact_store
 from .embeddings import TextEmbedder, build_embedder_from_settings
 from .repository import SqlConceptExtractionRepository
 from .schemas import (
@@ -28,6 +29,13 @@ from .schemas import (
     KnowledgeRetrieveRequest,
     KnowledgeReviewRecord,
     KnowledgeReviewRequest,
+    LessonBlueprintApprovalRequest,
+    LessonBlueprintApprovalState,
+    LessonBlueprintRecord,
+    LessonBlueprintSummary,
+    LessonBlueprintTriggerRequest,
+    LessonBlueprintTriggerResult,
+    PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
 from .service import ConceptKnowledgeService
@@ -44,6 +52,7 @@ def build_router(
     settings: Settings | None = None,
     embedder: TextEmbedder | None = None,
     ai_gateway: AIGateway | None = None,
+    artifact_store: ArtifactStore | None = None,
 ) -> APIRouter:
     _ = db
     bearer_scheme = HTTPBearer(auto_error=False)
@@ -57,10 +66,14 @@ def build_router(
         if ai_gateway is not None
         else (build_ai_gateway_from_settings(settings) if settings is not None else None)
     )
+    resolved_store = artifact_store or local_artifact_store(
+        settings.media_storage_dir if settings is not None else "./storage"
+    )
     service = ConceptKnowledgeService(
         SqlConceptExtractionRepository,
         embedder=resolved_embedder,
         ai_gateway=resolved_gateway,
+        artifact_store=resolved_store,
     )
     router = APIRouter(tags=["knowledge"])
 
@@ -324,6 +337,139 @@ def build_router(
             _token(creds),
             tenant_id,
             body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/generate",
+        status_code=202,
+        response_model=LessonBlueprintTriggerResult,
+    )
+    def trigger_lesson_blueprint(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        body: LessonBlueprintTriggerRequest | None = None,
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> LessonBlueprintTriggerResult:
+        key = (
+            body.idempotency_key
+            if (body and body.idempotency_key)
+            else idempotency_key
+        )
+        return service.trigger_lesson_blueprint(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            source_id,
+            version_id,
+            idempotency_key=key,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint",
+        response_model=LessonBlueprintRecord,
+    )
+    def get_latest_blueprint(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> LessonBlueprintRecord:
+        return service.get_latest_blueprint(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            source_id,
+            version_id,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/versions",
+        response_model=Page[LessonBlueprintSummary],
+    )
+    def list_blueprint_versions(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> Page[LessonBlueprintSummary]:
+        return service.list_blueprint_versions(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            source_id,
+            version_id,
+            limit=limit,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/review",
+        response_model=LessonBlueprintApprovalState,
+    )
+    def review_lesson_blueprint(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        body: LessonBlueprintApprovalRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> LessonBlueprintApprovalState:
+        return service.review_lesson_blueprint(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            source_id,
+            version_id,
+            body,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/approval",
+        response_model=LessonBlueprintApprovalState,
+    )
+    def get_blueprint_approval_state(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> LessonBlueprintApprovalState:
+        return service.get_blueprint_approval_state(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            source_id,
+            version_id,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/published",
+        response_model=PublishedLessonBlueprint,
+    )
+    def get_published_blueprint(
+        tenant_id: UUID,
+        source_id: UUID,
+        version_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PublishedLessonBlueprint:
+        return service.get_published_blueprint(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            source_id,
+            version_id,
         )
 
     return router

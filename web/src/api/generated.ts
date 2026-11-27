@@ -1086,6 +1086,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Latest Blueprint */
+        get: operations["get_latest_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Blueprint Approval State */
+        get: operations["get_blueprint_approval_state_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_approval_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trigger Lesson Blueprint */
+        post: operations["trigger_lesson_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/published": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Published Blueprint */
+        get: operations["get_published_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_published_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Lesson Blueprint */
+        post: operations["review_lesson_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/blueprint/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Blueprint Versions */
+        get: operations["list_blueprint_versions_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/sources/{source_id}/versions/{version_id}/concepts": {
         parameters: {
             query?: never;
@@ -1442,6 +1544,300 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /** BlueprintAssessmentItem */
+        BlueprintAssessmentItem: {
+            /**
+             * Accepted Aliases
+             * @default []
+             */
+            accepted_aliases: string[];
+            /**
+             * Answer Key Verified
+             * @default true
+             */
+            answer_key_verified: boolean;
+            /** Concept Id */
+            concept_id: string;
+            /** Correct Answer */
+            correct_answer: string;
+            /** Correct Option Index */
+            correct_option_index?: number | null;
+            /**
+             * Difficulty
+             * @enum {string}
+             */
+            difficulty: "foundational" | "intermediate" | "applied";
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /** Explanation */
+            explanation: string;
+            /**
+             * Grading Method
+             * @enum {string}
+             */
+            grading_method: "deterministic_mcq" | "deterministic_exact" | "formative_rubric";
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Interpretation Label
+             * @enum {string}
+             */
+            interpretation_label: "verbatim_source" | "synthesized_source" | "pedagogical_adaptation" | "worked_derivation" | "syllabus_request" | "unverified_draft";
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /**
+             * Objective Ids
+             * @default []
+             */
+            objective_ids: string[];
+            /**
+             * Options
+             * @default []
+             */
+            options: string[];
+            /** Question Id */
+            question_id: string;
+            /**
+             * Question Type
+             * @enum {string}
+             */
+            question_type: "mcq" | "short_answer" | "concept_check";
+            /** Stem */
+            stem: string;
+        };
+        /** BlueprintExplanationStep */
+        BlueprintExplanationStep: {
+            /** Concept Id */
+            concept_id: string;
+            /** Concept Name */
+            concept_name: string;
+            /** Depth Level */
+            depth_level: number;
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /** Explanation */
+            explanation: string;
+            /**
+             * Formulas
+             * @default []
+             */
+            formulas: string[];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Interpretation Label
+             * @enum {string}
+             */
+            interpretation_label: "verbatim_source" | "synthesized_source" | "pedagogical_adaptation" | "worked_derivation" | "syllabus_request" | "unverified_draft";
+            /**
+             * Key Points
+             * @default []
+             */
+            key_points: string[];
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /**
+             * Prerequisite Concept Ids
+             * @default []
+             */
+            prerequisite_concept_ids: string[];
+            /** Step Index */
+            step_index: number;
+            /**
+             * Supported By Source
+             * @default false
+             */
+            supported_by_source: boolean;
+        };
+        /** BlueprintLearningObjective */
+        BlueprintLearningObjective: {
+            /**
+             * Bloom Level
+             * @enum {string}
+             */
+            bloom_level: "remember" | "understand" | "apply" | "analyze";
+            /** Concept Id */
+            concept_id: string;
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Interpretation Label
+             * @enum {string}
+             */
+            interpretation_label: "verbatim_source" | "synthesized_source" | "pedagogical_adaptation" | "worked_derivation" | "syllabus_request" | "unverified_draft";
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /** Objective Id */
+            objective_id: string;
+            /** Statement */
+            statement: string;
+        };
+        /** BlueprintNarrationSegment */
+        BlueprintNarrationSegment: {
+            /** Caption Text */
+            caption_text: string;
+            /**
+             * Concept Ids
+             * @default []
+             */
+            concept_ids: string[];
+            /**
+             * Cues
+             * @default []
+             */
+            cues: components["schemas"]["NarrationCueSpec"][];
+            /** Estimated Duration Seconds */
+            estimated_duration_seconds: number;
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Interpretation Label
+             * @enum {string}
+             */
+            interpretation_label: "verbatim_source" | "synthesized_source" | "pedagogical_adaptation" | "worked_derivation" | "syllabus_request" | "unverified_draft";
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /** Order Index */
+            order_index: number;
+            /** Scene Id */
+            scene_id: string;
+            /** Script Text */
+            script_text: string;
+            /** Segment Id */
+            segment_id: string;
+        };
+        /** BlueprintValidationReport */
+        BlueprintValidationReport: {
+            /**
+             * All Evidence Verified
+             * @default false
+             */
+            all_evidence_verified: boolean;
+            /**
+             * Executable Scene Code Blocked
+             * @default true
+             * @constant
+             */
+            executable_scene_code_blocked: true;
+            /**
+             * Learning Request Only
+             * @default false
+             */
+            learning_request_only: boolean;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
+            /**
+             * Outline Version
+             * @default curriculum_dag:1.0
+             */
+            outline_version: string;
+            /**
+             * Prerequisite Order Preserved
+             * @default true
+             */
+            prerequisite_order_preserved: boolean;
+            /**
+             * Prompt Version
+             * @default lesson_blueprint_prompt:1.0
+             */
+            prompt_version: string;
+            /** Rejected Assessment Items Count */
+            rejected_assessment_items_count: number;
+            /** Rejected Evidence Refs Count */
+            rejected_evidence_refs_count: number;
+            /** Rejected Scene Commands Count */
+            rejected_scene_commands_count: number;
+            /** Rejected Scenes Count */
+            rejected_scenes_count: number;
+            /**
+             * Requires Teacher Review
+             * @default true
+             */
+            requires_teacher_review: boolean;
+            /**
+             * Schema Version
+             * @default 1.0
+             */
+            schema_version: string;
+        };
+        /** BlueprintWorkedExample */
+        BlueprintWorkedExample: {
+            /** Concept Id */
+            concept_id: string;
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /** Example Id */
+            example_id: string;
+            /** Final Answer */
+            final_answer: string;
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Interpretation Label
+             * @enum {string}
+             */
+            interpretation_label: "verbatim_source" | "synthesized_source" | "pedagogical_adaptation" | "worked_derivation" | "syllabus_request" | "unverified_draft";
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /** Problem Statement */
+            problem_statement: string;
+            /** Steps */
+            steps: string[];
+            /** Title */
+            title: string;
         };
         /** Body_createFileSourceVersion */
         Body_createFileSourceVersion: {
@@ -2953,6 +3349,332 @@ export interface components {
             /** Statement */
             statement: string;
         };
+        /** LessonBlueprint */
+        LessonBlueprint: {
+            /**
+             * Approved Review Id
+             * Format: uuid
+             */
+            approved_review_id: string;
+            /**
+             * Assessments
+             * @default []
+             */
+            assessments: components["schemas"]["BlueprintAssessmentItem"][];
+            /**
+             * Blueprint Schema Version
+             * @default 1.0
+             */
+            blueprint_schema_version: string;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /**
+             * Explanations
+             * @default []
+             */
+            explanations: components["schemas"]["BlueprintExplanationStep"][];
+            /**
+             * Input Format
+             * @enum {string}
+             */
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg";
+            /**
+             * Learning Objectives
+             * @default []
+             */
+            learning_objectives: components["schemas"]["BlueprintLearningObjective"][];
+            /**
+             * Learning Request Only
+             * @default false
+             */
+            learning_request_only: boolean;
+            /** Lesson Summary */
+            lesson_summary: string;
+            /**
+             * Narration Language
+             * @default en
+             */
+            narration_language: string;
+            /**
+             * Narrations
+             * @default []
+             */
+            narrations: components["schemas"]["BlueprintNarrationSegment"][];
+            /**
+             * Prerequisite Order
+             * @default []
+             */
+            prerequisite_order: string[];
+            /**
+             * Scenes
+             * @default []
+             */
+            scenes: components["schemas"]["TypedVisualSceneSpec"][];
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Title */
+            title: string;
+            /**
+             * Tts Synthesized
+             * @default false
+             * @constant
+             */
+            tts_synthesized: false;
+            validation: components["schemas"]["BlueprintValidationReport"];
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /**
+             * Worked Examples
+             * @default []
+             */
+            worked_examples: components["schemas"]["BlueprintWorkedExample"][];
+        };
+        /** LessonBlueprintApprovalRequest */
+        LessonBlueprintApprovalRequest: {
+            /**
+             * Blueprint Id
+             * Format: uuid
+             */
+            blueprint_id: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "changes_requested" | "rejected";
+            /**
+             * Publish
+             * @default false
+             */
+            publish: boolean;
+            /** Review Notes */
+            review_notes?: string | null;
+        };
+        /** LessonBlueprintApprovalState */
+        LessonBlueprintApprovalState: {
+            /**
+             * Approval Status
+             * @enum {string}
+             */
+            approval_status: "pending_review" | "approved" | "changes_requested" | "rejected";
+            /** Approved Review Id */
+            approved_review_id?: string | null;
+            /** Blueprint Id */
+            blueprint_id?: string | null;
+            /** Concept Extraction Id */
+            concept_extraction_id?: string | null;
+            /** Published At */
+            published_at?: string | null;
+            /** Published By User Id */
+            published_by_user_id?: string | null;
+            /** Published To Students */
+            published_to_students: boolean;
+            /** Review Notes */
+            review_notes?: string | null;
+            /** Reviewed At */
+            reviewed_at?: string | null;
+            /** Reviewed By User Id */
+            reviewed_by_user_id?: string | null;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Teacher Approved */
+            teacher_approved: boolean;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** LessonBlueprintRecord */
+        LessonBlueprintRecord: {
+            /**
+             * Approved Review Id
+             * Format: uuid
+             */
+            approved_review_id: string;
+            artifact_ref: components["schemas"]["ArtifactVersionRef"];
+            blueprint: components["schemas"]["LessonBlueprint"];
+            /**
+             * Blueprint Id
+             * Format: uuid
+             */
+            blueprint_id: string;
+            /** Blueprint Version */
+            blueprint_version: number;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /** Generation Ms */
+            generation_ms: number;
+            /** Inference Requests */
+            inference_requests: number;
+            /** Input Fingerprint */
+            input_fingerprint: string;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Job Id */
+            job_id?: string | null;
+            /** Model */
+            model: string;
+            /** Outline Version */
+            outline_version: string;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Provider */
+            provider: string;
+            /** Schema Version */
+            schema_version: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Validation Ms */
+            validation_ms: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** LessonBlueprintSummary */
+        LessonBlueprintSummary: {
+            /**
+             * Approved Review Id
+             * Format: uuid
+             */
+            approved_review_id: string;
+            artifact_ref: components["schemas"]["ArtifactVersionRef"];
+            /**
+             * Blueprint Id
+             * Format: uuid
+             */
+            blueprint_id: string;
+            /** Blueprint Version */
+            blueprint_version: number;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Job Id */
+            job_id?: string | null;
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** LessonBlueprintTriggerRequest */
+        LessonBlueprintTriggerRequest: {
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
+        /** LessonBlueprintTriggerResult */
+        LessonBlueprintTriggerResult: {
+            /**
+             * Approved Review Id
+             * Format: uuid
+             */
+            approved_review_id: string;
+            /** Blueprint Id */
+            blueprint_id?: string | null;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Idempotent Replay
+             * @default false
+             */
+            idempotent_replay: boolean;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            job_state: components["schemas"]["JobState"];
+        };
         /**
          * LessonModule
          * @description Cohesive teaching module grouped by prerequisite depth.
@@ -3095,6 +3817,17 @@ export interface components {
          * @enum {string}
          */
         MembershipStatus: "invited" | "active" | "disabled" | "revoked";
+        /** NarrationCueSpec */
+        NarrationCueSpec: {
+            /** Anchor */
+            anchor: string;
+            /** Cue Id */
+            cue_id: string;
+            /** Offset Hint Seconds */
+            offset_hint_seconds?: number | null;
+            /** Spoken Phrase */
+            spoken_phrase: string;
+        };
         /** OfferingAssignmentSummary */
         OfferingAssignmentSummary: {
             /** Active */
@@ -3209,6 +3942,13 @@ export interface components {
         Page_KnowledgeReviewRecord_: {
             /** Items */
             items: components["schemas"]["KnowledgeReviewRecord"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[LessonBlueprintSummary] */
+        Page_LessonBlueprintSummary_: {
+            /** Items */
+            items: components["schemas"]["LessonBlueprintSummary"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -3386,6 +4126,119 @@ export interface components {
             department_id?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * PublishedLessonBlueprint
+         * @description Student-accessible approved lesson blueprint with answer keys removed.
+         */
+        PublishedLessonBlueprint: {
+            /**
+             * Approved Review Id
+             * Format: uuid
+             */
+            approved_review_id: string;
+            /**
+             * Assessments
+             * @default []
+             */
+            assessments: components["schemas"]["StudentSafeAssessmentItem"][];
+            /**
+             * Blueprint Id
+             * Format: uuid
+             */
+            blueprint_id: string;
+            /** Blueprint Version */
+            blueprint_version: number;
+            /**
+             * Concept Extraction Id
+             * Format: uuid
+             */
+            concept_extraction_id: string;
+            /**
+             * Explanations
+             * @default []
+             */
+            explanations: components["schemas"]["BlueprintExplanationStep"][];
+            /**
+             * Learning Objectives
+             * @default []
+             */
+            learning_objectives: components["schemas"]["BlueprintLearningObjective"][];
+            /**
+             * Learning Request Only
+             * @default false
+             */
+            learning_request_only: boolean;
+            /** Lesson Summary */
+            lesson_summary: string;
+            /**
+             * Narration Language
+             * @default en
+             */
+            narration_language: string;
+            /**
+             * Narrations
+             * @default []
+             */
+            narrations: components["schemas"]["BlueprintNarrationSegment"][];
+            /**
+             * Prerequisite Order
+             * @default []
+             */
+            prerequisite_order: string[];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /**
+             * Published To Students
+             * @default true
+             * @constant
+             */
+            published_to_students: true;
+            /**
+             * Scenes
+             * @default []
+             */
+            scenes: components["schemas"]["TypedVisualSceneSpec"][];
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /**
+             * Teacher Approved
+             * @default true
+             * @constant
+             */
+            teacher_approved: true;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Tts Synthesized
+             * @default false
+             * @constant
+             */
+            tts_synthesized: false;
+            validation: components["schemas"]["BlueprintValidationReport"];
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /**
+             * Worked Examples
+             * @default []
+             */
+            worked_examples: components["schemas"]["BlueprintWorkedExample"][];
         };
         /**
          * PublishedLessonPackage
@@ -3704,6 +4557,88 @@ export interface components {
         /** RoleGrantCreate */
         RoleGrantCreate: {
             role: components["schemas"]["InstitutionRole"];
+        };
+        /** SceneActionSpec */
+        SceneActionSpec: {
+            /** Anchor */
+            anchor: string;
+            /**
+             * Delta X
+             * @default 0
+             */
+            delta_x: number;
+            /**
+             * Delta Y
+             * @default 0
+             */
+            delta_y: number;
+            /** Duration Seconds */
+            duration_seconds: number;
+            /**
+             * Easing
+             * @default ease_in_out
+             * @enum {string}
+             */
+            easing: "linear" | "ease_in" | "ease_out" | "ease_in_out";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "appear" | "disappear" | "highlight" | "move" | "increase_vector" | "decrease_vector" | "state_change" | "reveal_step" | "trace_path" | "compare";
+            /** Note */
+            note?: string | null;
+            /**
+             * Scale Factor
+             * @default 1
+             */
+            scale_factor: number;
+            /** Target Object Id */
+            target_object_id: string;
+        };
+        /** SceneCoordinateSpace */
+        SceneCoordinateSpace: {
+            /**
+             * Height
+             * @default 720
+             */
+            height: number;
+            /**
+             * Unit
+             * @default px
+             * @constant
+             */
+            unit: "px";
+            /**
+             * Width
+             * @default 1280
+             */
+            width: number;
+        };
+        /** SceneObjectSpec */
+        SceneObjectSpec: {
+            /** Height */
+            height: number;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "rectangle" | "circle" | "vector_arrow" | "node" | "edge" | "region" | "axis" | "curve" | "point" | "callout" | "text_label" | "array_cells";
+            /** Label */
+            label: string;
+            /**
+             * Style Token
+             * @default primary
+             * @enum {string}
+             */
+            style_token: "primary" | "secondary" | "accent" | "muted" | "warning";
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
         };
         /** SectionCreate */
         SectionCreate: {
@@ -4199,6 +5134,58 @@ export interface components {
              */
             version_id: string;
         };
+        /**
+         * StudentSafeAssessmentItem
+         * @description Student-facing assessment item with secret answer key and aliases stripped.
+         */
+        StudentSafeAssessmentItem: {
+            /** Concept Id */
+            concept_id: string;
+            /**
+             * Difficulty
+             * @enum {string}
+             */
+            difficulty: "foundational" | "intermediate" | "applied";
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /**
+             * Grading Method
+             * @enum {string}
+             */
+            grading_method: "deterministic_mcq" | "deterministic_exact" | "formative_rubric";
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Interpretation Label
+             * @enum {string}
+             */
+            interpretation_label: "verbatim_source" | "synthesized_source" | "pedagogical_adaptation" | "worked_derivation" | "syllabus_request" | "unverified_draft";
+            /**
+             * Objective Ids
+             * @default []
+             */
+            objective_ids: string[];
+            /**
+             * Options
+             * @default []
+             */
+            options: string[];
+            /** Question Id */
+            question_id: string;
+            /**
+             * Question Type
+             * @enum {string}
+             */
+            question_type: "mcq" | "short_answer" | "concept_check";
+            /** Stem */
+            stem: string;
+        };
         /** StudentSummary */
         StudentSummary: {
             /** Display Name */
@@ -4438,6 +5425,72 @@ export interface components {
              */
             token_type: "Bearer";
         };
+        /** TypedVisualSceneSpec */
+        TypedVisualSceneSpec: {
+            /** Actions */
+            actions: components["schemas"]["SceneActionSpec"][];
+            /**
+             * Asset Refs
+             * @default []
+             */
+            asset_refs: string[];
+            /** Concept Ids */
+            concept_ids: string[];
+            coordinate_space?: components["schemas"]["SceneCoordinateSpace"];
+            /** Duration Seconds */
+            duration_seconds: number;
+            /**
+             * Evidence Bindings
+             * @default []
+             */
+            evidence_bindings: components["schemas"]["ConceptEvidenceBinding"][];
+            /**
+             * Executable Code Allowed
+             * @default false
+             * @constant
+             */
+            executable_code_allowed: false;
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized" | "learning_request" | "inferred" | "uncertain" | "unsupported";
+            /**
+             * Interpretation Label
+             * @enum {string}
+             */
+            interpretation_label: "verbatim_source" | "synthesized_source" | "pedagogical_adaptation" | "worked_derivation" | "syllabus_request" | "unverified_draft";
+            /**
+             * Narration Cue Ids
+             * @default []
+             */
+            narration_cue_ids: string[];
+            /**
+             * Needs Review
+             * @default true
+             */
+            needs_review: boolean;
+            /**
+             * Objective Ids
+             * @default []
+             */
+            objective_ids: string[];
+            /** Objects */
+            objects: components["schemas"]["SceneObjectSpec"][];
+            /** Order Index */
+            order_index: number;
+            /** Scene Id */
+            scene_id: string;
+            /**
+             * Template
+             * @enum {string}
+             */
+            template: "vector_force" | "process_flow" | "parts_of_whole" | "plot_relationship" | "labeled_diagram";
+            /** Timing Anchors */
+            timing_anchors: string[];
+            /** Visual Intent */
+            visual_intent: string;
+        };
         /** WorkflowJobDetail */
         WorkflowJobDetail: {
             /** Attempt Count */
@@ -4490,7 +5543,7 @@ export interface components {
              * Operation Kind
              * @enum {string}
              */
-            operation_kind: "source_extract" | "concept_extract" | "knowledge_index";
+            operation_kind: "source_extract" | "concept_extract" | "knowledge_index" | "lesson_blueprint";
             /** Progress Metadata */
             progress_metadata?: {
                 [key: string]: string | number | boolean;
@@ -4570,7 +5623,7 @@ export interface components {
              * Operation Kind
              * @enum {string}
              */
-            operation_kind: "source_extract" | "concept_extract" | "knowledge_index";
+            operation_kind: "source_extract" | "concept_extract" | "knowledge_index" | "lesson_blueprint";
             /** Progress Metadata */
             progress_metadata?: {
                 [key: string]: string | number | boolean;
@@ -12278,6 +13331,540 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceVersionDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_latest_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LessonBlueprintRecord"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_blueprint_approval_state_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_approval_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LessonBlueprintApprovalState"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    trigger_lesson_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_generate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LessonBlueprintTriggerRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LessonBlueprintTriggerResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_published_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_published_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedLessonBlueprint"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    review_lesson_blueprint_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LessonBlueprintApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LessonBlueprintApprovalState"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_blueprint_versions_api_v1_tenants__tenant_id__sources__source_id__versions__version_id__blueprint_versions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_LessonBlueprintSummary_"];
                 };
             };
             /** @description Unauthorized */

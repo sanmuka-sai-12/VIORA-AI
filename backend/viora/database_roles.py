@@ -28,6 +28,7 @@ TENANT_TABLES = (
     "concept_extraction_cache",
     "knowledge_publications",
     "knowledge_index_chunks",
+    "lesson_blueprint_publications",
 )
 
 APPEND_ONLY_TENANT_TABLES = (
@@ -35,6 +36,7 @@ APPEND_ONLY_TENANT_TABLES = (
     "derived_extractions",
     "concept_extractions",
     "knowledge_reviews",
+    "lesson_blueprints",
 )
 
 

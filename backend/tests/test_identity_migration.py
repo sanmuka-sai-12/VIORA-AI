@@ -19,7 +19,11 @@ REVISION = "0002_identity_academics"
 
 def test_identity_revision_follows_sources() -> None:
     history = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert history.get_heads() == ["0012_knowledge_retrieval_index"]
+    assert history.get_heads() == ["0013_lesson_blueprints"]
+    assert (
+        history.get_revision("0013_lesson_blueprints").down_revision
+        == "0012_knowledge_retrieval_index"
+    )
     assert (
         history.get_revision("0012_knowledge_retrieval_index").down_revision
         == "0011_knowledge_curriculum_review"

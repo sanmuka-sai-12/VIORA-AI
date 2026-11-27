@@ -22,7 +22,12 @@ from .indexing import (
     compute_embedding_fingerprint,
 )
 from .ports import ConceptCacheRepository, ConceptExtractionRepository
-from .prompts import build_concept_extraction_messages
+from .prompts import (
+    build_concept_extraction_messages,
+    build_grounded_qa_messages,
+    sanitize_untrusted_text,
+)
+from .qa import GroundedKnowledgeQA
 from .repository import (
     SqlConceptExtractionCache,
     SqlConceptExtractionRepository,
@@ -39,6 +44,8 @@ from .schemas import (
     CURRICULUM_ALGORITHM_VERSION,
     INDEX_ALGORITHM_VERSION,
     PROMPT_VERSION,
+    QA_PROMPT_VERSION,
+    QA_SCHEMA_VERSION,
     RETRIEVAL_ALGORITHM_VERSION,
     AdaptiveChunkPlan,
     ChunkingConfig,
@@ -54,12 +61,15 @@ from .schemas import (
     DocumentChunk,
     ExtractedKnowledgeGraph,
     GraphEnrichmentConcept,
+    GroundedQAClaim,
     GroundingClassification,
     KnowledgeIndexStatus,
     KnowledgeIndexTriggerRequest,
     KnowledgeIndexTriggerResult,
     KnowledgePublicationState,
     KnowledgePublishRequest,
+    KnowledgeQARequest,
+    KnowledgeQAResult,
     KnowledgeRetrievalResult,
     KnowledgeRetrieveRequest,
     KnowledgeReviewRecord,
@@ -73,8 +83,18 @@ from .schemas import (
     PrerequisiteCycle,
     PublicationReviewStatus,
     PublishedLessonPackage,
+    QAAbstention,
+    QACitation,
+    QAClaimGrounding,
+    QAClarification,
+    QAGeneralKnowledge,
+    QAStatus,
+    QAValidationReport,
     RawConceptCandidate,
     RawConceptExtractionBatch,
+    RawQAAnswer,
+    RawQACitation,
+    RawQAClaim,
     RawRelationshipCandidate,
     RetrievalMode,
     RetrievedEvidenceChunk,
@@ -92,6 +112,8 @@ __all__ = [
     "EMBEDDING_DIM",
     "INDEX_ALGORITHM_VERSION",
     "PROMPT_VERSION",
+    "QA_PROMPT_VERSION",
+    "QA_SCHEMA_VERSION",
     "RETRIEVAL_ALGORITHM_VERSION",
     "AdaptiveChunkPlan",
     "ChunkingConfig",
@@ -114,6 +136,8 @@ __all__ = [
     "DocumentChunk",
     "ExtractedKnowledgeGraph",
     "GraphEnrichmentConcept",
+    "GroundedKnowledgeQA",
+    "GroundedQAClaim",
     "GroundingClassification",
     "HybridKnowledgeRetriever",
     "KnowledgeIndexStatus",
@@ -122,6 +146,8 @@ __all__ = [
     "KnowledgeIndexingWorkerHandler",
     "KnowledgePublicationState",
     "KnowledgePublishRequest",
+    "KnowledgeQARequest",
+    "KnowledgeQAResult",
     "KnowledgeRetrievalResult",
     "KnowledgeRetrieveRequest",
     "KnowledgeReviewRecord",
@@ -136,8 +162,18 @@ __all__ = [
     "PrerequisiteCycle",
     "PublicationReviewStatus",
     "PublishedLessonPackage",
+    "QAAbstention",
+    "QACitation",
+    "QAClaimGrounding",
+    "QAClarification",
+    "QAGeneralKnowledge",
+    "QAStatus",
+    "QAValidationReport",
     "RawConceptCandidate",
     "RawConceptExtractionBatch",
+    "RawQAAnswer",
+    "RawQACitation",
+    "RawQAClaim",
     "RawRelationshipCandidate",
     "RetrievalMode",
     "RetrievedEvidenceChunk",
@@ -153,6 +189,7 @@ __all__ = [
     "build_concept_extraction_messages",
     "build_concept_input_fingerprint",
     "build_embedder_from_settings",
+    "build_grounded_qa_messages",
     "build_knowledge_scope_key",
     "chunk_extracted_document",
     "compute_chunk_content_sha256",
@@ -164,6 +201,7 @@ __all__ = [
     "register_models",
     "registered_table",
     "router",
+    "sanitize_untrusted_text",
 ]
 
 registered_table = models.ConceptExtraction.__table__
@@ -174,5 +212,7 @@ def register_models() -> None:
     from . import models as _models  # noqa: F401
 
 
-def router(access, db=None, *, settings=None, embedder=None):
-    return build_router(access, db, settings=settings, embedder=embedder)
+def router(access, db=None, *, settings=None, embedder=None, ai_gateway=None):
+    return build_router(
+        access, db, settings=settings, embedder=embedder, ai_gateway=ai_gateway
+    )

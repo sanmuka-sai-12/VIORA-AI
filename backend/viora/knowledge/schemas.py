@@ -569,3 +569,134 @@ class KnowledgeRetrievalResult(Contract):
     lexical_candidates: int = Field(ge=0)
     semantic_candidates: int = Field(ge=0)
     retrieval_ms: float = Field(ge=0.0)
+
+
+QA_PROMPT_VERSION = "qa_prompt:1.0"
+QA_SCHEMA_VERSION = "1.0"
+QAStatus = Literal["answered", "clarification_needed", "insufficient_evidence"]
+QAClaimGrounding = Literal["source_supported", "source_synthesized"]
+
+
+class RawQACitation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    chunk_ref: str = Field(min_length=1, max_length=64)
+    evidence_id: str | None = Field(default=None, max_length=64)
+    quote: str | None = Field(default=None, max_length=320)
+
+
+class RawQAClaim(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    statement: str = Field(min_length=1, max_length=800)
+    grounding: QAClaimGrounding = "source_supported"
+    citations: list[RawQACitation] = Field(default_factory=list, max_length=8)
+
+
+class RawQAAnswer(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    status: QAStatus = "insufficient_evidence"
+    answer: str = Field(default="", max_length=2000)
+    claims: list[RawQAClaim] = Field(default_factory=list, max_length=12)
+    ambiguities: list[str] = Field(default_factory=list, max_length=6)
+    clarifying_questions: list[str] = Field(default_factory=list, max_length=6)
+    missing_evidence_topics: list[str] = Field(default_factory=list, max_length=6)
+    abstention_reason: str | None = Field(default=None, max_length=400)
+    general_knowledge_answer: str | None = Field(default=None, max_length=1500)
+
+
+class KnowledgeQARequest(Contract):
+    question: str = Field(min_length=2, max_length=1000)
+    offering_id: UUID | None = None
+    mode: RetrievalMode = "hybrid_graph"
+    top_k: int = Field(default=5, ge=1, le=12)
+    candidate_k: int = Field(default=20, ge=1, le=50)
+    max_context_tokens: int = Field(default=1800, ge=128, le=4000)
+    include_student_submissions: bool = True
+    published_only: bool = False
+    max_graph_hops: int = Field(default=2, ge=1, le=2)
+    allow_general_knowledge: bool = False
+
+
+class QACitation(Contract):
+    citation_ref: str = Field(min_length=1, max_length=32)
+    chunk_record_id: UUID
+    source_id: UUID
+    version_id: UUID
+    derived_extraction_id: UUID
+    concept_extraction_id: UUID | None = None
+    chunk_id: str
+    section_id: str
+    section_path: tuple[str, ...] = ()
+    heading_title: str | None = None
+    page_start: int = Field(ge=1)
+    page_end: int = Field(ge=1)
+    evidence_id: str | None = None
+    origin_kind: str
+    excerpt: str = Field(max_length=500)
+    quote_verified: bool = False
+
+
+class GroundedQAClaim(Contract):
+    claim_id: str = Field(min_length=1, max_length=32)
+    statement: str = Field(min_length=1, max_length=1000)
+    grounding: QAClaimGrounding
+    citations: tuple[QACitation, ...] = Field(min_length=1)
+
+
+class QAClarification(Contract):
+    reason: str = Field(min_length=1, max_length=600)
+    ambiguities: tuple[str, ...] = ()
+    clarifying_questions: tuple[str, ...] = Field(min_length=1)
+
+
+class QAAbstention(Contract):
+    reason: str = Field(min_length=1, max_length=600)
+    missing_evidence_topics: tuple[str, ...] = ()
+
+
+class QAGeneralKnowledge(Contract):
+    is_source_grounded: Literal[False] = False
+    label: str = (
+        "General educational knowledge (not verified against authorized course sources)"
+    )
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class QAValidationReport(Contract):
+    schema_version: str = QA_SCHEMA_VERSION
+    prompt_version: str = QA_PROMPT_VERSION
+    retrieval_mode: RetrievalMode
+    authorized_chunks_count: int = Field(ge=0)
+    authorized_graph_concepts_count: int = Field(ge=0)
+    context_tokens: int = Field(ge=0)
+    valid_citations_count: int = Field(ge=0)
+    rejected_citations_count: int = Field(ge=0)
+    dropped_ungrounded_claims_count: int = Field(ge=0)
+    general_knowledge_suppressed: bool = False
+    prompt_injection_signals_detected: int = Field(ge=0)
+    inference_requests: int = Field(ge=0, le=1)
+    retrieval_ms: float = Field(ge=0.0)
+    inference_ms: float = Field(ge=0.0)
+    validation_ms: float = Field(ge=0.0)
+    total_ms: float = Field(ge=0.0)
+    provider: str
+    model: str
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    notes: tuple[str, ...] = ()
+
+
+class KnowledgeQAResult(Contract):
+    schema_version: str = QA_SCHEMA_VERSION
+    status: QAStatus
+    question: str
+    answer: str
+    source_grounded_claims: tuple[GroundedQAClaim, ...] = ()
+    citations: tuple[QACitation, ...] = ()
+    clarification: QAClarification | None = None
+    abstention: QAAbstention | None = None
+    general_knowledge: QAGeneralKnowledge | None = None
+    validation: QAValidationReport

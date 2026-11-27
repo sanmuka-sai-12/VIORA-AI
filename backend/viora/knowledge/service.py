@@ -10,6 +10,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from ..ai.public import AIError, AIGateway, AIResourceLimitError
 from ..contracts import Page, ResourceRef
 from ..security import AccessError, TransactionalAccess
 from ..sources.public import SqlSourceRepository
@@ -19,6 +20,7 @@ from .embeddings import TextEmbedder
 from .indexing import SqlKnowledgeIndexRepository
 from .ports import ConceptExtractionRepository
 from .publication import publication_complete, reviewed_graph
+from .qa import GroundedKnowledgeQA
 from .retrieval import HybridKnowledgeRetriever
 from .schemas import (
     ConceptExtractionRecord,
@@ -27,6 +29,8 @@ from .schemas import (
     KnowledgeIndexTriggerResult,
     KnowledgePublicationState,
     KnowledgePublishRequest,
+    KnowledgeQARequest,
+    KnowledgeQAResult,
     KnowledgeRetrievalResult,
     KnowledgeRetrieveRequest,
     KnowledgeReviewRecord,
@@ -67,10 +71,12 @@ class ConceptKnowledgeService:
         repo_factory: Callable[[Session], ConceptExtractionRepository],
         source_repo_factory: Callable[[Session], SqlSourceRepository] = SqlSourceRepository,
         embedder: TextEmbedder | None = None,
+        ai_gateway: AIGateway | None = None,
     ) -> None:
         self.repo_factory = repo_factory
         self.source_repo_factory = source_repo_factory
         self.embedder: TextEmbedder | None = embedder
+        self.ai_gateway: AIGateway | None = ai_gateway
 
     def trigger_concept_extraction(
         self,
@@ -617,3 +623,53 @@ class ConceptKnowledgeService:
             return HybridKnowledgeRetriever(scope.session, self.embedder).retrieve(
                 scope.context, req
             )
+
+    def answer_question(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        req: KnowledgeQARequest,
+    ) -> KnowledgeQAResult:
+        if req.offering_id is not None:
+            action = "offering.read"
+            ref = ResourceRef(
+                tenant_id=tenant_id, kind="offering", resource_id=req.offering_id
+            )
+        else:
+            action = "knowledge.retrieve"
+            ref = ResourceRef(
+                tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+            )
+        with access.transaction(bearer, action, ref) as scope:
+            if self.ai_gateway is None:
+                raise AccessError(
+                    503,
+                    "ai_gateway_unavailable",
+                    "Grounded Q&A requires an active AI gateway",
+                )
+            scoped_context = scope.context
+            retrieve_req = KnowledgeRetrieveRequest(
+                query=req.question,
+                offering_id=req.offering_id,
+                mode=req.mode,
+                top_k=req.top_k,
+                candidate_k=req.candidate_k,
+                max_context_tokens=req.max_context_tokens,
+                include_student_submissions=req.include_student_submissions,
+                published_only=req.published_only,
+                max_graph_hops=req.max_graph_hops,
+            )
+            retrieval = HybridKnowledgeRetriever(scope.session, self.embedder).retrieve(
+                scoped_context, retrieve_req
+            )
+        try:
+            return GroundedKnowledgeQA(self.ai_gateway).answer(
+                context=scoped_context,
+                request=req,
+                retrieval=retrieval,
+            )
+        except AIResourceLimitError as exc:
+            raise AccessError(422, exc.code, exc.message) from None
+        except AIError as exc:
+            raise AccessError(503, exc.code, exc.message) from None

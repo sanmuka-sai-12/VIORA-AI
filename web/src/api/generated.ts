@@ -509,6 +509,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/knowledge/qa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Answer Knowledge Question */
+        post: operations["answer_knowledge_question_api_v1_tenants__tenant_id__knowledge_qa_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/knowledge/retrieve": {
         parameters: {
             query?: never;
@@ -2313,6 +2330,20 @@ export interface components {
             /** Sense Label */
             sense_label?: string | null;
         };
+        /** GroundedQAClaim */
+        GroundedQAClaim: {
+            /** Citations */
+            citations: components["schemas"]["QACitation"][];
+            /** Claim Id */
+            claim_id: string;
+            /**
+             * Grounding
+             * @enum {string}
+             */
+            grounding: "source_supported" | "source_synthesized";
+            /** Statement */
+            statement: string;
+        };
         /** GuardianLinkCreate */
         GuardianLinkCreate: {
             /**
@@ -2570,6 +2601,85 @@ export interface components {
              * @default true
              */
             publish: boolean;
+        };
+        /** KnowledgeQARequest */
+        KnowledgeQARequest: {
+            /**
+             * Allow General Knowledge
+             * @default false
+             */
+            allow_general_knowledge: boolean;
+            /**
+             * Candidate K
+             * @default 20
+             */
+            candidate_k: number;
+            /**
+             * Include Student Submissions
+             * @default true
+             */
+            include_student_submissions: boolean;
+            /**
+             * Max Context Tokens
+             * @default 1800
+             */
+            max_context_tokens: number;
+            /**
+             * Max Graph Hops
+             * @default 2
+             */
+            max_graph_hops: number;
+            /**
+             * Mode
+             * @default hybrid_graph
+             * @enum {string}
+             */
+            mode: "lexical" | "semantic" | "hybrid" | "hybrid_graph";
+            /** Offering Id */
+            offering_id?: string | null;
+            /**
+             * Published Only
+             * @default false
+             */
+            published_only: boolean;
+            /** Question */
+            question: string;
+            /**
+             * Top K
+             * @default 5
+             */
+            top_k: number;
+        };
+        /** KnowledgeQAResult */
+        KnowledgeQAResult: {
+            abstention?: components["schemas"]["QAAbstention"] | null;
+            /** Answer */
+            answer: string;
+            /**
+             * Citations
+             * @default []
+             */
+            citations: components["schemas"]["QACitation"][];
+            clarification?: components["schemas"]["QAClarification"] | null;
+            general_knowledge?: components["schemas"]["QAGeneralKnowledge"] | null;
+            /** Question */
+            question: string;
+            /**
+             * Schema Version
+             * @default 1.0
+             */
+            schema_version: string;
+            /**
+             * Source Grounded Claims
+             * @default []
+             */
+            source_grounded_claims: components["schemas"]["GroundedQAClaim"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "answered" | "clarification_needed" | "insufficient_evidence";
+            validation: components["schemas"]["QAValidationReport"];
         };
         /** KnowledgeRetrievalResult */
         KnowledgeRetrievalResult: {
@@ -3343,6 +3453,159 @@ export interface components {
              * Format: uuid
              */
             version_id: string;
+        };
+        /** QAAbstention */
+        QAAbstention: {
+            /**
+             * Missing Evidence Topics
+             * @default []
+             */
+            missing_evidence_topics: string[];
+            /** Reason */
+            reason: string;
+        };
+        /** QACitation */
+        QACitation: {
+            /** Chunk Id */
+            chunk_id: string;
+            /**
+             * Chunk Record Id
+             * Format: uuid
+             */
+            chunk_record_id: string;
+            /** Citation Ref */
+            citation_ref: string;
+            /** Concept Extraction Id */
+            concept_extraction_id?: string | null;
+            /**
+             * Derived Extraction Id
+             * Format: uuid
+             */
+            derived_extraction_id: string;
+            /** Evidence Id */
+            evidence_id?: string | null;
+            /** Excerpt */
+            excerpt: string;
+            /** Heading Title */
+            heading_title?: string | null;
+            /** Origin Kind */
+            origin_kind: string;
+            /** Page End */
+            page_end: number;
+            /** Page Start */
+            page_start: number;
+            /**
+             * Quote Verified
+             * @default false
+             */
+            quote_verified: boolean;
+            /** Section Id */
+            section_id: string;
+            /**
+             * Section Path
+             * @default []
+             */
+            section_path: string[];
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** QAClarification */
+        QAClarification: {
+            /**
+             * Ambiguities
+             * @default []
+             */
+            ambiguities: string[];
+            /** Clarifying Questions */
+            clarifying_questions: string[];
+            /** Reason */
+            reason: string;
+        };
+        /** QAGeneralKnowledge */
+        QAGeneralKnowledge: {
+            /** Content */
+            content: string;
+            /**
+             * Is Source Grounded
+             * @default false
+             * @constant
+             */
+            is_source_grounded: false;
+            /**
+             * Label
+             * @default General educational knowledge (not verified against authorized course sources)
+             */
+            label: string;
+        };
+        /** QAValidationReport */
+        QAValidationReport: {
+            /** Authorized Chunks Count */
+            authorized_chunks_count: number;
+            /** Authorized Graph Concepts Count */
+            authorized_graph_concepts_count: number;
+            /** Context Tokens */
+            context_tokens: number;
+            /** Dropped Ungrounded Claims Count */
+            dropped_ungrounded_claims_count: number;
+            /**
+             * General Knowledge Suppressed
+             * @default false
+             */
+            general_knowledge_suppressed: boolean;
+            /** Inference Ms */
+            inference_ms: number;
+            /** Inference Requests */
+            inference_requests: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Model */
+            model: string;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
+            /** Output Tokens */
+            output_tokens: number;
+            /** Prompt Injection Signals Detected */
+            prompt_injection_signals_detected: number;
+            /**
+             * Prompt Version
+             * @default qa_prompt:1.0
+             */
+            prompt_version: string;
+            /** Provider */
+            provider: string;
+            /** Rejected Citations Count */
+            rejected_citations_count: number;
+            /**
+             * Retrieval Mode
+             * @enum {string}
+             */
+            retrieval_mode: "lexical" | "semantic" | "hybrid" | "hybrid_graph";
+            /** Retrieval Ms */
+            retrieval_ms: number;
+            /**
+             * Schema Version
+             * @default 1.0
+             */
+            schema_version: string;
+            /** Total Ms */
+            total_ms: number;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Valid Citations Count */
+            valid_citations_count: number;
+            /** Validation Ms */
+            validation_ms: number;
         };
         /** RetrievedEvidenceChunk */
         RetrievedEvidenceChunk: {
@@ -7628,6 +7891,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowJobDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    answer_knowledge_question_api_v1_tenants__tenant_id__knowledge_qa_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeQARequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeQAResult"];
                 };
             };
             /** @description Unauthorized */

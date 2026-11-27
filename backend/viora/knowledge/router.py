@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Query, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from ..ai.public import AIGateway, build_ai_gateway_from_settings
 from ..config import Settings
 from ..contracts import Page
 from ..db import Database
@@ -21,6 +22,8 @@ from .schemas import (
     KnowledgeIndexTriggerResult,
     KnowledgePublicationState,
     KnowledgePublishRequest,
+    KnowledgeQARequest,
+    KnowledgeQAResult,
     KnowledgeRetrievalResult,
     KnowledgeRetrieveRequest,
     KnowledgeReviewRecord,
@@ -40,6 +43,7 @@ def build_router(
     *,
     settings: Settings | None = None,
     embedder: TextEmbedder | None = None,
+    ai_gateway: AIGateway | None = None,
 ) -> APIRouter:
     _ = db
     bearer_scheme = HTTPBearer(auto_error=False)
@@ -48,8 +52,15 @@ def build_router(
         if embedder is not None
         else (build_embedder_from_settings(settings) if settings is not None else None)
     )
+    resolved_gateway = (
+        ai_gateway
+        if ai_gateway is not None
+        else (build_ai_gateway_from_settings(settings) if settings is not None else None)
+    )
     service = ConceptKnowledgeService(
-        SqlConceptExtractionRepository, embedder=resolved_embedder
+        SqlConceptExtractionRepository,
+        embedder=resolved_embedder,
+        ai_gateway=resolved_gateway,
     )
     router = APIRouter(tags=["knowledge"])
 
@@ -291,6 +302,24 @@ def build_router(
         ] = None,
     ) -> KnowledgeRetrievalResult:
         return service.retrieve_knowledge(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/knowledge/qa",
+        response_model=KnowledgeQAResult,
+    )
+    def answer_knowledge_question(
+        tenant_id: UUID,
+        body: KnowledgeQARequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> KnowledgeQAResult:
+        return service.answer_question(
             access,  # type: ignore[arg-type]
             _token(creds),
             tenant_id,

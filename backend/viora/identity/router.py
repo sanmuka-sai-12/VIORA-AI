@@ -502,7 +502,6 @@ def build_auth_router(
     async def accept_invite(request: Request) -> Response:
         _verify_origin(request, config)
         _verify_csrf(request)
-        _enforce_rate_limit(db, config, request, "accept_invite")
         payload = await _read_bounded_json(request, required=True)
         try:
             body = AcceptInviteRequest.model_validate(payload)
@@ -512,6 +511,16 @@ def build_auth_router(
             ) from None
 
         service = _require_service(auth_service)
+        assert config.auth is not None
+        limited = await _enforce_rate_limit(
+            request,
+            limiter,
+            "accept_invite",
+            config.auth.login_rate_limit,
+            config.auth.login_rate_window_seconds,
+        )
+        if limited is not None:
+            return limited
         try:
             await run_in_threadpool(
                 service.accept_invite, body.token, body.new_password

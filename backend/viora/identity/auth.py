@@ -379,7 +379,6 @@ class AuthService:
             user = self._lock_user(db, invite.user_id)
             if user is None or user.status == AccountStatus.disabled:
                 raise AuthFailure()
-            user.status = AccountStatus.active
             credential = db.get(PasswordCredential, user.user_id)
             if credential is None:
                 db.add(

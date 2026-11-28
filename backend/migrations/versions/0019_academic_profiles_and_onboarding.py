@@ -45,12 +45,7 @@ def upgrade() -> None:
 
     op.create_table(
         "student_profiles",
-        sa.Column(
-            "tenant_id",
-            sa.Uuid(),
-            sa.ForeignKey("institutions.tenant_id", ondelete="RESTRICT"),
-            primary_key=True,
-        ),
+        sa.Column("tenant_id", sa.Uuid(), primary_key=True),
         sa.Column("user_id", sa.Uuid(), primary_key=True),
         sa.Column("roll_number", sa.Text(), nullable=True),
         sa.Column("department_id", sa.Uuid(), nullable=True),
@@ -121,12 +116,7 @@ def upgrade() -> None:
 
     op.create_table(
         "faculty_profiles",
-        sa.Column(
-            "tenant_id",
-            sa.Uuid(),
-            sa.ForeignKey("institutions.tenant_id", ondelete="RESTRICT"),
-            primary_key=True,
-        ),
+        sa.Column("tenant_id", sa.Uuid(), primary_key=True),
         sa.Column("user_id", sa.Uuid(), primary_key=True),
         sa.Column("employee_code", sa.Text(), nullable=True),
         sa.Column("department_id", sa.Uuid(), nullable=True),

@@ -500,7 +500,7 @@ class SqlMembershipRepository:
                 membership_status = MembershipStatus.active
             else:
                 encoded_password = None
-                user_status = AccountStatus.pending
+                user_status = AccountStatus.active
                 membership_status = MembershipStatus.invited
 
             self.session.add(

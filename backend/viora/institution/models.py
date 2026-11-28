@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Text,
     false,
     func,
     text,
@@ -294,14 +295,14 @@ class StudentProfile(MemberAssignment, Base):
         ),
     )
 
-    roll_number: Mapped[str | None]
+    roll_number: Mapped[str | None] = mapped_column(Text)
     department_id: Mapped[UUID | None]
     section_id: Mapped[UUID | None]
     academic_year_id: Mapped[UUID | None]
     semester_id: Mapped[UUID | None]
-    phone: Mapped[str | None]
-    contact_email: Mapped[str | None]
-    guardian_contact: Mapped[str | None]
+    phone: Mapped[str | None] = mapped_column(Text)
+    contact_email: Mapped[str | None] = mapped_column(Text)
+    guardian_contact: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -326,12 +327,12 @@ class FacultyProfile(MemberAssignment, Base):
         ),
     )
 
-    employee_code: Mapped[str | None]
+    employee_code: Mapped[str | None] = mapped_column(Text)
     department_id: Mapped[UUID | None]
-    designation: Mapped[str | None]
-    phone: Mapped[str | None]
-    contact_email: Mapped[str | None]
-    office_location: Mapped[str | None]
+    designation: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(Text)
+    contact_email: Mapped[str | None] = mapped_column(Text)
+    office_location: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -10,7 +10,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from ..security import AccessError
-from .mind_map import _clean_text, _extract_json_text
+from .mind_map import _clean_text, loads_llm_json
 from .schemas import (
     FlashcardDeck,
     FlashcardItem,
@@ -23,34 +23,50 @@ from .schemas import (
     StudentSafeQuizQuestion,
 )
 
-FLASHCARDS_SYSTEM_PROMPT = (
-    "You are VIORA, an academic tutor generating concise study flashcards as raw JSON.\n"
-    "Return ONLY valid JSON (no markdown fences, no commentary) matching this exact shape:\n"
-    '{"title":"Topic","cards":[{"front":"Concise question or term","back":"Clear 1-2 sentence answer","hint":"Optional short memory cue or null"}]}\n'
-    "RULES:\n"
-    "- Produce 5 or 6 cards so the entire JSON fits comfortably within 380 tokens.\n"
-    "- Keep front <= 100 chars, back <= 180 chars, hint <= 70 chars (or null).\n"
-    "- Use clean LaTeX `$...$` when mathematical notation helps; NO executable code unless topic is programming.\n"
-    "- Ground cards in the provided topic, conversation, and uploaded study material excerpts."
-)
+
+def compute_study_item_counts(context_chars: int) -> tuple[int, int]:
+    """Choose token-aware (flashcard_count, quiz_question_count) for compact 480-token output."""
+    if context_chars >= 1_800:
+        return (4, 3)
+    return (5, 4)
 
 
-def build_practice_quiz_system_prompt(difficulty: QuizDifficulty) -> str:
+def build_flashcards_system_prompt(card_count: int = 5) -> str:
+    return (
+        "You are VIORA, an academic tutor generating concise study flashcards as compact JSON.\n"
+        "Return ONLY valid JSON (no markdown fences, no commentary) matching this exact shape:\n"
+        '{"title":"Topic","cards":[{"front":"Concise question or term","back":"Clear 1-sentence answer","hint":"Short cue or null"}]}\n'
+        "RULES:\n"
+        f"- Produce {card_count} cards so the entire JSON fits comfortably within 360 tokens.\n"
+        "- Keep front <= 90 chars, back <= 140 chars, hint <= 60 chars (or null).\n"
+        "- Prefer clean Unicode math (μ, σ, →, ∞, Σ) or double-escaped LaTeX (\\\\frac, \\\\mu) in JSON strings.\n"
+        "- NO executable code unless the topic is programming. Ground cards in the provided study context."
+    )
+
+
+FLASHCARDS_SYSTEM_PROMPT = build_flashcards_system_prompt(5)
+
+
+def build_practice_quiz_system_prompt(
+    difficulty: QuizDifficulty,
+    *,
+    question_count: int = 4,
+) -> str:
     level_guidance = {
         "easy": "Focus on foundational definitions, direct recall, and straightforward single-step checks.",
         "medium": "Focus on conceptual understanding, relationships, and short applied problems.",
         "hard": "Focus on multi-step reasoning, subtle distinctions, edge cases, and synthesis.",
     }[difficulty]
     return (
-        f"You are VIORA, an academic tutor creating a {difficulty}-level multiple-choice practice quiz as raw JSON.\n"
+        f"You are VIORA, an academic tutor creating a {difficulty}-level multiple-choice practice quiz as compact JSON.\n"
         "Return ONLY valid JSON (no markdown fences, no commentary) matching this exact shape:\n"
-        '{"title":"Topic Quiz","questions":[{"prompt":"Question text?","options":["Option A","Option B","Option C","Option D"],"correct_index":0,"explanation":"Brief 1-sentence reason why this option is right."}]}\n'
+        '{"title":"Topic Quiz","questions":[{"prompt":"Question text?","options":["Option A","Option B","Option C","Option D"],"correct_index":0,"explanation":"Brief 1-sentence reason."}]}\n'
         "RULES:\n"
         f"- Difficulty: {difficulty}. {level_guidance}\n"
-        "- Produce 4 questions, each with EXACTLY 4 distinct options and integer correct_index (0, 1, 2, or 3).\n"
-        "- Keep prompt <= 130 chars, each option <= 60 chars, explanation <= 150 chars so JSON fits within 430 tokens.\n"
-        "- Use clean LaTeX `$...$` where helpful; NO executable code unless topic is programming.\n"
-        "- Ground questions in the provided topic, conversation, and uploaded study material excerpts."
+        f"- Produce {question_count} questions, each with EXACTLY 4 distinct options and integer correct_index (0, 1, 2, or 3).\n"
+        "- Keep prompt <= 120 chars, each option <= 55 chars, explanation <= 110 chars so JSON fits within 400 tokens.\n"
+        "- Prefer clean Unicode math (μ, σ, →, ∞, Σ) or double-escaped LaTeX (\\\\frac, \\\\mu) in JSON strings.\n"
+        "- NO executable code unless the topic is programming. Ground questions in the provided study context."
     )
 
 
@@ -66,16 +82,8 @@ def parse_flashcards_response(
             "Flashcards output reached the response length limit before finishing. Try narrowing the focus topic or clicking Regenerate.",
         )
 
-    json_text = _extract_json_text(raw_content)
-    if not json_text:
-        raise AccessError(
-            422,
-            "flashcards_incomplete",
-            "Flashcards output was empty or malformed. Try narrowing the focus topic or clicking Regenerate.",
-        )
-
     try:
-        parsed_obj = json.loads(json_text)
+        parsed_obj = loads_llm_json(raw_content)
         raw_payload = RawFlashcardsPayload.model_validate(parsed_obj)
     except (json.JSONDecodeError, ValidationError):
         raise AccessError(
@@ -132,16 +140,8 @@ def parse_practice_quiz_response(
             "Practice quiz output reached the response length limit before finishing. Try narrowing the focus topic or clicking Regenerate.",
         )
 
-    json_text = _extract_json_text(raw_content)
-    if not json_text:
-        raise AccessError(
-            422,
-            "quiz_incomplete",
-            "Practice quiz output was empty or malformed. Try narrowing the focus topic or clicking Regenerate.",
-        )
-
     try:
-        parsed_obj = json.loads(json_text)
+        parsed_obj = loads_llm_json(raw_content)
         raw_payload = RawPracticeQuizPayload.model_validate(parsed_obj)
     except (json.JSONDecodeError, ValidationError):
         raise AccessError(

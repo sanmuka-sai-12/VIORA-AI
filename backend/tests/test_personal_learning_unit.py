@@ -534,3 +534,117 @@ def test_flashcards_and_practice_quiz_parsing_rejection_and_answer_key_isolation
         parse_practice_quiz_response("not valid json", difficulty="easy")
     assert bad_quiz_exc.value.status == 422
     assert bad_quiz_exc.value.code == "quiz_incomplete"
+
+
+def test_slln_offline_regression_latex_json_repair_and_token_aware_counts() -> None:
+    import pytest
+    from viora.knowledge.personal_learning import build_study_resource_messages
+    from viora.knowledge.schemas import PersonalLearningResourceGenerateRequest
+
+    slln_ocr_excerpt = (
+        "Chapter 4: Sampling Distributions and Limits\n"
+        "4.3.1 The Strong Law of Large Numbers\n"
+        "The following is a strengthening of the weak law of large numbers because it concludes "
+        "convergence with probability 1 instead of just convergence in probability.\n"
+        "Theorem 4.3.2 (Strong law of large numbers) Let X1, X2, ... be a sequence of i.i.d. "
+        "random variables, each having finite mean μ. Then P(lim_{n→∞} Mn = μ) = 1. "
+        "Summary of Section 4.3: A sequence {Xn} converges with probability 1 (almost surely) to Y "
+        "if P(lim_{n→∞} Xn = Y) = 1. Convergence with probability 1 implies convergence in probability. "
+        "The strong law of large numbers says that if {Xi} is i.i.d., then the averages "
+        "Mn = (X1 + ... + Xn)/n converge with probability 1 to E(Xi).\n"
+        "EXERCISES\n"
+        "4.3.1 Let U ~ Uniform[5, 10], and let Z = I_[5,7)(U) and Zn = I_[5,7+1/n^2)(U). Prove Zn -> Z a.s.\n"
+        "4.3.2 Let Y ~ Uniform[0, 1], and let Xn = Y^n. Prove Xn -> 0 with probability 1.\n"
+        "4.3.3 Let W1, W2, ... be i.i.d. Exponential(3). Prove with probability 1, for some n, W1+...+Wn < n/2.\n"
+        "4.3.4 Let Y1, Y2, ... be i.i.d. N(2, 5). Prove with probability 1, for some n, Y1+...+Yn > n.\n"
+        "4.3.5 Suppose Xn -> X w.p. 1 and Yn -> Y w.p. 1. Prove P(Xn -> X and Yn -> Y) = 1.\n"
+        "4.3.6 Suppose Z1, Z2, ... are i.i.d. with finite mean μ. Let Mn = (Z1 + ... + Zn)/n.\n"
+    )
+    assert len(slln_ocr_excerpt) > 1200
+    padded_context = slln_ocr_excerpt + "\n" + slln_ocr_excerpt[:700]
+
+    fc_messages = build_study_resource_messages(
+        PersonalLearningResourceGenerateRequest(
+            tool_kind="flashcards",
+            topic="Strong Law of Large Numbers",
+            include_conversation=False,
+        ),
+        attachment_context=padded_context,
+    )
+    assert "Produce 4 cards" in fc_messages[0].content
+
+    quiz_messages = build_study_resource_messages(
+        PersonalLearningResourceGenerateRequest(
+            tool_kind="practice_quiz",
+            topic="Strong Law of Large Numbers",
+            difficulty="medium",
+            include_conversation=False,
+        ),
+        attachment_context=padded_context,
+    )
+    assert "Produce 3 questions" in quiz_messages[0].content
+
+    # Simulate Llama-3.1-8B output with unescaped LaTeX (\frac, \bar, \to, \lim, \infty, \mu, \Pr, \text)
+    # and trailing commas that previously triggered JSONDecodeError -> 422.
+    raw_latex_cards = """```json
+{
+  "title": "Strong Law of Large Numbers",
+  "cards": [
+    {
+      "front": "State the Strong Law of Large Numbers ($M_n$).",
+      "back": "For i.i.d. $X_i$ with finite mean $\\mu$, $\\Pr(\\lim_{n \\to \\infty} \\bar{X}_n = \\mu) = 1$ where $\\bar{X}_n = \\frac{1}{n}\\sum_{i=1}^n X_i$.",
+      "hint": "Almost sure convergence to $\\mu$",
+    },
+    {
+      "front": "How does SLLN differ from WLLN?",
+      "back": "SLLN gives convergence with probability $1$ ($\\text{a.s.}$), which is stronger than convergence in probability.",
+      "hint": null,
+    },
+  ],
+}
+```""".replace("\\\\", "\\")
+    deck = parse_flashcards_response(raw_latex_cards)
+    assert deck.title == "Strong Law of Large Numbers"
+    assert len(deck.cards) == 2
+    assert "\\frac{1}{n}" in deck.cards[0].back
+    assert "\\text{a.s.}" in deck.cards[1].back
+
+    raw_latex_quiz = """{
+  "title": "SLLN Practice Quiz",
+  "questions": [
+    {
+      "prompt": "If $W_i \\sim \\text{Exp}(3)$ i.i.d., what does $M_n = \\frac{1}{n}\\sum W_i$ converge to a.s.?",
+      "options": ["$\\frac{1}{3}$", "$3$", "$0$", "$\\infty$"],
+      "correct_index": 0,
+      "explanation": "Since $\\mu = E[W_i] = \\frac{1}{3}$, SLLN gives $M_n \\to \\frac{1}{3}$ w.p. 1.",
+    },
+    {
+      "prompt": "Which implication holds for random variables?",
+      "options": ["a.s. $\\to$ in prob.", "in prob. $\\to$ a.s.", "mean $\\to$ a.s.", "none"],
+      "correct_index": 0,
+      "explanation": "Convergence with probability 1 always implies convergence in probability.",
+    }
+  ]
+}""".replace("\\\\", "\\")
+    raw_quiz = parse_practice_quiz_response(raw_latex_quiz, difficulty="medium")
+    safe_quiz = project_student_safe_quiz(raw_quiz)
+    assert len(safe_quiz.questions) == 2
+    assert "\\frac{1}{3}" in safe_quiz.questions[0].options[0]
+    assert not hasattr(safe_quiz.questions[0], "correct_index")
+    attempt, _ = score_practice_quiz(raw_quiz, {"q1": 0, "q2": 1})
+    assert attempt.score == 1
+    assert "\\frac{1}{3}" in attempt.results[0].explanation
+
+    # Truncated JSON or invalid structure MUST still fail strictly with 422.
+    with pytest.raises(AccessError) as truncated_exc:
+        parse_flashcards_response('{"title":"SLLN","cards":[{"front":"Q1","back":"A1"}')
+    assert truncated_exc.value.status == 422
+    assert truncated_exc.value.code == "flashcards_incomplete"
+
+    with pytest.raises(AccessError) as bad_idx_exc:
+        parse_practice_quiz_response(
+            '{"title":"SLLN","questions":[{"prompt":"Q1","options":["A","B","C","D"],"correct_index":4,"explanation":"E1"},{"prompt":"Q2","options":["A","B","C","D"],"correct_index":0,"explanation":"E2"}]}',
+            difficulty="easy",
+        )
+    assert bad_idx_exc.value.status == 422
+    assert bad_idx_exc.value.code == "quiz_incomplete"

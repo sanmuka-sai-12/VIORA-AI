@@ -162,6 +162,112 @@ def _extract_json_text(raw_content: str) -> str:
     return text
 
 
+def _repair_llm_json(text: str) -> str:
+    """Repair common LLM JSON mistakes (unescaped LaTeX backslashes, trailing commas)
+    while strictly rejecting unbalanced/truncated JSON."""
+    out: list[str] = []
+    in_string = False
+    brace_depth = 0
+    bracket_depth = 0
+    i = 0
+    n = len(text)
+    hex_digits = "0123456789abcdefABCDEF"
+
+    while i < n:
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                if i + 1 >= n:
+                    raise json.JSONDecodeError("Dangling backslash in JSON string", text, i)
+                nxt = text[i + 1]
+                if nxt in ('"', "\\", "/", "n"):
+                    out.append("\\" + nxt)
+                    i += 2
+                elif (
+                    nxt == "u"
+                    and i + 5 < n
+                    and all(c in hex_digits for c in text[i + 2 : i + 6])
+                ):
+                    out.append(text[i : i + 6])
+                    i += 6
+                elif nxt in ("f", "b", "r", "t"):
+                    if i + 2 < n and text[i + 2].isalpha():
+                        # Likely a LaTeX macro such as \frac, \bar, \rho, \text, \to
+                        out.append("\\\\" + nxt)
+                    else:
+                        out.append("\\" + nxt)
+                    i += 2
+                else:
+                    # Invalid JSON escape such as \sum, \mu, \lim, \infty, \Pr, \{
+                    out.append("\\\\" + nxt)
+                    i += 2
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+                i += 1
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                i += 1
+                continue
+            if ch == "\r":
+                i += 1
+                continue
+            out.append(ch)
+            i += 1
+            continue
+
+        # Outside string literal
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+        elif ch == "{":
+            brace_depth += 1
+            out.append(ch)
+        elif ch == "}":
+            brace_depth -= 1
+            if brace_depth < 0:
+                raise json.JSONDecodeError("Unbalanced closing brace", text, i)
+            out.append(ch)
+        elif ch == "[":
+            bracket_depth += 1
+            out.append(ch)
+        elif ch == "]":
+            bracket_depth -= 1
+            if bracket_depth < 0:
+                raise json.JSONDecodeError("Unbalanced closing bracket", text, i)
+            out.append(ch)
+        elif ch == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in ("}", "]"):
+                # Drop trailing comma before closing delimiter
+                i += 1
+                continue
+            out.append(ch)
+        else:
+            out.append(ch)
+        i += 1
+
+    if in_string or brace_depth != 0 or bracket_depth != 0:
+        raise json.JSONDecodeError("Truncated or unbalanced JSON", text, n)
+    return "".join(out)
+
+
+def loads_llm_json(raw_content: str) -> object:
+    """Extract and parse JSON from an LLM response, repairing unescaped LaTeX and trailing commas."""
+    json_text = _extract_json_text(raw_content)
+    if not json_text:
+        raise json.JSONDecodeError("Empty JSON payload", raw_content, 0)
+    try:
+        return json.loads(json_text)
+    except json.JSONDecodeError:
+        repaired = _repair_llm_json(json_text)
+        return json.loads(repaired)
+
+
 def parse_mind_map_response(
     raw_content: str,
     *,
@@ -175,16 +281,8 @@ def parse_mind_map_response(
             "The mind map output reached the response length limit before finishing. Try narrowing the focus topic or clicking Regenerate.",
         )
 
-    json_text = _extract_json_text(raw_content)
-    if not json_text:
-        raise AccessError(
-            422,
-            "mind_map_incomplete",
-            "The mind map output was empty or malformed. Try narrowing the focus topic or clicking Regenerate.",
-        )
-
     try:
-        parsed_obj = json.loads(json_text)
+        parsed_obj = loads_llm_json(raw_content)
         raw_payload = RawMindMapPayload.model_validate(parsed_obj)
     except (json.JSONDecodeError, ValidationError):
         raise AccessError(

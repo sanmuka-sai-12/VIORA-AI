@@ -55,8 +55,9 @@ from .schemas import (
     PersonalLearningSourceRef,
 )
 from .study_tools import (
-    FLASHCARDS_SYSTEM_PROMPT,
+    build_flashcards_system_prompt,
     build_practice_quiz_system_prompt,
+    compute_study_item_counts,
     flashcards_to_markdown,
     parse_flashcards_response,
     parse_practice_quiz_response,
@@ -715,21 +716,6 @@ def build_study_resource_messages(
     attachment_context: str = "",
 ) -> list[ChatMessage]:
     """Build bounded chat messages for explicit Study Notes or Academic Insights generation."""
-    if req.tool_kind == "study_notes":
-        sys_prompt = _STUDY_NOTES_SYSTEM_PROMPT
-        action_line = "Generate concise, exam-ready Study Notes covering key concepts, definitions, formulas, important points, and an exam summary."
-    elif req.tool_kind == "academic_insights":
-        sys_prompt = _ACADEMIC_INSIGHTS_SYSTEM_PROMPT
-        action_line = "Generate concise, high-yield Academic Insights covering core connections, key definitions, formulas, common pitfalls, and exam takeaways."
-    elif req.tool_kind == "mind_map":
-        sys_prompt = MIND_MAP_SYSTEM_PROMPT
-        action_line = "Generate a structured hierarchical concept mind map in JSON with clear parent-child relationships and concise node explanations."
-    elif req.tool_kind == "flashcards":
-        sys_prompt = FLASHCARDS_SYSTEM_PROMPT
-        action_line = "Generate 5 or 6 concise, high-yield study flashcards as raw JSON."
-    else:
-        sys_prompt = build_practice_quiz_system_prompt(req.difficulty)
-        action_line = f"Generate a 4-question {req.difficulty}-difficulty practice quiz as raw JSON."
     clean_topic, _ = sanitize_untrusted_text((req.topic or "").strip())
     kept_turns: list[str] = []
     if req.include_conversation and req.history:
@@ -753,6 +739,25 @@ def build_study_resource_messages(
             "empty_study_context",
             "Provide a topic, have a conversation, or attach study materials before generating Study Notes or Academic Insights.",
         )
+
+    context_chars = len(clean_topic) + sum(len(t) for t in kept_turns) + len(attachment_context)
+    card_count, quiz_count = compute_study_item_counts(context_chars)
+
+    if req.tool_kind == "study_notes":
+        sys_prompt = _STUDY_NOTES_SYSTEM_PROMPT
+        action_line = "Generate concise, exam-ready Study Notes covering key concepts, definitions, formulas, important points, and an exam summary."
+    elif req.tool_kind == "academic_insights":
+        sys_prompt = _ACADEMIC_INSIGHTS_SYSTEM_PROMPT
+        action_line = "Generate concise, high-yield Academic Insights covering core connections, key definitions, formulas, common pitfalls, and exam takeaways."
+    elif req.tool_kind == "mind_map":
+        sys_prompt = MIND_MAP_SYSTEM_PROMPT
+        action_line = "Generate a structured hierarchical concept mind map in JSON with clear parent-child relationships and concise node explanations."
+    elif req.tool_kind == "flashcards":
+        sys_prompt = build_flashcards_system_prompt(card_count)
+        action_line = f"Generate {card_count} concise, high-yield study flashcards as compact JSON."
+    else:
+        sys_prompt = build_practice_quiz_system_prompt(req.difficulty, question_count=quiz_count)
+        action_line = f"Generate a {quiz_count}-question {req.difficulty}-difficulty practice quiz as compact JSON."
 
     parts: list[str] = []
     if clean_topic:

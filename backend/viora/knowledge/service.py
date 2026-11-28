@@ -64,6 +64,10 @@ from .schemas import (
     PersonalLearningSessionSummary,
     PersonalLearningSessionUpdateRequest,
     PersonalLearningStudyResource,
+    PracticeExamActiveAttempt,
+    PracticeExamAttemptRecord,
+    PracticeExamProgressUpdateRequest,
+    PracticeExamSubmitRequest,
     PracticeQuizAttemptRecord,
     PracticeQuizSubmitRequest,
     PublishedLessonBlueprint,
@@ -1230,6 +1234,77 @@ class ConceptKnowledgeService:
             return SqlPersonalLearningRepository(
                 scope.session
             ).submit_practice_quiz(scope.context, resource_id, req.answers)
+
+    def start_personal_learning_exam(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        resource_id: UUID,
+    ) -> PracticeExamActiveAttempt:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning exams require database persistence",
+                )
+            return SqlPersonalLearningRepository(
+                scope.session
+            ).start_practice_exam(scope.context, resource_id)
+
+    def save_personal_learning_exam_progress(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        resource_id: UUID,
+        req: PracticeExamProgressUpdateRequest,
+    ) -> PracticeExamActiveAttempt:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning exams require database persistence",
+                )
+            return SqlPersonalLearningRepository(
+                scope.session
+            ).save_practice_exam_progress(
+                scope.context,
+                resource_id,
+                attempt_id=req.attempt_id,
+                answers=req.answers,
+                marked_for_review=req.marked_for_review,
+            )
+
+    def submit_personal_learning_exam(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        resource_id: UUID,
+        req: PracticeExamSubmitRequest,
+    ) -> PracticeExamAttemptRecord:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning exams require database persistence",
+                )
+            return SqlPersonalLearningRepository(
+                scope.session
+            ).submit_practice_exam(
+                scope.context,
+                resource_id,
+                attempt_id=req.attempt_id,
+                answers=req.answers,
+                auto_submitted=req.auto_submitted,
+            )
 
     def trigger_lesson_blueprint(
         self,

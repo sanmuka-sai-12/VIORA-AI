@@ -49,6 +49,10 @@ from .schemas import (
     PersonalLearningSessionSummary,
     PersonalLearningSessionUpdateRequest,
     PersonalLearningStudyResource,
+    PracticeExamActiveAttempt,
+    PracticeExamAttemptRecord,
+    PracticeExamProgressUpdateRequest,
+    PracticeExamSubmitRequest,
     PracticeQuizAttemptRecord,
     PracticeQuizSubmitRequest,
     PublishedLessonBlueprint,
@@ -678,6 +682,67 @@ def build_router(
         ] = None,
     ) -> PracticeQuizAttemptRecord:
         return service.submit_personal_learning_quiz(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            resource_id,
+            body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/resources/{resource_id}/exam/start",
+        response_model=PracticeExamActiveAttempt,
+        operation_id="startPersonalLearningExam",
+    )
+    def start_personal_learning_exam(
+        tenant_id: UUID,
+        resource_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PracticeExamActiveAttempt:
+        return service.start_personal_learning_exam(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            resource_id,
+        )
+
+    @router.patch(
+        "/tenants/{tenant_id}/learning/resources/{resource_id}/exam/progress",
+        response_model=PracticeExamActiveAttempt,
+        operation_id="savePersonalLearningExamProgress",
+    )
+    def save_personal_learning_exam_progress(
+        tenant_id: UUID,
+        resource_id: UUID,
+        body: PracticeExamProgressUpdateRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PracticeExamActiveAttempt:
+        return service.save_personal_learning_exam_progress(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            resource_id,
+            body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/resources/{resource_id}/exam/submit",
+        response_model=PracticeExamAttemptRecord,
+        operation_id="submitPersonalLearningExam",
+    )
+    def submit_personal_learning_exam(
+        tenant_id: UUID,
+        resource_id: UUID,
+        body: PracticeExamSubmitRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PracticeExamAttemptRecord:
+        return service.submit_personal_learning_exam(
             access,  # type: ignore[arg-type]
             _token(creds),
             tenant_id,

@@ -84,6 +84,9 @@ export type FlashcardItem = ApiSchema<"FlashcardItem">;
 export type FlashcardStatus = FlashcardItem["status"];
 export type PracticeQuizData = ApiSchema<"PracticeQuizData">;
 export type PracticeQuizAttemptRecord = ApiSchema<"PracticeQuizAttemptRecord">;
+export type PracticeExamData = ApiSchema<"PracticeExamData">;
+export type PracticeExamActiveAttempt = ApiSchema<"PracticeExamActiveAttempt">;
+export type PracticeExamAttemptRecord = ApiSchema<"PracticeExamAttemptRecord">;
 export type QuizDifficulty = PracticeQuizData["difficulty"];
 export type PersonalLearningResourceGenerateRequest =
   ApiSchema<"PersonalLearningResourceGenerateRequest">;

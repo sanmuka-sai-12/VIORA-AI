@@ -1197,6 +1197,7 @@ LearningToolKind = Literal[
     "mind_map",
     "flashcards",
     "practice_quiz",
+    "practice_exam",
 ]
 QuizDifficulty = Literal["easy", "medium", "hard"]
 FlashcardStatus = Literal["unseen", "known", "unknown"]
@@ -1366,6 +1367,7 @@ class RawPracticeQuizQuestion(BaseModel):
     options: list[str] = Field(min_length=4, max_length=4)
     correct_index: int = Field(ge=0, le=3)
     explanation: str = Field(min_length=1, max_length=400)
+    topic: str | None = Field(default=None, max_length=80)
 
 
 class RawPracticeQuizPayload(BaseModel):
@@ -1413,6 +1415,78 @@ class PracticeQuizSubmitRequest(Contract):
     answers: dict[str, int] = Field(min_length=1, max_length=12)
 
 
+class PracticeExamQuestion(Contract):
+    """Student-facing exam question with server-held answer keys stripped."""
+
+    question_id: str
+    prompt: str
+    options: tuple[str, ...]
+    topic_tag: str
+
+
+class PracticeExamActiveAttempt(Contract):
+    attempt_id: UUID
+    started_at: datetime
+    expires_at: datetime
+    server_now: datetime
+    remaining_seconds: int = Field(ge=0)
+    answers: dict[str, int] = Field(default_factory=dict)
+    marked_for_review: tuple[str, ...] = ()
+
+
+class PracticeExamTopicPerformance(Contract):
+    topic: str
+    correct: int = Field(ge=0)
+    total: int = Field(ge=1)
+    percentage: int = Field(ge=0, le=100)
+
+
+class PracticeExamQuestionResult(Contract):
+    question_id: str
+    topic_tag: str
+    prompt: str
+    options: tuple[str, ...]
+    selected_index: int | None = Field(default=None, ge=0, le=3)
+    correct_index: int = Field(ge=0, le=3)
+    is_correct: bool
+    explanation: str
+
+
+class PracticeExamAttemptRecord(Contract):
+    attempt_id: UUID
+    score: int = Field(ge=0)
+    total_questions: int = Field(ge=1)
+    percentage: int = Field(ge=0, le=100)
+    started_at: datetime
+    submitted_at: datetime
+    duration_seconds: int = Field(ge=0)
+    timed_out: bool = False
+    topic_breakdown: tuple[PracticeExamTopicPerformance, ...] = ()
+    results: tuple[PracticeExamQuestionResult, ...]
+
+
+class PracticeExamData(Contract):
+    title: str
+    difficulty: QuizDifficulty
+    question_count: int = Field(ge=5, le=20)
+    duration_minutes: int = Field(ge=5, le=60)
+    questions: tuple[PracticeExamQuestion, ...]
+    active_attempt: PracticeExamActiveAttempt | None = None
+    attempts: tuple[PracticeExamAttemptRecord, ...] = ()
+
+
+class PracticeExamProgressUpdateRequest(Contract):
+    attempt_id: UUID
+    answers: dict[str, int] = Field(default_factory=dict, max_length=25)
+    marked_for_review: tuple[str, ...] = Field(default=(), max_length=25)
+
+
+class PracticeExamSubmitRequest(Contract):
+    attempt_id: UUID
+    answers: dict[str, int] = Field(default_factory=dict, max_length=25)
+    auto_submitted: bool = False
+
+
 class PersonalLearningStudyResource(Contract):
     resource_id: UUID
     session_id: UUID
@@ -1425,6 +1499,7 @@ class PersonalLearningStudyResource(Contract):
     mind_map: MindMapGraph | None = None
     flashcards: FlashcardDeck | None = None
     practice_quiz: PracticeQuizData | None = None
+    practice_exam: PracticeExamData | None = None
     sources: tuple[PersonalLearningSourceRef, ...] = ()
     model: str
     provider: str
@@ -1439,6 +1514,8 @@ class PersonalLearningResourceGenerateRequest(Contract):
     session_id: UUID | None = None
     topic: str | None = Field(default=None, max_length=500)
     difficulty: QuizDifficulty = "medium"
+    exam_question_count: int = Field(default=10, ge=5, le=20)
+    exam_duration_minutes: int = Field(default=15, ge=5, le=60)
     include_conversation: bool = True
     history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
     attachments: tuple[PersonalLearningAttachmentRef, ...] = Field(

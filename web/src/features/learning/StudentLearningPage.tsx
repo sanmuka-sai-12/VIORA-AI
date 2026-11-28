@@ -16,6 +16,8 @@ import type {
   PersonalLearningSessionSummary,
   PersonalLearningStudyResource,
   PersonalLearningTurn,
+  PracticeExamActiveAttempt,
+  PracticeExamAttemptRecord,
   PracticeQuizAttemptRecord,
   QuizDifficulty,
 } from "../../api/client";
@@ -23,6 +25,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { RichAcademicContent } from "../../components/common/RichAcademicContent";
 import { FlashcardDeckViewer } from "../../components/learning/FlashcardDeckViewer";
 import { MindMapViewer } from "../../components/learning/MindMapViewer";
+import { PracticeExamViewer } from "../../components/learning/PracticeExamViewer";
 import { PracticeQuizViewer } from "../../components/learning/PracticeQuizViewer";
 import {
   AlertBanner,
@@ -160,6 +163,8 @@ export function StudentLearningPage() {
   );
   const [toolTopic, setToolTopic] = useState("");
   const [quizDifficulty, setQuizDifficulty] = useState<QuizDifficulty>("medium");
+  const [examQuestionCount, setExamQuestionCount] = useState<number>(6);
+  const [examDurationMinutes, setExamDurationMinutes] = useState<number>(15);
   const [copiedResourceId, setCopiedResourceId] = useState<string | null>(null);
   const [uploadingLabel, setUploadingLabel] = useState<string | null>(null);
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
@@ -567,6 +572,8 @@ export function StudentLearningPage() {
             session_id: sessionId,
             topic: focusTopic || null,
             difficulty: quizDifficulty,
+            exam_question_count: examQuestionCount,
+            exam_duration_minutes: examDurationMinutes,
             include_conversation: messages.length > 0,
             history: buildHistory(messages),
             attachments: activeAttachmentRefs,
@@ -583,7 +590,9 @@ export function StudentLearningPage() {
               ? "Could not generate a complete Mind Map right now. Try narrowing the focus topic."
               : toolKind === "flashcards"
                 ? "Could not generate Flashcards right now. Try narrowing the focus topic."
-                : "Could not generate Practice Quiz right now. Try narrowing the focus topic.",
+                : toolKind === "practice_exam"
+                  ? "Could not generate the complete Practice Exam right now. Try fewer questions or a narrower topic."
+                  : "Could not generate Practice Quiz right now. Try narrowing the focus topic.",
       onSuccess: (created) => {
         setSessionId(created.session_id);
         if (created.session_title) {
@@ -650,6 +659,107 @@ export function StudentLearningPage() {
               practice_quiz: {
                 ...r.practice_quiz,
                 attempts: [attempt, ...r.practice_quiz.attempts],
+              },
+            };
+          }),
+        );
+      },
+    });
+    return attemptOut;
+  };
+
+  const handleStartExam = async (
+    resourceId: string,
+  ): Promise<PracticeExamActiveAttempt | null> => {
+    let activeOut: PracticeExamActiveAttempt | null = null;
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.POST(
+          "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/exam/start",
+          {
+            params: { path: { tenant_id: tenantId, resource_id: resourceId } },
+          },
+        ),
+      fallbackError: "Could not start timed practice exam.",
+      onSuccess: (active) => {
+        activeOut = active;
+        setResources((prev) =>
+          prev.map((r) => {
+            if (r.resource_id !== resourceId || !r.practice_exam) return r;
+            return {
+              ...r,
+              practice_exam: {
+                ...r.practice_exam,
+                active_attempt: active,
+              },
+            };
+          }),
+        );
+      },
+    });
+    return activeOut;
+  };
+
+  const handleSaveExamProgress = async (
+    resourceId: string,
+    attemptId: string,
+    answers: Record<string, number>,
+    markedForReview: string[],
+  ): Promise<PracticeExamActiveAttempt | null> => {
+    let activeOut: PracticeExamActiveAttempt | null = null;
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.PATCH(
+          "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/exam/progress",
+          {
+            params: { path: { tenant_id: tenantId, resource_id: resourceId } },
+            body: {
+              attempt_id: attemptId,
+              answers,
+              marked_for_review: markedForReview,
+            },
+          },
+        ),
+      fallbackError: "Could not autosave exam progress.",
+      onSuccess: (active) => {
+        activeOut = active;
+      },
+    });
+    return activeOut;
+  };
+
+  const handleSubmitExam = async (
+    resourceId: string,
+    attemptId: string,
+    answers: Record<string, number>,
+    autoSubmitted: boolean,
+  ): Promise<PracticeExamAttemptRecord | null> => {
+    let attemptOut: PracticeExamAttemptRecord | null = null;
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.POST(
+          "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/exam/submit",
+          {
+            params: { path: { tenant_id: tenantId, resource_id: resourceId } },
+            body: {
+              attempt_id: attemptId,
+              answers,
+              auto_submitted: autoSubmitted,
+            },
+          },
+        ),
+      fallbackError: "Could not score practice exam.",
+      onSuccess: (attempt) => {
+        attemptOut = attempt;
+        setResources((prev) =>
+          prev.map((r) => {
+            if (r.resource_id !== resourceId || !r.practice_exam) return r;
+            return {
+              ...r,
+              practice_exam: {
+                ...r.practice_exam,
+                active_attempt: null,
+                attempts: [attempt, ...r.practice_exam.attempts],
               },
             };
           }),
@@ -1104,6 +1214,56 @@ export function StudentLearningPage() {
             >
               {generatingTool === "practice_quiz" ? "Creating Quiz..." : "Practice Quiz"}
             </button>
+            <select
+              aria-label="Practice exam question count"
+              className="viora-select"
+              style={{ width: "auto", padding: "0.28rem 0.5rem", fontSize: "0.78rem" }}
+              value={examQuestionCount}
+              disabled={busy || Boolean(generatingTool) || Boolean(uploadingLabel)}
+              onChange={(e) => setExamQuestionCount(Number(e.target.value))}
+            >
+              <option value={5}>5 Qs</option>
+              <option value={6}>6 Qs</option>
+              <option value={8}>8 Qs</option>
+              <option value={10}>10 Qs</option>
+              <option value={12}>12 Qs</option>
+              <option value={15}>15 Qs</option>
+              <option value={20}>20 Qs</option>
+            </select>
+            <select
+              aria-label="Practice exam duration"
+              className="viora-select"
+              style={{ width: "auto", padding: "0.28rem 0.5rem", fontSize: "0.78rem" }}
+              value={examDurationMinutes}
+              disabled={busy || Boolean(generatingTool) || Boolean(uploadingLabel)}
+              onChange={(e) => setExamDurationMinutes(Number(e.target.value))}
+            >
+              <option value={5}>5 min</option>
+              <option value={10}>10 min</option>
+              <option value={15}>15 min</option>
+              <option value={20}>20 min</option>
+              <option value={30}>30 min</option>
+              <option value={45}>45 min</option>
+              <option value={60}>60 min</option>
+            </select>
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm viora-btn-primary"
+              disabled={
+                !canGenerateResource ||
+                busy ||
+                Boolean(generatingTool) ||
+                Boolean(uploadingLabel)
+              }
+              title={
+                canGenerateResource
+                  ? "Generate a timed Practice Exam with question navigation, mark for review, autosave, and topic-wise scoring"
+                  : "Enter a topic, ask a question, or attach material first"
+              }
+              onClick={() => void handleGenerateResource("practice_exam")}
+            >
+              {generatingTool === "practice_exam" ? "Building Exam..." : "Practice Exam"}
+            </button>
           </div>
         </div>
 
@@ -1122,7 +1282,9 @@ export function StudentLearningPage() {
                       ? "Building interactive concept Mind Map..."
                       : generatingTool === "flashcards"
                         ? "Creating interactive revision Flashcards..."
-                        : `Creating ${quizDifficulty} Practice Quiz...`}
+                        : generatingTool === "practice_exam"
+                          ? `Building ${examQuestionCount}-question ${quizDifficulty} Practice Exam (${examDurationMinutes} min)...`
+                          : `Creating ${quizDifficulty} Practice Quiz...`}
               </span>
             </div>
           </div>
@@ -1160,7 +1322,8 @@ export function StudentLearningPage() {
                           res.tool_kind === "study_notes" ||
                           res.tool_kind === "mind_map" ||
                           res.tool_kind === "flashcards" ||
-                          res.tool_kind === "practice_quiz"
+                          res.tool_kind === "practice_quiz" ||
+                          res.tool_kind === "practice_exam"
                             ? "brand"
                             : "neutral"
                         }
@@ -1173,7 +1336,9 @@ export function StudentLearningPage() {
                               ? "Mind Map"
                               : res.tool_kind === "flashcards"
                                 ? "Flashcards"
-                                : "Practice Quiz"}
+                                : res.tool_kind === "practice_exam"
+                                  ? "Practice Exam"
+                                  : "Practice Quiz"}
                       </StatusBadge>
                       <StatusBadge tone="neutral">
                         {formatResourceScope(res.source_scope)}
@@ -1246,6 +1411,28 @@ export function StudentLearningPage() {
                     busy={busy || Boolean(generatingTool)}
                     onSubmitAnswers={(answers) =>
                       handleSubmitQuiz(res.resource_id, answers)
+                    }
+                  />
+                ) : res.tool_kind === "practice_exam" && res.practice_exam ? (
+                  <PracticeExamViewer
+                    exam={res.practice_exam}
+                    busy={busy || Boolean(generatingTool)}
+                    onStartExam={() => handleStartExam(res.resource_id)}
+                    onSaveProgress={(attemptId, answers, markedForReview) =>
+                      handleSaveExamProgress(
+                        res.resource_id,
+                        attemptId,
+                        answers,
+                        markedForReview,
+                      )
+                    }
+                    onSubmitExam={(attemptId, answers, autoSubmitted) =>
+                      handleSubmitExam(
+                        res.resource_id,
+                        attemptId,
+                        answers,
+                        autoSubmitted,
+                      )
                     }
                   />
                 ) : (

@@ -648,3 +648,139 @@ def test_slln_offline_regression_latex_json_repair_and_token_aware_counts() -> N
         )
     assert bad_idx_exc.value.status == 422
     assert bad_idx_exc.value.code == "quiz_incomplete"
+
+
+def test_r34_practice_exam_batched_generation_dedup_coverage_and_timed_lifecycle() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    import pytest
+    from viora.knowledge.personal_learning import DirectAcademicLearning
+    from viora.knowledge.schemas import PersonalLearningResourceGenerateRequest
+    from viora.knowledge.study_tools import (
+        project_student_safe_exam,
+        save_practice_exam_progress,
+        score_practice_exam,
+        start_practice_exam_attempt,
+    )
+
+    batch_1 = '{"title":"Probability Exam","questions":[{"topic":"SLLN","prompt":"What does SLLN guarantee for i.i.d. means?","options":["Almost sure convergence","Convergence in mean only","Divergence","Constant variance"],"correct_index":0,"explanation":"SLLN gives convergence with probability 1."},{"topic":"SLLN","prompt":"Compute the limit of $M_n$ for $\\\\text{Exp}(3)$.","options":["$\\\\frac{1}{3}$","$3$","$0$","$1$"],"correct_index":0,"explanation":"Mean of Exp(3) is $1/3$."},{"topic":"Convergence","prompt":"Does a.s. convergence imply convergence in probability?","options":["Yes","No","Only for normal","Only for bounded"],"correct_index":0,"explanation":"Almost sure convergence always implies convergence in probability."}]}'.replace("\\\\", "\\")
+    # Batch 2 intentionally includes 1 duplicate of Q1 plus 2 new unique questions -> 5 unique total.
+    batch_2 = '{"title":"Probability Exam","questions":[{"topic":"SLLN","prompt":"What does SLLN guarantee for i.i.d. means?","options":["Almost sure convergence","Convergence in mean only","Divergence","Constant variance"],"correct_index":0,"explanation":"Duplicate stem should be skipped."},{"topic":"Normal","prompt":"For i.i.d. $N(2,5)$, what is the limit of $M_n$?","options":["$2$","$5$","$0$","$1$"],"correct_index":0,"explanation":"Sample mean converges to $\\\\mu = 2$."},{"topic":"Uniform","prompt":"For $U \\\\sim \\\\text{Uniform}[5,10]$, what is $E[U]$?","options":["$7.5$","$5$","$10$","$2.5$"],"correct_index":0,"explanation":"Midpoint of [5,10] is 7.5."}]}'.replace("\\\\", "\\")
+
+    class _BatchGateway(FakeAIGateway):
+        def __init__(self, items: list[CompletionResult]) -> None:
+            super().__init__()
+            self._items = list(items)
+
+        def complete(self, context, messages, *, config=None):  # type: ignore[override]
+            return self._items.pop(0)
+
+    gateway = _BatchGateway(
+        [
+            CompletionResult(
+                content=batch_1,
+                model="test-model",
+                usage=Usage(input_tokens=100, output_tokens=150, total_tokens=250),
+                finish_reason="stop",
+                metadata=GatewayMetadata(provider="cloudflare"),
+            ),
+            CompletionResult(
+                content=batch_2,
+                model="test-model",
+                usage=Usage(input_tokens=120, output_tokens=160, total_tokens=280),
+                finish_reason="stop",
+                metadata=GatewayMetadata(provider="cloudflare"),
+            ),
+        ]
+    )
+    learner = DirectAcademicLearning(gateway)
+    ctx = TenantContext(
+        tenant_id=uuid4(),
+        actor_id=uuid4(),
+        roles=frozenset({"student"}),
+    )
+    draft = learner.generate_study_resource(
+        context=ctx,
+        request=PersonalLearningResourceGenerateRequest(
+            tool_kind="practice_exam",
+            topic="Strong Law of Large Numbers",
+            difficulty="hard",
+            exam_question_count=5,
+            exam_duration_minutes=20,
+            include_conversation=False,
+        ),
+    )
+    assert draft["tool_kind"] == "practice_exam"
+    exam_raw = draft["structured_data"]
+    assert exam_raw["question_count"] == 5
+    assert exam_raw["duration_minutes"] == 20
+    assert len(exam_raw["questions"]) == 5
+
+    # Student-safe projection must strip answer keys and explanations.
+    safe_exam = project_student_safe_exam(exam_raw)
+    assert len(safe_exam.questions) == 5
+    assert not hasattr(safe_exam.questions[0], "correct_index")
+    assert not hasattr(safe_exam.questions[0], "explanation")
+
+    # Timed lifecycle: start -> autosave -> post-deadline lock -> auto-submit grades autosaved only.
+    t0 = datetime(2026, 11, 28, 12, 0, 0, tzinfo=UTC)
+    active, exam_state = start_practice_exam_attempt(exam_raw, now=t0)
+    assert active.remaining_seconds == 20 * 60
+
+    saved_active, exam_state = save_practice_exam_progress(
+        exam_state,
+        attempt_id=active.attempt_id,
+        answers={"q1": 0, "q2": 0, "q4": 1},
+        marked_for_review=("q3",),
+        now=t0 + timedelta(minutes=5),
+    )
+    assert saved_active.answers == {"q1": 0, "q2": 0, "q4": 1}
+    assert saved_active.marked_for_review == ("q3",)
+
+    # Mutation after deadline must be rejected with 409 exam_deadline_expired.
+    with pytest.raises(AccessError) as lock_exc:
+        save_practice_exam_progress(
+            exam_state,
+            attempt_id=active.attempt_id,
+            answers={"q1": 0, "q2": 0, "q3": 0, "q4": 0, "q5": 0},
+            marked_for_review=(),
+            now=t0 + timedelta(minutes=21),
+        )
+    assert lock_exc.value.status == 409
+    assert lock_exc.value.code == "exam_deadline_expired"
+
+    # Submitting well past deadline ignores late tampered answers and grades autosaved answers only.
+    attempt, finalized_state = score_practice_exam(
+        exam_state,
+        attempt_id=active.attempt_id,
+        answers={"q1": 0, "q2": 0, "q3": 0, "q4": 0, "q5": 0},
+        auto_submitted=True,
+        now=t0 + timedelta(minutes=22),
+    )
+    assert attempt.timed_out is True
+    assert attempt.score == 2  # q1 (0) and q2 (0) correct; q4 (1) wrong; q3 & q5 unanswered
+    assert attempt.total_questions == 5
+    assert finalized_state["active_attempt"] is None
+    assert len(attempt.topic_breakdown) >= 2
+    slln_topic = next(t for t in attempt.topic_breakdown if t.topic == "SLLN")
+    assert slln_topic.correct == 2
+    assert slln_topic.total == 2
+    assert slln_topic.percentage == 100
+
+    # Non-silent failure disclosure when requested coverage cannot be met.
+    failing_gateway = FakeAIGateway(default_completion=batch_1)
+    with pytest.raises(AccessError) as coverage_exc:
+        DirectAcademicLearning(failing_gateway).generate_study_resource(
+            context=ctx,
+            request=PersonalLearningResourceGenerateRequest(
+                tool_kind="practice_exam",
+                topic="Strong Law of Large Numbers",
+                difficulty="medium",
+                exam_question_count=6,
+                exam_duration_minutes=15,
+                include_conversation=False,
+            ),
+        )
+    assert coverage_exc.value.status == 422
+    assert coverage_exc.value.code == "practice_exam_incomplete"
+    assert "3 of 6" in str(coverage_exc.value)

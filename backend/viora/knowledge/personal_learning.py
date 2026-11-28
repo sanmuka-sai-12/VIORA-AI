@@ -56,9 +56,12 @@ from .schemas import (
 )
 from .study_tools import (
     build_flashcards_system_prompt,
+    build_practice_exam_batch_prompt,
+    build_practice_exam_payload,
     build_practice_quiz_system_prompt,
     compute_study_item_counts,
     flashcards_to_markdown,
+    is_duplicate_question,
     parse_flashcards_response,
     parse_practice_quiz_response,
     quiz_to_student_markdown,
@@ -679,6 +682,8 @@ def _study_resource_title(
         prefix = "Mind Map"
     elif tool_kind == "flashcards":
         prefix = "Flashcards"
+    elif tool_kind == "practice_exam":
+        prefix = "Practice Exam"
     else:
         prefix = "Practice Quiz"
     label = (topic or "").strip() or (
@@ -755,6 +760,10 @@ def build_study_resource_messages(
     elif req.tool_kind == "flashcards":
         sys_prompt = build_flashcards_system_prompt(card_count)
         action_line = f"Generate {card_count} concise, high-yield study flashcards as compact JSON."
+    elif req.tool_kind == "practice_exam":
+        batch_size = min(3, req.exam_question_count)
+        sys_prompt = build_practice_exam_batch_prompt(req.difficulty, batch_size)
+        action_line = f"Generate {batch_size} {req.difficulty}-difficulty practice exam questions as compact JSON."
     else:
         sys_prompt = build_practice_quiz_system_prompt(req.difficulty, question_count=quiz_count)
         action_line = f"Generate a {quiz_count}-question {req.difficulty}-difficulty practice quiz as compact JSON."
@@ -970,6 +979,105 @@ class DirectAcademicLearning:
                 "model": result.model,
                 "provider": result.metadata.provider,
                 "usage_tokens": result.usage.total_tokens,
+                "truncated": False,
+            }
+
+        if request.tool_kind == "practice_exam":
+            target_count = int(request.exam_question_count)
+            max_batches = min(9, ((target_count + 2) // 3) + 2)
+            collected_questions: list[dict[str, Any]] = []
+            seen_prompts: list[str] = []
+            total_usage_tokens = 0
+            last_model = ""
+            last_provider = ""
+            batch_errors: list[str] = []
+            exam_title = title
+
+            for _ in range(max_batches):
+                remaining = target_count - len(collected_questions)
+                if remaining <= 0:
+                    break
+                batch_size = min(3, remaining)
+                batch_sys = build_practice_exam_batch_prompt(
+                    request.difficulty,
+                    batch_size,
+                    existing_stems=seen_prompts,
+                )
+                batch_user = messages[-1].content
+                if len(batch_user) > max(800, _MAX_HISTORY_CHARS - len(batch_sys)):
+                    limit = max(800, _MAX_HISTORY_CHARS - len(batch_sys))
+                    batch_user = batch_user[: limit - 3].rstrip() + "..."
+                batch_messages = [
+                    ChatMessage(role=Role.system, content=batch_sys),
+                    ChatMessage(role=Role.user, content=batch_user),
+                ]
+                result = self.gateway.complete(
+                    context,
+                    batch_messages,
+                    config=self.request_config,
+                )
+                last_model = result.model
+                last_provider = result.metadata.provider
+                total_usage_tokens += int(result.usage.total_tokens or 0)
+                try:
+                    batch_data = parse_practice_quiz_response(
+                        result.content,
+                        difficulty=request.difficulty,
+                        finish_reason=result.finish_reason,
+                    )
+                except AccessError as exc:
+                    batch_errors.append(str(exc))
+                    continue
+                if (
+                    exam_title == title
+                    and not (request.topic or "").strip()
+                    and batch_data.get("title")
+                    and str(batch_data["title"]) != "Practice Quiz"
+                ):
+                    exam_title = str(batch_data["title"])
+                for candidate in batch_data.get("questions", ()):
+                    prompt_text = str(candidate["prompt"])
+                    if is_duplicate_question(prompt_text, seen_prompts):
+                        continue
+                    seen_prompts.append(prompt_text)
+                    collected_questions.append(candidate)
+                    if len(collected_questions) >= target_count:
+                        break
+
+            if len(collected_questions) < target_count:
+                reason = (
+                    f" Last batch issue: {batch_errors[-1]}"
+                    if batch_errors
+                    else " Duplicate or undersized batches exhausted the bounded generation budget."
+                )
+                raise AccessError(
+                    422,
+                    "practice_exam_incomplete",
+                    (
+                        f"Generated {len(collected_questions)} of {target_count} requested unique exam questions "
+                        f"without reducing coverage.{reason}"
+                    ),
+                )
+
+            exam_data = build_practice_exam_payload(
+                title=exam_title,
+                difficulty=request.difficulty,
+                question_count=target_count,
+                duration_minutes=request.exam_duration_minutes,
+                questions=collected_questions,
+                fallback_topic=(request.topic or "").strip() or session_title,
+            )
+            return {
+                "tool_kind": request.tool_kind,
+                "source_scope": scope,
+                "title": exam_data["title"],
+                "focus_topic": (request.topic or "").strip() or None,
+                "content": quiz_to_student_markdown(exam_data),
+                "structured_data": exam_data,
+                "sources": sources,
+                "model": last_model,
+                "provider": last_provider,
+                "usage_tokens": total_usage_tokens,
                 "truncated": False,
             }
 

@@ -33,9 +33,18 @@ from .schemas import (
     PersonalLearningSourceRef,
     PersonalLearningStudyResource,
     PersonalLearningTurn,
+    PracticeExamActiveAttempt,
+    PracticeExamAttemptRecord,
     PracticeQuizAttemptRecord,
 )
-from .study_tools import project_student_safe_quiz, score_practice_quiz
+from .study_tools import (
+    project_student_safe_exam,
+    project_student_safe_quiz,
+    save_practice_exam_progress,
+    score_practice_exam,
+    score_practice_quiz,
+    start_practice_exam_attempt,
+)
 
 
 def derive_session_title(prompt: str, *, max_len: int = 72) -> str:
@@ -91,6 +100,7 @@ def _resource_dto(
     parsed_map: MindMapGraph | None = None
     parsed_flashcards: FlashcardDeck | None = None
     parsed_quiz = None
+    parsed_exam = None
     if row.structured_data:
         if row.tool_kind == "mind_map":
             parsed_map = MindMapGraph(**row.structured_data)
@@ -98,6 +108,8 @@ def _resource_dto(
             parsed_flashcards = FlashcardDeck(**row.structured_data)
         elif row.tool_kind == "practice_quiz":
             parsed_quiz = project_student_safe_quiz(row.structured_data)
+        elif row.tool_kind == "practice_exam":
+            parsed_exam = project_student_safe_exam(row.structured_data)
     return PersonalLearningStudyResource(
         resource_id=row.resource_id,
         session_id=row.session_id,
@@ -110,6 +122,7 @@ def _resource_dto(
         mind_map=parsed_map,
         flashcards=parsed_flashcards,
         practice_quiz=parsed_quiz,
+        practice_exam=parsed_exam,
         sources=tuple(
             PersonalLearningSourceRef(**src) for src in (row.sources or ())
         ),
@@ -732,6 +745,68 @@ class SqlPersonalLearningRepository:
         )
         attempt, updated_data = score_practice_quiz(
             dict(row.structured_data or {}), answers
+        )
+        row.structured_data = updated_data
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        return attempt
+
+    def start_practice_exam(
+        self,
+        context: TenantContext,
+        resource_id: UUID,
+    ) -> PracticeExamActiveAttempt:
+        row = self._require_study_resource(
+            context, resource_id, expected_kind="practice_exam"
+        )
+        active, updated_data = start_practice_exam_attempt(
+            dict(row.structured_data or {})
+        )
+        row.structured_data = updated_data
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        return active
+
+    def save_practice_exam_progress(
+        self,
+        context: TenantContext,
+        resource_id: UUID,
+        *,
+        attempt_id: UUID,
+        answers: dict[str, int],
+        marked_for_review: Sequence[str],
+    ) -> PracticeExamActiveAttempt:
+        row = self._require_study_resource(
+            context, resource_id, expected_kind="practice_exam"
+        )
+        active, updated_data = save_practice_exam_progress(
+            dict(row.structured_data or {}),
+            attempt_id=attempt_id,
+            answers=answers,
+            marked_for_review=marked_for_review,
+        )
+        row.structured_data = updated_data
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        return active
+
+    def submit_practice_exam(
+        self,
+        context: TenantContext,
+        resource_id: UUID,
+        *,
+        attempt_id: UUID,
+        answers: dict[str, int],
+        auto_submitted: bool = False,
+    ) -> PracticeExamAttemptRecord:
+        row = self._require_study_resource(
+            context, resource_id, expected_kind="practice_exam"
+        )
+        attempt, updated_data = score_practice_exam(
+            dict(row.structured_data or {}),
+            attempt_id=attempt_id,
+            answers=answers,
+            auto_submitted=auto_submitted,
         )
         row.structured_data = updated_data
         row.updated_at = datetime.now(UTC)

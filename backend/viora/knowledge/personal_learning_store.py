@@ -220,19 +220,42 @@ class SqlPersonalLearningRepository:
     def origin_source_ids_for_materials(
         self, context: TenantContext, attachment_ids: Sequence[UUID]
     ) -> list[UUID]:
-        unique_ids = list(dict.fromkeys(attachment_ids))[:5]
+        from ..sources.public import find_offering_source_ids_by_digest_and_title
+
+        unique_ids = list(dict.fromkeys(attachment_ids))[:10]
         if not unique_ids:
             return []
         rows = self.session.scalars(
-            select(PersonalLearningMaterialModel.origin_source_id).where(
+            select(PersonalLearningMaterialModel).where(
                 PersonalLearningMaterialModel.tenant_id == context.tenant_id,
                 PersonalLearningMaterialModel.owner_user_id == context.actor_id,
                 PersonalLearningMaterialModel.attachment_id.in_(unique_ids),
                 PersonalLearningMaterialModel.deleted_at.is_(None),
-                PersonalLearningMaterialModel.origin_source_id.is_not(None),
             )
         ).all()
-        return [r for r in rows if r is not None]
+        origin_ids: list[UUID] = []
+        legacy_rows: list[PersonalLearningMaterialModel] = []
+        for row in rows:
+            if row.origin_source_id is not None:
+                origin_ids.append(row.origin_source_id)
+            else:
+                legacy_rows.append(row)
+
+        for row in legacy_rows:
+            origin_ids.extend(
+                find_offering_source_ids_by_digest_and_title(
+                    self.session,
+                    context.tenant_id,
+                    title=row.title,
+                    content_sha256=row.doc_sha256,
+                    is_text_note=(
+                        row.input_format
+                        in {"plain_text", "typed_notes", "topic_description"}
+                    ),
+                )
+            )
+
+        return list(dict.fromkeys(origin_ids))
 
     def _load_materials_map(
         self, context: TenantContext, attachment_ids: Sequence[UUID]

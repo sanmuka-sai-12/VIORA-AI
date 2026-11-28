@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from uuid import UUID
 
 from fastapi import APIRouter
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
@@ -136,6 +137,40 @@ def register_models() -> None:
 
 def source_directory(session: Session) -> SourceDirectory:
     return SqlSourceDirectory(session)
+
+
+def find_offering_source_ids_by_digest_and_title(
+    session: Session,
+    tenant_id: UUID,
+    *,
+    title: str,
+    content_sha256: str,
+    is_text_note: bool = False,
+) -> list[UUID]:
+    """Locate institutional offering sources matching a legacy imported material."""
+    match_cond = (
+        or_(
+            models.SourceVersion.content_sha256 == content_sha256,
+            models.Source.origin_kind == "teacher_resource",
+        )
+        if is_text_note
+        else (models.SourceVersion.content_sha256 == content_sha256)
+    )
+    rows = session.scalars(
+        select(models.Source.source_id)
+        .join(
+            models.SourceVersion,
+            (models.SourceVersion.tenant_id == models.Source.tenant_id)
+            & (models.SourceVersion.source_id == models.Source.source_id),
+        )
+        .where(
+            models.Source.tenant_id == tenant_id,
+            models.Source.offering_id.is_not(None),
+            models.Source.title == title,
+            match_cond,
+        )
+    ).all()
+    return list(rows)
 
 
 def read_source_material_bytes(

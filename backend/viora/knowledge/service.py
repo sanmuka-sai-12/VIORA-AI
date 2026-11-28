@@ -1020,6 +1020,7 @@ class ConceptKnowledgeService:
 
         if scope.session is not None:
             pl_repo = SqlPersonalLearningRepository(scope.session)
+            revocation_check_ids = list(dedup_active_ids)
             if session_id is not None:
                 detail = pl_repo.get_session(scope.context, session_id)
                 session_title = detail.title
@@ -1031,9 +1032,13 @@ class ConceptKnowledgeService:
                     dedup_active_ids = [
                         att.attachment_id for att in detail.attachments[:5]
                     ]
-            if dedup_active_ids:
+                if include_conversation and detail.attachments:
+                    revocation_check_ids.extend(
+                        att.attachment_id for att in detail.attachments
+                    )
+            if revocation_check_ids:
                 for origin_src_id in pl_repo.origin_source_ids_for_materials(
-                    scope.context, dedup_active_ids
+                    scope.context, revocation_check_ids
                 ):
                     try:
                         scope.recheck(
@@ -1050,6 +1055,7 @@ class ConceptKnowledgeService:
                             "material_access_revoked",
                             "Imported classroom material is no longer accessible after withdrawal or unenrolment",
                         ) from None
+            if dedup_active_ids:
                 db_refs = pl_repo.resolve_material_refs(scope.context, dedup_active_ids)
                 seen_att_ids = {r.attachment_id for r in resolved_refs}
                 for dref in db_refs:

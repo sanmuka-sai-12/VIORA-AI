@@ -280,7 +280,7 @@ def test_r4_4_dashboard_metadata_and_imported_material_revocation(
         assert priv_res.status_code == 201, priv_res.text
         private_att_id = priv_res.json()["attachment_id"]
 
-        # Both work before withdrawal
+        # Both work before withdrawal (including within a persistent session)
         ask_ok = client.post(
             f"/api/v1/tenants/{tenant}/learning/ask",
             headers=student_hdr,
@@ -291,8 +291,9 @@ def test_r4_4_dashboard_metadata_and_imported_material_revocation(
             },
         )
         assert ask_ok.status_code == 200, ask_ok.text
+        imported_session_id = ask_ok.json()["session_id"]
 
-        # 3. Teacher withdraws material -> reusing imported attachment in new AI request is denied (403)
+        # 3. Teacher withdraws material -> reusing imported attachment or session context in new AI request is denied (403)
         assert (
             client.patch(
                 f"/api/v1/tenants/{tenant}/sources/{src_id}",
@@ -312,6 +313,41 @@ def test_r4_4_dashboard_metadata_and_imported_material_revocation(
         )
         assert ask_withdrawn.status_code == 403
         assert ask_withdrawn.json()["code"] == "material_access_revoked"
+
+        # Conversation context in session grounded in withdrawn material is also denied even with a private attachment
+        ask_session_ctx = client.post(
+            f"/api/v1/tenants/{tenant}/learning/ask",
+            headers=student_hdr,
+            json={
+                "session_id": imported_session_id,
+                "prompt": "Continue from our previous discussion",
+                "mode": "question",
+                "attachment_ids": [private_att_id],
+            },
+        )
+        assert ask_session_ctx.status_code == 403
+        assert ask_session_ctx.json()["code"] == "material_access_revoked"
+
+        # Legacy import (origin_source_id IS NULL) is also caught via content_sha256 + title match
+        with env_r44.admin.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE personal_learning_materials SET origin_source_id = NULL "
+                    "WHERE attachment_id = :aid"
+                ),
+                {"aid": imported_att_id},
+            )
+        ask_legacy = client.post(
+            f"/api/v1/tenants/{tenant}/learning/ask",
+            headers=student_hdr,
+            json={
+                "prompt": "Explain slow start from legacy import",
+                "mode": "question",
+                "attachment_ids": [imported_att_id],
+            },
+        )
+        assert ask_legacy.status_code == 403
+        assert ask_legacy.json()["code"] == "material_access_revoked"
 
         gen_withdrawn = client.post(
             f"/api/v1/tenants/{tenant}/learning/resources/generate",

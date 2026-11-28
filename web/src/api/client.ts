@@ -53,6 +53,13 @@ export type PublishedLessonBlueprint = ApiSchema<"PublishedLessonBlueprint">;
 export type BlueprintAssessmentItem = ApiSchema<"BlueprintAssessmentItem">;
 export type StudentSafeAssessmentItem = ApiSchema<"StudentSafeAssessmentItem">;
 export type TypedVisualSceneSpec = ApiSchema<"TypedVisualSceneSpec">;
+export type PersonalLearningAttachment = ApiSchema<"PersonalLearningAttachment">;
+export type PersonalLearningAttachmentKind = PersonalLearningAttachment["kind"];
+export type PersonalLearningAttachmentStatus = PersonalLearningAttachment["status"];
+export type PersonalLearningAttachmentRef = ApiSchema<"PersonalLearningAttachmentRef">;
+export type PersonalLearningAttachmentTextRequest =
+  ApiSchema<"PersonalLearningAttachmentTextRequest">;
+export type PersonalLearningSourceRef = ApiSchema<"PersonalLearningSourceRef">;
 export type PersonalLearningTurn = ApiSchema<"PersonalLearningTurn">;
 export type PersonalLearningRequest = ApiSchema<"PersonalLearningRequest">;
 export type PersonalLearningResponse = ApiSchema<"PersonalLearningResponse">;

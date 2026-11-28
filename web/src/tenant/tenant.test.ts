@@ -189,8 +189,10 @@ test("Validation and pagination state helpers validate inputs and maintain curso
 
 import {
   clearLearningSession,
+  formatSourcePageLabel,
   loadLearningSession,
   saveLearningSession,
+  toActiveAttachmentRefs,
 } from "../features/learning/learningSessionState.ts";
 import {
   canOwnerStudentProcess,
@@ -242,28 +244,83 @@ test("Personal learning conversation state preserves across route transitions, s
     mode: "explain",
     prompt: "Follow up draft",
     messages: [{ id: "m1", role: "user", content: "Explain chain rule" }],
+    attachments: [
+      {
+        included: true,
+        attachment: {
+          attachment_id: "att-1",
+          doc_sha256: "a".repeat(64),
+          title: "calculus.pdf",
+          original_filename: "calculus.pdf",
+          kind: "pdf",
+          input_format: "digital_pdf",
+          status: "ready",
+          status_message: "Extracted 2 pages.",
+          page_count: 2,
+          chunk_count: 3,
+          char_count: 420,
+          preview_excerpt: "Derivative notes...",
+          created_at: "2026-11-28T00:00:00Z",
+        },
+      },
+      {
+        included: true,
+        attachment: {
+          attachment_id: "att-2",
+          doc_sha256: "b".repeat(64),
+          title: "blank.png",
+          original_filename: "blank.png",
+          kind: "image",
+          input_format: "png",
+          status: "unreadable",
+          status_message: "No readable text found.",
+          page_count: 1,
+          chunk_count: 0,
+          char_count: 0,
+          preview_excerpt: null,
+          created_at: "2026-11-28T00:00:00Z",
+        },
+      },
+    ],
   });
 
-  // Same user & tenant restores preserved conversation (e.g., returning from My Institution)
+  // Same user & tenant restores preserved conversation and active attachments
   const restored = loadLearningSession(ctrl, "user-1", TENANT_A);
   assert.equal(restored?.messages.length, 1);
   assert.equal(restored?.prompt, "Follow up draft");
+  assert.equal(restored?.attachments.length, 2);
+  assert.deepEqual(toActiveAttachmentRefs(restored!.attachments), [
+    { attachment_id: "att-1", doc_sha256: "a".repeat(64) },
+  ]);
+  assert.equal(
+    formatSourcePageLabel({
+      attachment_id: "att-1",
+      title: "calculus.pdf",
+      page_start: 2,
+      page_end: 2,
+      section_title: null,
+      excerpt: "text",
+    }),
+    "p. 2",
+  );
 
-  // Different user or tenant does not leak state
+  // Different user or tenant does not leak state or attachments
   assert.equal(loadLearningSession(ctrl, "user-2", TENANT_A), null);
   assert.equal(loadLearningSession(ctrl, "user-1", TENANT_B), null);
 
-  // Explicit New Topic clears active conversation
+  // Explicit New Topic clears active conversation and attachments
   clearLearningSession(ctrl, "user-1", TENANT_A);
   assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.messages.length, 0);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.attachments.length, 0);
 
-  // Sign-out (ctrl.clear()) wipes cached conversation completely
+  // Sign-out (ctrl.clear()) wipes cached conversation and attachments completely
   saveLearningSession(ctrl, {
     userId: "user-1",
     tenantId: TENANT_A,
     mode: "question",
     prompt: "",
     messages: [{ id: "m2", role: "user", content: "Active chat" }],
+    attachments: [],
   });
   ctrl.clear();
   assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A), null);

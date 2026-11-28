@@ -34,7 +34,11 @@ from .indexing import (
     compute_chunk_content_sha256,
     compute_embedding_fingerprint,
 )
-from .personal_learning import DirectAcademicLearning, build_personal_learning_messages
+from .personal_learning import (
+    DirectAcademicLearning,
+    PersonalLearningAttachmentService,
+    build_personal_learning_messages,
+)
 from .ports import ConceptCacheRepository, ConceptExtractionRepository
 from .prompts import (
     build_concept_extraction_messages,
@@ -114,8 +118,14 @@ from .schemas import (
     LessonModule,
     LessonOutlineStep,
     NarrationCueSpec,
+    PersonalLearningAttachment,
+    PersonalLearningAttachmentKind,
+    PersonalLearningAttachmentRef,
+    PersonalLearningAttachmentStatus,
+    PersonalLearningAttachmentTextRequest,
     PersonalLearningRequest,
     PersonalLearningResponse,
+    PersonalLearningSourceRef,
     PersonalLearningTurn,
     PrerequisiteAnalysis,
     PrerequisiteCandidate,
@@ -247,8 +257,15 @@ __all__ = [
     "LessonOutlineStep",
     "LocalOnnxEmbedder",
     "NarrationCueSpec",
+    "PersonalLearningAttachment",
+    "PersonalLearningAttachmentKind",
+    "PersonalLearningAttachmentRef",
+    "PersonalLearningAttachmentService",
+    "PersonalLearningAttachmentStatus",
+    "PersonalLearningAttachmentTextRequest",
     "PersonalLearningRequest",
     "PersonalLearningResponse",
+    "PersonalLearningSourceRef",
     "PersonalLearningTurn",
     "PrerequisiteAnalysis",
     "PrerequisiteCandidate",

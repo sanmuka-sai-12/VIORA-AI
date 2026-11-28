@@ -77,12 +77,54 @@ export function parseAcademicBlocks(markdown: string): ContentBlock[] {
       continue;
     }
 
-    // Display math block $$...$$ or \[...\]
-    if (trimmed.startsWith("$$") || trimmed.startsWith("\\[")) {
+    // Display math block $$...$$, \[...\], \begin{...}...\end{...}, or single-bracket LaTeX equation [ ... ]
+    const isBracketBlock = trimmed.startsWith("\\[");
+    const isDollarBlock = trimmed.startsWith("$$");
+    const isEnvBlock = /^\\begin\{[a-zA-Z*]+\}/.test(trimmed);
+    const isSquareLatexBlock =
+      /^\[[^\]]+\]$/.test(trimmed) &&
+      /\\(?:frac|sqrt|sum|int|prod|lim|alpha|beta|gamma|theta|lambda|pi|sigma|pm|cdot|times|leq|geq|neq|approx|to|rightarrow|infty|partial|nabla|vec|hat|bar|left|right)\b/.test(
+        trimmed,
+      );
+
+    if (isSquareLatexBlock) {
       flushParagraph(paragraphBuf);
-      const isBracket = trimmed.startsWith("\\[");
-      const openToken = isBracket ? "\\[" : "$$";
-      const closeToken = isBracket ? "\\]" : "$$";
+      const inner = trimmed.slice(1, -1).trim();
+      if (inner) {
+        blocks.push({ kind: "math_block", latex: inner });
+      }
+      i += 1;
+      continue;
+    }
+
+    if (isDollarBlock || isBracketBlock || isEnvBlock) {
+      flushParagraph(paragraphBuf);
+      if (isEnvBlock) {
+        const envMatch = trimmed.match(/^\\begin\{([a-zA-Z*]+)\}/);
+        const endToken = `\\end{${envMatch?.[1] ?? ""}}`;
+        const mathLines: string[] = [trimmed];
+        if (!trimmed.includes(endToken)) {
+          i += 1;
+          while (i < lines.length) {
+            mathLines.push(lines[i]);
+            if (lines[i].includes(endToken)) {
+              i += 1;
+              break;
+            }
+            i += 1;
+          }
+        } else {
+          i += 1;
+        }
+        const latex = mathLines.join("\n").trim();
+        if (latex) {
+          blocks.push({ kind: "math_block", latex });
+        }
+        continue;
+      }
+
+      const openToken = isBracketBlock ? "\\[" : "$$";
+      const closeToken = isBracketBlock ? "\\]" : "$$";
 
       if (
         trimmed.length > openToken.length &&
@@ -214,8 +256,8 @@ export function parseInlineSegments(
 ): InlineSegment[] {
   const segments: InlineSegment[] = [];
   const pattern = allowEmphasis
-    ? /(\$\$(.+?)\$\$|\\\[(.+?)\\\]|\\\((.+?)\\\)|`([^`]+)`|\$([^\s$][^$\n]*?[^\s$]|[^\s$])\$|\*\*([^*]+)\*\*|\*([^*\n]+)\*)/g
-    : /(\$\$(.+?)\$\$|\\\[(.+?)\\\]|\\\((.+?)\\\)|`([^`]+)`|\$([^\s$][^$\n]*?[^\s$]|[^\s$])\$)/g;
+    ? /(\$\$(.+?)\$\$|\\\[(.+?)\\\]|\\\((.+?)\\\)|`([^`]+)`|\$([^\s$][^$\n]*?[^\s$]|[^\s$])\$|\$\s+([^$\n]*?[\\=^_{}<>+\-*/|][^$\n]*?)\s+\$|\*\*([^*]+)\*\*|\*([^*\n]+)\*)/g
+    : /(\$\$(.+?)\$\$|\\\[(.+?)\\\]|\\\((.+?)\\\)|`([^`]+)`|\$([^\s$][^$\n]*?[^\s$]|[^\s$])\$|\$\s+([^$\n]*?[\\=^_{}<>+\-*/|][^$\n]*?)\s+\$)/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -235,10 +277,12 @@ export function parseInlineSegments(
       segments.push({ kind: "code", text: match[5] });
     } else if (match[6] !== undefined) {
       segments.push({ kind: "math_inline", latex: match[6].trim() });
-    } else if (allowEmphasis && match[7] !== undefined) {
-      segments.push({ kind: "bold", text: match[7] });
+    } else if (match[7] !== undefined) {
+      segments.push({ kind: "math_inline", latex: match[7].trim() });
     } else if (allowEmphasis && match[8] !== undefined) {
-      segments.push({ kind: "italic", text: match[8] });
+      segments.push({ kind: "bold", text: match[8] });
+    } else if (allowEmphasis && match[9] !== undefined) {
+      segments.push({ kind: "italic", text: match[9] });
     }
 
     lastIndex = pattern.lastIndex;

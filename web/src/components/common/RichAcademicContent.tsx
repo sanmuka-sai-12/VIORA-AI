@@ -7,13 +7,57 @@ import {
   type InlineSegment,
 } from "./richContentParser";
 
-function renderKatexMarkup(latex: string, displayMode: boolean): string {
-  return katex.renderToString(latex, {
-    displayMode,
-    throwOnError: false,
-    strict: "ignore",
-    output: "html",
-  });
+type KatexRenderResult =
+  | { ok: true; html: string }
+  | { ok: false; fallback: string };
+
+const LATEX_FALLBACK_SYMBOLS: ReadonlyArray<[RegExp, string]> = [
+  [/\\cdot\b/g, " · "],
+  [/\\times\b/g, " × "],
+  [/\\div\b/g, " ÷ "],
+  [/\\pm\b/g, " ± "],
+  [/\\leq?\b/g, " ≤ "],
+  [/\\geq?\b/g, " ≥ "],
+  [/\\neq?\b/g, " ≠ "],
+  [/\\approx\b/g, " ≈ "],
+  [/\\rightarrow\b|\\to\b/g, " → "],
+  [/\\infty\b/g, "∞"],
+  [/\\left\s*/g, ""],
+  [/\\right\s*/g, ""],
+];
+
+export function formatMathFallbackText(latex: string): string {
+  let clean = latex.trim();
+  clean = clean.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
+  clean = clean.replace(/\\sqrt\{([^{}]+)\}/g, "√($1)");
+  for (const [pattern, replacement] of LATEX_FALLBACK_SYMBOLS) {
+    clean = clean.replace(pattern, replacement);
+  }
+  return clean.replace(/\s{2,}/g, " ").trim();
+}
+
+export function renderKatexSafely(
+  latex: string,
+  displayMode: boolean,
+): KatexRenderResult {
+  const trimmed = latex.trim();
+  if (!trimmed) {
+    return { ok: false, fallback: "" };
+  }
+  try {
+    const html = katex.renderToString(trimmed, {
+      displayMode,
+      throwOnError: true,
+      strict: "ignore",
+      output: "html",
+    });
+    if (!html || html.includes("katex-error")) {
+      return { ok: false, fallback: formatMathFallbackText(trimmed) };
+    }
+    return { ok: true, html };
+  } catch {
+    return { ok: false, fallback: formatMathFallbackText(trimmed) };
+  }
 }
 
 function InlineRichText({
@@ -51,12 +95,20 @@ function InlineRichText({
             </code>
           );
         }
+        const rendered = renderKatexSafely(seg.latex, false);
+        if (!rendered.ok) {
+          return (
+            <code key={idx} className="viora-math-fallback-inline">
+              {rendered.fallback}
+            </code>
+          );
+        }
         return (
           <span
             key={idx}
             className="viora-math-inline"
             dangerouslySetInnerHTML={{
-              __html: renderKatexMarkup(seg.latex, false),
+              __html: rendered.html,
             }}
           />
         );
@@ -166,12 +218,20 @@ export function RichAcademicContent({ content }: { content: string }) {
         }
 
         if (block.kind === "math_block") {
+          const rendered = renderKatexSafely(block.latex, true);
+          if (!rendered.ok) {
+            return (
+              <div key={idx} className="viora-math-fallback-block">
+                <code>{rendered.fallback}</code>
+              </div>
+            );
+          }
           return (
             <div
               key={idx}
               className="viora-math-block"
               dangerouslySetInnerHTML={{
-                __html: renderKatexMarkup(block.latex, true),
+                __html: rendered.html,
               }}
             />
           );

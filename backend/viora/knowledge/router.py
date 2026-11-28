@@ -1,16 +1,18 @@
 """HTTP API router for educational concept extraction and retrieval."""
 
+import contextlib
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query, Security
+from fastapi import APIRouter, File, Form, Header, Query, Security, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ..ai.public import AIGateway, build_ai_gateway_from_settings
 from ..config import Settings
 from ..contracts import Page
 from ..db import Database
-from ..security import Access, TransactionalAccess
+from ..security import Access, AccessError, TransactionalAccess
+from ..sources.public import clamp_source_limits
 from ..storage.public import ArtifactStore, local_artifact_store
 from .embeddings import TextEmbedder, build_embedder_from_settings
 from .repository import SqlConceptExtractionRepository
@@ -35,6 +37,8 @@ from .schemas import (
     LessonBlueprintSummary,
     LessonBlueprintTriggerRequest,
     LessonBlueprintTriggerResult,
+    PersonalLearningAttachment,
+    PersonalLearningAttachmentTextRequest,
     PersonalLearningRequest,
     PersonalLearningResponse,
     PublishedLessonBlueprint,
@@ -45,6 +49,29 @@ from .service import ConceptKnowledgeService
 
 def _token(bearer: HTTPAuthorizationCredentials | None) -> str | None:
     return bearer.credentials if bearer else None
+
+
+def _read_bounded_upload(upload: UploadFile, max_bytes: int) -> bytes:
+    """Read an uploaded stream in fixed chunks and enforce byte limits."""
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        while True:
+            chunk = upload.file.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise AccessError(
+                    413,
+                    "payload_too_large",
+                    f"Uploaded file exceeds maximum byte limit of {max_bytes}",
+                )
+            chunks.append(chunk)
+    finally:
+        with contextlib.suppress(OSError, ValueError):
+            upload.file.close()
+    return b"".join(chunks)
 
 
 def build_router(
@@ -71,11 +98,20 @@ def build_router(
     resolved_store = artifact_store or local_artifact_store(
         settings.media_storage_dir if settings is not None else "./storage"
     )
+    resolved_limits = clamp_source_limits(
+        max_bytes=settings.source_max_bytes if settings is not None else 10 * 1024 * 1024,
+        max_pdf_pages=settings.source_max_pdf_pages if settings is not None else 100,
+        max_text_chars=settings.source_max_text_chars if settings is not None else 200_000,
+        min_text_chars=settings.source_min_text_chars if settings is not None else 3,
+    )
+    resolved_ocr = settings.worker_enable_ocr if settings is not None else True
     service = ConceptKnowledgeService(
         SqlConceptExtractionRepository,
         embedder=resolved_embedder,
         ai_gateway=resolved_gateway,
         artifact_store=resolved_store,
+        source_limits=resolved_limits,
+        enable_ocr=resolved_ocr,
     )
     router = APIRouter(tags=["knowledge"])
 
@@ -335,6 +371,50 @@ def build_router(
         ] = None,
     ) -> KnowledgeQAResult:
         return service.answer_question(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/attachments/file",
+        status_code=201,
+        response_model=PersonalLearningAttachment,
+        operation_id="uploadPersonalLearningFile",
+    )
+    def upload_personal_learning_file(
+        tenant_id: UUID,
+        file: Annotated[UploadFile, File(...)],
+        title: Annotated[str | None, Form(max_length=200)] = None,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningAttachment:
+        return service.upload_personal_learning_file(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            read_bounded_bytes=lambda max_b: _read_bounded_upload(file, max_b),
+            original_filename=file.filename,
+            claimed_content_type=file.content_type,
+            title=title,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/attachments/text",
+        status_code=201,
+        response_model=PersonalLearningAttachment,
+        operation_id="uploadPersonalLearningText",
+    )
+    def upload_personal_learning_text(
+        tenant_id: UUID,
+        body: PersonalLearningAttachmentTextRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningAttachment:
+        return service.upload_personal_learning_text(
             access,  # type: ignore[arg-type]
             _token(creds),
             tenant_id,

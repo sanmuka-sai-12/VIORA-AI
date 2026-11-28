@@ -89,3 +89,46 @@ test("parseInlineSegments extracts inline $...$, inline $$...$$, inline code, an
     true,
   );
 });
+
+test("parseAcademicBlocks handles bracketed LaTeX and environment blocks without misparsing plain citations", () => {
+  const blocks = parseAcademicBlocks(
+    [
+      "[ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a} ]",
+      "",
+      "\\begin{aligned}",
+      "a &= b + c \\\\",
+      "d &= 2a",
+      "\\end{aligned}",
+      "",
+      "[Source: notes.pdf, p. 2]",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    blocks.map((b) => b.kind),
+    ["math_block", "math_block", "paragraph"],
+  );
+  if (blocks[0].kind === "math_block") {
+    assert.ok(blocks[0].latex.includes("\\frac{-b"));
+  }
+  if (blocks[1].kind === "math_block") {
+    assert.ok(blocks[1].latex.includes("\\begin{aligned}"));
+  }
+});
+
+test("parseInlineSegments supports spaced inline math while leaving currency prose intact", () => {
+  const mathSegs = parseInlineSegments("Compute $ x = \\frac{1}{2} $ and $ y + 1 $.");
+  assert.equal(
+    mathSegs.some((s) => s.kind === "math_inline" && s.latex === "x = \\frac{1}{2}"),
+    true,
+  );
+  assert.equal(
+    mathSegs.some((s) => s.kind === "math_inline" && s.latex === "y + 1"),
+    true,
+  );
+
+  const currencySegs = parseInlineSegments("The notebook costs $5 and the pen costs $10.");
+  assert.equal(
+    currencySegs.every((s) => s.kind !== "math_inline"),
+    true,
+  );
+});

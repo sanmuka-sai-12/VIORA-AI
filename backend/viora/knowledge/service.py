@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 from ..ai.public import AIError, AIGateway, AIResourceLimitError
 from ..contracts import Page, ResourceRef
 from ..security import AccessError, TransactionalAccess
-from ..sources.public import SqlSourceRepository
+from ..sources.public import (
+    SourceIngestionLimits,
+    SqlSourceRepository,
+    clamp_source_limits,
+)
 from ..storage.public import ArtifactStore
 from ..workflow.public import ConcurrentJobConflict
 from .blueprint import project_published_blueprint
@@ -21,7 +25,10 @@ from .blueprint_store import SqlLessonBlueprintRepository
 from .curriculum import generate_lesson_outline
 from .embeddings import TextEmbedder
 from .indexing import SqlKnowledgeIndexRepository
-from .personal_learning import DirectAcademicLearning
+from .personal_learning import (
+    DirectAcademicLearning,
+    PersonalLearningAttachmentService,
+)
 from .ports import ConceptExtractionRepository
 from .publication import publication_complete, reviewed_graph
 from .qa import GroundedKnowledgeQA
@@ -44,6 +51,8 @@ from .schemas import (
     LessonBlueprintRecord,
     LessonBlueprintSummary,
     LessonBlueprintTriggerResult,
+    PersonalLearningAttachment,
+    PersonalLearningAttachmentTextRequest,
     PersonalLearningRequest,
     PersonalLearningResponse,
     PublishedLessonBlueprint,
@@ -85,12 +94,29 @@ class ConceptKnowledgeService:
         embedder: TextEmbedder | None = None,
         ai_gateway: AIGateway | None = None,
         artifact_store: ArtifactStore | None = None,
+        source_limits: SourceIngestionLimits | None = None,
+        enable_ocr: bool = True,
     ) -> None:
         self.repo_factory = repo_factory
         self.source_repo_factory = source_repo_factory
         self.embedder: TextEmbedder | None = embedder
         self.ai_gateway: AIGateway | None = ai_gateway
         self.artifact_store: ArtifactStore | None = artifact_store
+        self.source_limits = source_limits or clamp_source_limits()
+        self.enable_ocr = enable_ocr
+
+    def _personal_learning_attachments(self) -> PersonalLearningAttachmentService:
+        if self.artifact_store is None:
+            raise AccessError(
+                503,
+                "attachment_storage_unavailable",
+                "Private study attachment storage is not configured",
+            )
+        return PersonalLearningAttachmentService(
+            self.artifact_store,
+            limits=self.source_limits,
+            enable_ocr=self.enable_ocr,
+        )
 
     def trigger_concept_extraction(
         self,
@@ -697,6 +723,47 @@ class ConceptKnowledgeService:
             )
             return answer
 
+    def upload_personal_learning_file(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        *,
+        read_bounded_bytes: Callable[[int], bytes],
+        original_filename: str | None,
+        claimed_content_type: str | None,
+        title: str | None = None,
+    ) -> PersonalLearningAttachment:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            scoped_context = scope.context
+            attachments_svc = self._personal_learning_attachments()
+        raw_bytes = read_bounded_bytes(self.source_limits.max_bytes)
+        return attachments_svc.ingest_file(
+            context=scoped_context,
+            raw_bytes=raw_bytes,
+            original_filename=original_filename,
+            claimed_content_type=claimed_content_type,
+            title=title,
+        )
+
+    def upload_personal_learning_text(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        req: PersonalLearningAttachmentTextRequest,
+    ) -> PersonalLearningAttachment:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            scoped_context = scope.context
+            attachments_svc = self._personal_learning_attachments()
+        return attachments_svc.ingest_text(
+            context=scoped_context,
+            title=req.title,
+            content=req.content,
+        )
+
     def ask_personal_learning(
         self,
         access: TransactionalAccess,
@@ -713,8 +780,14 @@ class ConceptKnowledgeService:
                     "Personal learning AI service is not configured",
                 )
             scoped_context = scope.context
+            attachments_svc = (
+                self._personal_learning_attachments() if req.attachments else None
+            )
         try:
-            response = DirectAcademicLearning(self.ai_gateway).ask(
+            response = DirectAcademicLearning(
+                self.ai_gateway,
+                attachment_service=attachments_svc,
+            ).ask(
                 context=scoped_context,
                 request=req,
             )

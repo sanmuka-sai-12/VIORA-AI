@@ -560,6 +560,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/learning/attachments/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Personal Learning File */
+        post: operations["uploadPersonalLearningFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/learning/attachments/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Personal Learning Text */
+        post: operations["uploadPersonalLearningText"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/memberships": {
         parameters: {
             query?: never;
@@ -1883,6 +1917,13 @@ export interface components {
             title: string;
             /** Visibility */
             visibility?: ("teacher_only" | "offering_published" | "owner_private" | "teacher_review" | "restricted") | null;
+        };
+        /** Body_uploadPersonalLearningFile */
+        Body_uploadPersonalLearningFile: {
+            /** File */
+            file: string;
+            /** Title */
+            title?: string | null;
         };
         /** BoundingBox */
         BoundingBox: {
@@ -4039,8 +4080,83 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** PersonalLearningAttachment */
+        PersonalLearningAttachment: {
+            /**
+             * Attachment Id
+             * Format: uuid
+             */
+            attachment_id: string;
+            /**
+             * Char Count
+             * @default 0
+             */
+            char_count: number;
+            /**
+             * Chunk Count
+             * @default 0
+             */
+            chunk_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Doc Sha256 */
+            doc_sha256: string;
+            /**
+             * Input Format
+             * @enum {string}
+             */
+            input_format: "plain_text" | "typed_notes" | "topic_description" | "digital_pdf" | "scanned_pdf" | "png" | "jpeg";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pdf" | "image" | "text";
+            /** Original Filename */
+            original_filename?: string | null;
+            /**
+             * Page Count
+             * @default 1
+             */
+            page_count: number;
+            /** Preview Excerpt */
+            preview_excerpt?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "partial" | "unreadable";
+            /** Status Message */
+            status_message: string;
+            /** Title */
+            title: string;
+        };
+        /** PersonalLearningAttachmentRef */
+        PersonalLearningAttachmentRef: {
+            /**
+             * Attachment Id
+             * Format: uuid
+             */
+            attachment_id: string;
+            /** Doc Sha256 */
+            doc_sha256: string;
+        };
+        /** PersonalLearningAttachmentTextRequest */
+        PersonalLearningAttachmentTextRequest: {
+            /** Content */
+            content: string;
+            /** Title */
+            title?: string | null;
+        };
         /** PersonalLearningRequest */
         PersonalLearningRequest: {
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["PersonalLearningAttachmentRef"][];
             /**
              * History
              * @default []
@@ -4074,6 +4190,11 @@ export interface components {
             /** Provider */
             provider: string;
             /**
+             * Sources
+             * @default []
+             */
+            sources: components["schemas"]["PersonalLearningSourceRef"][];
+            /**
              * Truncated
              * @default false
              */
@@ -4083,6 +4204,24 @@ export interface components {
              * @default 0
              */
             usage_tokens: number;
+        };
+        /** PersonalLearningSourceRef */
+        PersonalLearningSourceRef: {
+            /**
+             * Attachment Id
+             * Format: uuid
+             */
+            attachment_id: string;
+            /** Excerpt */
+            excerpt: string;
+            /** Page End */
+            page_end: number;
+            /** Page Start */
+            page_start: number;
+            /** Section Title */
+            section_title?: string | null;
+            /** Title */
+            title: string;
         };
         /** PersonalLearningTurn */
         PersonalLearningTurn: {
@@ -9303,6 +9442,184 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonalLearningResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    uploadPersonalLearningFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_uploadPersonalLearningFile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalLearningAttachment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    uploadPersonalLearningText: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonalLearningAttachmentTextRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalLearningAttachment"];
                 };
             };
             /** @description Unauthorized */

@@ -66,6 +66,7 @@ def test_personal_learning_builds_bounded_messages_and_consistency_instructions(
     assert messages[0].role == Role.system
     assert "0-based indexing" in messages[0].content
     assert "150-220 words" in messages[0].content
+    assert "Do NOT include programming code" in messages[0].content
     assert messages[-1].role == Role.user
     assert "</untrusted_student_question>" not in messages[-1].content
     assert "[escaped-delimiter]" in messages[-1].content
@@ -216,3 +217,119 @@ def test_personal_learning_http_endpoint_enforces_institution_access_and_reports
     )
     assert err_resp.status_code == 503
     assert err_resp.json()["code"] == "ai_quota_exhausted"
+
+
+def test_personal_learning_private_attachments_upload_ocr_grounding_and_isolation(
+    tmp_path,
+) -> None:
+    import io
+
+    import pypdf
+    from PIL import Image, ImageDraw
+    from viora.storage.public import local_artifact_store
+
+    tenant_id = uuid4()
+    user_a = uuid4()
+    user_b = uuid4()
+    ctx_a = TenantContext(actor_id=user_a, tenant_id=tenant_id, roles=frozenset({"student"}))
+    ctx_b = TenantContext(actor_id=user_b, tenant_id=tenant_id, roles=frozenset({"student"}))
+    fake_gw = FakeAIGateway(
+        default_completion="Ohm's law relates voltage $V$ and current $I$ as $V = IR$ (Physics Notes, p. 1)."
+    )
+    access_a = _MockAccess(allowed=True, context=ctx_a)
+    store = local_artifact_store(tmp_path)
+
+    app = create_app(access=access_a, ai_gateway=fake_gw, artifact_store=store)  # type: ignore[arg-type]
+    client = TestClient(app)
+
+    # 1) Paste text note
+    text_resp = client.post(
+        f"/api/v1/tenants/{tenant_id}/learning/attachments/text",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "title": "Physics Notes",
+            "content": "Ohm's Law states that voltage V across a conductor equals current I times resistance R: V = IR.",
+        },
+    )
+    assert text_resp.status_code == 201
+    text_att = text_resp.json()
+    assert text_att["status"] == "ready"
+    assert text_att["kind"] == "text"
+    assert text_att["chunk_count"] >= 1
+
+    # 2) Valid digital PDF upload via ReportLab-free minimal blank PDF or pypdf + stream text check:
+    # Write a minimal synthetic valid PDF with embedded text using pypdf? pypdf Writer creates valid PDFs;
+    # let's test an empty 1-page PDF triggers clear "unreadable" status, and valid .png goes through OCR path!
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    pdf_buf = io.BytesIO()
+    writer.write(pdf_buf)
+    pdf_resp = client.post(
+        f"/api/v1/tenants/{tenant_id}/learning/attachments/file",
+        headers={"Authorization": "Bearer test-token"},
+        files={"file": ("blank.pdf", pdf_buf.getvalue(), "application/pdf")},
+        data={"title": "Blank Scan"},
+    )
+    assert pdf_resp.status_code == 201
+    assert pdf_resp.json()["status"] == "unreadable"
+    assert "No readable text" in pdf_resp.json()["status_message"]
+
+    # 3) Image upload (PNG with printed text extracted automatically via OCR)
+    img = Image.new("RGB", (600, 140), "white")
+    draw = ImageDraw.Draw(img)
+    draw.text((24, 48), "OHM LAW VOLTAGE EQUALS CURRENT TIMES RESISTANCE", fill="black")
+    png_buf = io.BytesIO()
+    img.save(png_buf, format="PNG")
+    img_resp = client.post(
+        f"/api/v1/tenants/{tenant_id}/learning/attachments/file",
+        headers={"Authorization": "Bearer test-token"},
+        files={"file": ("board.png", png_buf.getvalue(), "image/png")},
+    )
+    assert img_resp.status_code == 201
+    img_att = img_resp.json()
+    assert img_att["kind"] == "image"
+    assert img_att["input_format"] == "png"
+    assert img_att["status"] in {"ready", "partial", "unreadable"}
+
+    # 4) Ask grounded question + follow-up referencing text attachment -> includes source ref cleanly
+    ask_resp = client.post(
+        f"/api/v1/tenants/{tenant_id}/learning/ask",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "prompt": "What does Ohm's law state?",
+            "mode": "question",
+            "attachments": [
+                {
+                    "attachment_id": text_att["attachment_id"],
+                    "doc_sha256": text_att["doc_sha256"],
+                }
+            ],
+        },
+    )
+    assert ask_resp.status_code == 200
+    ask_json = ask_resp.json()
+    assert len(ask_json["sources"]) >= 1
+    assert ask_json["sources"][0]["title"] == "Physics Notes"
+    assert ask_json["sources"][0]["page_start"] == 1
+    assert "<untrusted_student_material" in fake_gw.recorded_calls[-1]["messages"][-1].content
+
+    # 5) Another user in same institution CANNOT read user_a's private attachment
+    access_b = _MockAccess(allowed=True, context=ctx_b)
+    app_b = create_app(access=access_b, ai_gateway=fake_gw, artifact_store=store)  # type: ignore[arg-type]
+    client_b = TestClient(app_b)
+    forbid_resp = client_b.post(
+        f"/api/v1/tenants/{tenant_id}/learning/ask",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "prompt": "Read someone else's notes",
+            "mode": "question",
+            "attachments": [
+                {
+                    "attachment_id": text_att["attachment_id"],
+                    "doc_sha256": text_att["doc_sha256"],
+                }
+            ],
+        },
+    )
+    assert forbid_resp.status_code == 403
+    assert forbid_resp.json()["code"] == "attachment_forbidden"

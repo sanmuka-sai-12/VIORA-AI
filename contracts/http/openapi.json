@@ -908,6 +908,32 @@
         "title": "Body_registerFileSource",
         "type": "object"
       },
+      "Body_uploadPersonalLearningFile": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_uploadPersonalLearningFile",
+        "type": "object"
+      },
       "BoundingBox": {
         "additionalProperties": false,
         "properties": {
@@ -6000,9 +6026,182 @@
         "title": "Page[WorkflowJobSummary]",
         "type": "object"
       },
+      "PersonalLearningAttachment": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment_id": {
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "char_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Char Count",
+            "type": "integer"
+          },
+          "chunk_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "doc_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Doc Sha256",
+            "type": "string"
+          },
+          "input_format": {
+            "enum": [
+              "plain_text",
+              "typed_notes",
+              "topic_description",
+              "digital_pdf",
+              "scanned_pdf",
+              "png",
+              "jpeg"
+            ],
+            "title": "Input Format",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "pdf",
+              "image",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "original_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Filename"
+          },
+          "page_count": {
+            "default": 1,
+            "minimum": 0.0,
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "preview_excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Excerpt"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "partial",
+              "unreadable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_message": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Status Message",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "doc_sha256",
+          "title",
+          "kind",
+          "input_format",
+          "status",
+          "status_message",
+          "created_at"
+        ],
+        "title": "PersonalLearningAttachment",
+        "type": "object"
+      },
+      "PersonalLearningAttachmentRef": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment_id": {
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "doc_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Doc Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "doc_sha256"
+        ],
+        "title": "PersonalLearningAttachmentRef",
+        "type": "object"
+      },
+      "PersonalLearningAttachmentTextRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "PersonalLearningAttachmentTextRequest",
+        "type": "object"
+      },
       "PersonalLearningRequest": {
         "additionalProperties": false,
         "properties": {
+          "attachments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PersonalLearningAttachmentRef"
+            },
+            "maxItems": 5,
+            "title": "Attachments",
+            "type": "array"
+          },
           "history": {
             "default": [],
             "items": {
@@ -6065,6 +6264,14 @@
             "title": "Provider",
             "type": "string"
           },
+          "sources": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PersonalLearningSourceRef"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
           "truncated": {
             "default": false,
             "title": "Truncated",
@@ -6084,6 +6291,54 @@
           "provider"
         ],
         "title": "PersonalLearningResponse",
+        "type": "object"
+      },
+      "PersonalLearningSourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment_id": {
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "page_end": {
+            "minimum": 1.0,
+            "title": "Page End",
+            "type": "integer"
+          },
+          "page_start": {
+            "minimum": 1.0,
+            "title": "Page Start",
+            "type": "integer"
+          },
+          "section_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Title"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "title",
+          "page_start",
+          "page_end",
+          "excerpt"
+        ],
+        "title": "PersonalLearningSourceRef",
         "type": "object"
       },
       "PersonalLearningTurn": {
@@ -15089,6 +15344,242 @@
           }
         ],
         "summary": "Ask Personal Learning",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/learning/attachments/file": {
+      "post": {
+        "operationId": "uploadPersonalLearningFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_uploadPersonalLearningFile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalLearningAttachment"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Personal Learning File",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/learning/attachments/text": {
+      "post": {
+        "operationId": "uploadPersonalLearningText",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalLearningAttachmentTextRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalLearningAttachment"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Personal Learning Text",
         "tags": [
           "knowledge"
         ]

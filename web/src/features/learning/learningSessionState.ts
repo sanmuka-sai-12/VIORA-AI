@@ -1,12 +1,24 @@
-import type { LearningPromptMode } from "../../api/client";
+import type {
+  LearningPromptMode,
+  PersonalLearningAttachment,
+  PersonalLearningAttachmentRef,
+  PersonalLearningSourceRef,
+} from "../../api/client";
 import type { TenantController } from "../../tenant/tenantState";
+
+export interface LearningAttachmentEntry {
+  attachment: PersonalLearningAttachment;
+  included: boolean;
+}
 
 export interface LearningChatEntry {
   id: string;
   role: "user" | "assistant";
   content: string;
   mode?: LearningPromptMode;
+  attachedTitles?: string[];
   followUps?: string[];
+  sources?: PersonalLearningSourceRef[];
   truncated?: boolean;
 }
 
@@ -16,6 +28,25 @@ export interface LearningSessionSnapshot {
   mode: LearningPromptMode;
   prompt: string;
   messages: LearningChatEntry[];
+  attachments: LearningAttachmentEntry[];
+}
+
+export function toActiveAttachmentRefs(
+  entries: readonly LearningAttachmentEntry[],
+): PersonalLearningAttachmentRef[] {
+  return entries
+    .filter((item) => item.included && item.attachment.status !== "unreadable")
+    .slice(0, 5)
+    .map((item) => ({
+      attachment_id: item.attachment.attachment_id,
+      doc_sha256: item.attachment.doc_sha256,
+    }));
+}
+
+export function formatSourcePageLabel(source: PersonalLearningSourceRef): string {
+  return source.page_start === source.page_end
+    ? `p. ${source.page_start}`
+    : `pp. ${source.page_start}-${source.page_end}`;
 }
 
 export function learningSessionCacheKey(
@@ -61,5 +92,6 @@ export function clearLearningSession(
     mode: "question",
     prompt: "",
     messages: [],
+    attachments: [],
   } satisfies LearningSessionSnapshot);
 }

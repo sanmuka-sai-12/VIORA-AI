@@ -1191,6 +1191,43 @@ class LessonBlueprintApprovalState(Contract):
 
 
 LearningPromptMode = Literal["question", "explain"]
+PersonalLearningAttachmentStatus = Literal["ready", "partial", "unreadable"]
+PersonalLearningAttachmentKind = Literal["pdf", "image", "text"]
+
+
+class PersonalLearningAttachment(Contract):
+    attachment_id: UUID
+    doc_sha256: Digest
+    title: str = Field(min_length=1, max_length=200)
+    original_filename: str | None = None
+    kind: PersonalLearningAttachmentKind
+    input_format: SourceInputFormat
+    status: PersonalLearningAttachmentStatus
+    status_message: str = Field(min_length=1, max_length=300)
+    page_count: int = Field(default=1, ge=0)
+    chunk_count: int = Field(default=0, ge=0)
+    char_count: int = Field(default=0, ge=0)
+    preview_excerpt: str | None = None
+    created_at: datetime
+
+
+class PersonalLearningAttachmentRef(Contract):
+    attachment_id: UUID
+    doc_sha256: Digest
+
+
+class PersonalLearningAttachmentTextRequest(Contract):
+    title: str | None = Field(default=None, max_length=200)
+    content: str = Field(min_length=1, max_length=200_000)
+
+
+class PersonalLearningSourceRef(Contract):
+    attachment_id: UUID
+    title: str
+    page_start: int = Field(ge=1)
+    page_end: int = Field(ge=1)
+    section_title: str | None = None
+    excerpt: str
 
 
 class PersonalLearningTurn(Contract):
@@ -1202,6 +1239,9 @@ class PersonalLearningRequest(Contract):
     prompt: str = Field(min_length=1, max_length=2000)
     mode: LearningPromptMode = "question"
     history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
+    attachments: tuple[PersonalLearningAttachmentRef, ...] = Field(
+        default=(), max_length=5
+    )
 
 
 class PersonalLearningResponse(Contract):
@@ -1210,6 +1250,7 @@ class PersonalLearningResponse(Contract):
     model: str
     provider: str
     follow_up_prompts: tuple[str, ...] = ()
+    sources: tuple[PersonalLearningSourceRef, ...] = ()
     usage_tokens: int = Field(default=0, ge=0)
     truncated: bool = False
 

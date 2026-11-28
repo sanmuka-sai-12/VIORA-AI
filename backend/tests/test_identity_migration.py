@@ -21,7 +21,27 @@ REVISION = "0002_identity_academics"
 
 def test_identity_revision_follows_sources() -> None:
     history = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert history.get_heads() == ["0013_lesson_blueprints"]
+    assert history.get_heads() == ["0018_pl_practice_exams"]
+    assert (
+        history.get_revision("0018_pl_practice_exams").down_revision
+        == "0017_pl_flashcards_quizzes"
+    )
+    assert (
+        history.get_revision("0017_pl_flashcards_quizzes").down_revision
+        == "0016_pl_mind_maps"
+    )
+    assert (
+        history.get_revision("0016_pl_mind_maps").down_revision
+        == "0015_pl_study_resources"
+    )
+    assert (
+        history.get_revision("0015_pl_study_resources").down_revision
+        == "0014_personal_learning_history"
+    )
+    assert (
+        history.get_revision("0014_personal_learning_history").down_revision
+        == "0013_lesson_blueprints"
+    )
     assert (
         history.get_revision("0013_lesson_blueprints").down_revision
         == "0012_knowledge_retrieval_index"

@@ -729,7 +729,6 @@ def test_migration_0013_upgrade_downgrade_isolated_postgres() -> None:
             c.execute(CreateSchema(schema))
         command.upgrade(cfg, "0012_knowledge_retrieval_index")
         command.upgrade(cfg, "0013_lesson_blueprints")
-        command.check(cfg)
         with admin.connect() as c:
             c.execute(text(f"SET LOCAL search_path TO {schema}, public"))
             tables = set(
@@ -752,6 +751,8 @@ def test_migration_0013_upgrade_downgrade_isolated_postgres() -> None:
             assert len(rls_rows) == 2
             assert all(row[1] and row[2] for row in rls_rows)
 
+        command.upgrade(cfg, "head")
+        command.check(cfg)
         command.downgrade(cfg, "0012_knowledge_retrieval_index")
         with admin.connect() as c:
             tables_after_down = set(
@@ -763,7 +764,7 @@ def test_migration_0013_upgrade_downgrade_isolated_postgres() -> None:
             assert "lesson_blueprints" not in tables_after_down
             assert "lesson_blueprint_publications" not in tables_after_down
 
-        command.upgrade(cfg, "0013_lesson_blueprints")
+        command.upgrade(cfg, "head")
         command.check(cfg)
     finally:
         if prev_mig is None:

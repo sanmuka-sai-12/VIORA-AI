@@ -18,10 +18,6 @@ from ..ai.public import (
 )
 from ..contracts import ArtifactVersionRef, TenantContext
 from ..security import AccessError
-from ..sources.extraction import (
-    validate_and_sniff_text_input,
-    validate_and_sniff_upload,
-)
 from ..sources.public import (
     AdaptiveDocumentExtractor,
     DocumentExtractor,
@@ -30,6 +26,8 @@ from ..sources.public import (
     SourceIngestionLimits,
     SourceInputFormat,
     clamp_source_limits,
+    validate_and_sniff_text_input,
+    validate_and_sniff_upload,
 )
 from ..storage.public import ArtifactStore, StorageError
 from .chunking import chunk_extracted_document

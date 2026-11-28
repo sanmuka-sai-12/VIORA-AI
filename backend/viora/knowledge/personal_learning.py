@@ -12,7 +12,6 @@ from uuid import UUID, uuid4, uuid5
 from ..ai.public import (
     AIGateway,
     AIRequestConfig,
-    AIResponseFormatError,
     ChatMessage,
     CompletionResult,
     Role,
@@ -37,7 +36,7 @@ from .chunking import chunk_extracted_document
 from .mind_map import (
     MIND_MAP_SYSTEM_PROMPT,
     mind_map_to_markdown,
-    normalize_mind_map_payload,
+    parse_mind_map_response,
 )
 from .prompts import sanitize_untrusted_text
 from .schemas import (
@@ -53,7 +52,6 @@ from .schemas import (
     PersonalLearningResourceGenerateRequest,
     PersonalLearningResponse,
     PersonalLearningSourceRef,
-    RawMindMapPayload,
 )
 
 _MAX_HISTORY_CHARS = 7_500
@@ -867,21 +865,15 @@ class DirectAcademicLearning:
             sources=sources,
         )
         if request.tool_kind == "mind_map":
-            try:
-                structured = self.gateway.complete_structured(
-                    context,
-                    messages,
-                    RawMindMapPayload,
-                    config=self.request_config,
-                )
-            except AIResponseFormatError:
-                raise AccessError(
-                    422,
-                    "mind_map_incomplete",
-                    "The mind map output was incomplete or malformed. Try narrowing the focus topic or clicking Regenerate.",
-                ) from None
-            graph: MindMapGraph = normalize_mind_map_payload(structured.parsed)
-            max_tok = self.request_config.max_tokens or _MAX_OUTPUT_TOKENS
+            result = self.gateway.complete(
+                context,
+                messages,
+                config=self.request_config,
+            )
+            graph: MindMapGraph = parse_mind_map_response(
+                result.content,
+                finish_reason=result.finish_reason,
+            )
             return {
                 "tool_kind": request.tool_kind,
                 "source_scope": scope,
@@ -894,10 +886,10 @@ class DirectAcademicLearning:
                 "content": mind_map_to_markdown(graph),
                 "structured_data": graph.model_dump(mode="json"),
                 "sources": sources,
-                "model": structured.model,
-                "provider": structured.metadata.provider,
-                "usage_tokens": structured.usage.total_tokens,
-                "truncated": structured.usage.output_tokens >= max(1, max_tok - 12),
+                "model": result.model,
+                "provider": result.metadata.provider,
+                "usage_tokens": result.usage.total_tokens,
+                "truncated": False,
             }
 
         result = self.gateway.complete(

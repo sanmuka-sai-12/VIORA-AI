@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from viora.ai.public import (
     AIError,
-    AIResponseFormatError,
+    AIQuotaExhaustedError,
     ChatMessage,
     CompletionResult,
     FakeAIGateway,
@@ -29,6 +29,7 @@ from viora.knowledge.public import (
     build_personal_learning_messages,
     build_study_resource_messages,
     normalize_mind_map_payload,
+    parse_mind_map_response,
 )
 from viora.main import create_app
 from viora.security import AccessError
@@ -442,19 +443,49 @@ def test_mind_map_normalization_repairs_cycles_and_handles_malformed_ai_output()
     assert len(graph.nodes) == 3
     assert all(0 <= n.depth <= 4 for n in graph.nodes)
 
-    class _MalformedMapGateway(FakeAIGateway):
-        def complete_structured(self, context, messages, response_model, config=None):  # type: ignore[override]
-            raise AIResponseFormatError("Truncated JSON")
+    # Fenced JSON & prose-wrapped JSON parse cleanly via parse_mind_map_response
+    fenced = """Here is the mind map:
+```json
+{"title":"Binary Search","nodes":[{"id":"n1","parent_id":null,"label":"Binary Search","relation":null,"explanation":"Searches sorted array in O(log n).","key_formula":"O(\\\\log n)"},{"id":"n2","parent_id":"n1","label":"Midpoint","relation":"uses","explanation":"Splits range at middle index.","key_formula":null}]}
+```"""
+    parsed_fenced = parse_mind_map_response(fenced)
+    assert parsed_fenced.root_id == "n1"
+    assert len(parsed_fenced.nodes) == 2
 
-    learner = DirectAcademicLearning(_MalformedMapGateway())
+    # Truncated or malformed JSON raises clean 422 mind_map_incomplete
+    for bad_raw, finish in (
+        ('{"title":"X","nodes":[{"id":"n1","parent_id":null,"label":"A","explanation":"B"},{"id":"n2","parent_id":"n1","label":"C","explanation":"D"}]}', "length"),
+        ("```json\n{\"title\":\"Broken\"\n```", None),
+        ("Not json at all", None),
+    ):
+        with pytest.raises(AccessError) as exc_info:
+            parse_mind_map_response(bad_raw, finish_reason=finish)
+        assert exc_info.value.status == 422
+        assert exc_info.value.code == "mind_map_incomplete"
+
+    # DirectAcademicLearning uses gateway.complete (never complete_structured) and preserves AIQuotaExhaustedError
+    fenced_gw = FakeAIGateway(default_completion=fenced)
+    learner = DirectAcademicLearning(fenced_gw)
     ctx = TenantContext(actor_id=uuid4(), tenant_id=uuid4(), roles=frozenset({"student"}))
-    with pytest.raises(AccessError) as exc_info:
-        learner.generate_study_resource(
+    draft = learner.generate_study_resource(
+        context=ctx,
+        request=PersonalLearningResourceGenerateRequest(
+            tool_kind="mind_map",
+            topic="Binary Search",
+        ),
+    )
+    assert fenced_gw.recorded_calls[0]["method"] == "complete"
+    assert draft["structured_data"]["root_id"] == "n1"
+
+    class _QuotaGateway(FakeAIGateway):
+        def complete(self, context, messages, config=None):  # type: ignore[override]
+            raise AIQuotaExhaustedError("Daily free allocation exhausted")
+
+    with pytest.raises(AIQuotaExhaustedError):
+        DirectAcademicLearning(_QuotaGateway()).generate_study_resource(
             context=ctx,
             request=PersonalLearningResourceGenerateRequest(
                 tool_kind="mind_map",
                 topic="Binary Search",
             ),
         )
-    assert exc_info.value.status == 422
-    assert exc_info.value.code == "mind_map_incomplete"

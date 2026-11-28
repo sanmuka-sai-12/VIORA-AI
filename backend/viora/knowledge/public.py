@@ -34,7 +34,11 @@ from .indexing import (
     compute_chunk_content_sha256,
     compute_embedding_fingerprint,
 )
-from .mind_map import mind_map_to_markdown, normalize_mind_map_payload
+from .mind_map import (
+    mind_map_to_markdown,
+    normalize_mind_map_payload,
+    parse_mind_map_response,
+)
 from .personal_learning import (
     DirectAcademicLearning,
     PersonalLearningAttachmentService,
@@ -364,6 +368,7 @@ __all__ = [
     "mind_map_to_markdown",
     "normalize_concept_name",
     "normalize_mind_map_payload",
+    "parse_mind_map_response",
     "project_published_blueprint",
     "rebind_cached_knowledge_graph",
     "register_models",

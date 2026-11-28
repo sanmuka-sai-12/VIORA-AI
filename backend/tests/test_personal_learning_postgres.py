@@ -18,12 +18,11 @@ from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.schema import CreateSchema, DropSchema
-from viora.ai.public import FakeAIGateway
+from viora.ai.public import CompletionResult, FakeAIGateway
 from viora.config import AuthSettings, Settings
 from viora.database_roles import grant_application_privileges
 from viora.db import Database
 from viora.identity.public import AuthService, IdentityAttributeKind
-from viora.knowledge.public import RawMindMapNode, RawMindMapPayload
 from viora.main import create_app
 
 pytestmark = pytest.mark.postgres
@@ -181,39 +180,33 @@ def _seed_actors(
     )
 
 
+class _PersonalLearningFakeGateway(FakeAIGateway):
+    def complete(self, context, messages, config=None):  # type: ignore[override]
+        res = super().complete(context, messages, config)
+        if "mind map" in messages[0].content.lower():
+            mind_map_json = (
+                "```json\n"
+                '{"title":"Chain Rule Map","nodes":['
+                '{"id":"n1","parent_id":null,"label":"Chain Rule","relation":null,"explanation":"Differentiates composite functions f(g(x)).","key_formula":"\\\\frac{d}{dx}f(g(x)) = f\'(g(x))g\'(x)"},'
+                '{"id":"n2","parent_id":"n1","label":"Outer Derivative","relation":"step 1","explanation":"Differentiate outer function f keeping g(x) intact.","key_formula":null},'
+                '{"id":"n3","parent_id":"n1","label":"Inner Derivative","relation":"step 2","explanation":"Multiply by g\'(x).","key_formula":null}'
+                "]}\n```"
+            )
+            return CompletionResult(
+                content=mind_map_json,
+                model=res.model,
+                usage=res.usage,
+                metadata=res.metadata,
+                finish_reason="stop",
+            )
+        return res
+
+
 def test_personal_learning_persistence_library_resume_rename_delete_and_privacy(
     pg_env: _PgEnv,
 ) -> None:
-    fake_gw = FakeAIGateway(
-        default_completion="The chain rule differentiates outer then inner functions (Calculus Sheet, p. 1).",
-        structured_payloads={
-            RawMindMapPayload: RawMindMapPayload(
-                title="Chain Rule Map",
-                nodes=[
-                    RawMindMapNode(
-                        id="n1",
-                        parent_id=None,
-                        label="Chain Rule",
-                        explanation="Differentiates composite functions f(g(x)).",
-                        key_formula="\\frac{d}{dx}f(g(x)) = f'(g(x))g'(x)",
-                    ),
-                    RawMindMapNode(
-                        id="n2",
-                        parent_id="n1",
-                        label="Outer Derivative",
-                        relation="step 1",
-                        explanation="Differentiate outer function f keeping g(x) intact.",
-                    ),
-                    RawMindMapNode(
-                        id="n3",
-                        parent_id="n1",
-                        label="Inner Derivative",
-                        relation="step 2",
-                        explanation="Multiply by g'(x).",
-                    ),
-                ],
-            )
-        },
+    fake_gw = _PersonalLearningFakeGateway(
+        default_completion="The chain rule differentiates outer then inner functions (Calculus Sheet, p. 1)."
     )
     app = create_app(settings=pg_env.settings, database=pg_env.app_db, ai_gateway=fake_gw)
     actors = _seed_actors(

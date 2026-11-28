@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
+import json
+import re
+
+from pydantic import ValidationError
+
 from ..security import AccessError
 from .prompts import sanitize_untrusted_text
 from .schemas import MindMapGraph, MindMapNode, RawMindMapPayload
 
 MIND_MAP_SYSTEM_PROMPT = (
-    "You are VIORA, an academic tutor generating a compact, structured concept mind map in JSON.\n"
-    "Produce 7 to 13 concise nodes forming a clear hierarchy:\n"
-    "- Exactly ONE root node with parent_id = null.\n"
-    "- 2 to 4 main branches (depth 1) and helpful sub-concepts (depth 2-3).\n"
-    "- Keep each label short (2-5 words), relation concise (1-3 words), and explanation clear (1-2 sentences, <= 180 chars).\n"
-    "- Include key_formula only when mathematically relevant (clean LaTeX without outer $$).\n"
+    "You are VIORA, an academic tutor generating a compact concept mind map as raw JSON.\n"
+    "Return ONLY valid JSON (no markdown fences, no commentary) matching this exact shape:\n"
+    '{"title":"Topic","nodes":[{"id":"n1","parent_id":null,"label":"Root Concept","relation":null,"explanation":"Clear 1-sentence explanation.","key_formula":null},{"id":"n2","parent_id":"n1","label":"Subtopic","relation":"uses","explanation":"Clear 1-sentence explanation.","key_formula":"a^2+b^2=c^2"}]}\n'
+    "RULES:\n"
+    "- Produce 6 to 10 concise nodes so the entire JSON fits comfortably within 350 tokens.\n"
+    "- Exactly ONE root node with parent_id: null; 2 to 4 depth-1 branches and concise depth-2 children.\n"
+    "- Keep label 2-4 words, relation 1-3 words, explanation 1 concise sentence (<= 140 chars).\n"
+    "- Set key_formula to null unless mathematically relevant (clean LaTeX without outer $$).\n"
     "- Do NOT include executable code unless the topic is explicitly programming.\n"
     "- Ground concepts in the provided topic, conversation, and study material excerpts."
 )
+
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 
 
 def _clean_text(value: str | None, *, max_len: int) -> str:
@@ -137,3 +146,51 @@ def mind_map_to_markdown(graph: MindMapGraph) -> str:
     for root in children.get(None, ()):
         walk(root, 0)
     return "\n".join(lines)
+
+
+def _extract_json_text(raw_content: str) -> str:
+    text = raw_content.strip()
+    if not text:
+        return ""
+    fence_match = _FENCED_JSON_RE.search(text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+    return text
+
+
+def parse_mind_map_response(
+    raw_content: str,
+    *,
+    finish_reason: str | None = None,
+) -> MindMapGraph:
+    """Parse optional fenced JSON from complete(), validate schema, and normalize hierarchy."""
+    if finish_reason == "length":
+        raise AccessError(
+            422,
+            "mind_map_incomplete",
+            "The mind map output reached the response length limit before finishing. Try narrowing the focus topic or clicking Regenerate.",
+        )
+
+    json_text = _extract_json_text(raw_content)
+    if not json_text:
+        raise AccessError(
+            422,
+            "mind_map_incomplete",
+            "The mind map output was empty or malformed. Try narrowing the focus topic or clicking Regenerate.",
+        )
+
+    try:
+        parsed_obj = json.loads(json_text)
+        raw_payload = RawMindMapPayload.model_validate(parsed_obj)
+    except (json.JSONDecodeError, ValidationError):
+        raise AccessError(
+            422,
+            "mind_map_incomplete",
+            "The mind map output was incomplete or malformed. Try narrowing the focus topic or clicking Regenerate.",
+        ) from None
+
+    return normalize_mind_map_payload(raw_payload)

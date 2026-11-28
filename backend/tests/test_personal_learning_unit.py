@@ -29,7 +29,11 @@ from viora.knowledge.public import (
     build_personal_learning_messages,
     build_study_resource_messages,
     normalize_mind_map_payload,
+    parse_flashcards_response,
     parse_mind_map_response,
+    parse_practice_quiz_response,
+    project_student_safe_quiz,
+    score_practice_quiz,
 )
 from viora.main import create_app
 from viora.security import AccessError
@@ -489,3 +493,44 @@ def test_mind_map_normalization_repairs_cycles_and_handles_malformed_ai_output()
                 topic="Binary Search",
             ),
         )
+
+
+def test_flashcards_and_practice_quiz_parsing_rejection_and_answer_key_isolation() -> None:
+    import pytest
+
+    fenced_cards = """```json
+{"title":"Chain Rule Cards","cards":[{"front":"What is the chain rule?","back":"Derivative of f(g(x)) is f'(g(x))g'(x).","hint":"Outer then inner"},{"front":"Derivative of sin(2x)?","back":"2cos(2x).","hint":null}]}
+```"""
+    deck = parse_flashcards_response(fenced_cards)
+    assert deck.title == "Chain Rule Cards"
+    assert len(deck.cards) == 2
+    assert deck.cards[0].status == "unseen"
+
+    with pytest.raises(AccessError) as bad_cards_exc:
+        parse_flashcards_response('{"title":"X","cards":[]}', finish_reason="length")
+    assert bad_cards_exc.value.status == 422
+    assert bad_cards_exc.value.code == "flashcards_incomplete"
+
+    fenced_quiz = """```json
+{"title":"Derivatives Quiz","questions":[{"prompt":"What is d/dx(x^3)?","options":["3x^2","x^2","3x","x^4"],"correct_index":0,"explanation":"Apply power rule nx^(n-1)."},{"prompt":"What is d/dx(5)?","options":["5","1","0","x"],"correct_index":2,"explanation":"Derivative of a constant is 0."}]}
+```"""
+    raw_quiz = parse_practice_quiz_response(fenced_quiz, difficulty="hard")
+    safe_quiz = project_student_safe_quiz(raw_quiz)
+    assert safe_quiz.difficulty == "hard"
+    assert len(safe_quiz.questions) == 2
+    assert not hasattr(safe_quiz.questions[0], "correct_index")
+    assert not hasattr(safe_quiz.questions[0], "explanation")
+
+    attempt, updated_data = score_practice_quiz(raw_quiz, {"q1": 0, "q2": 1})
+    assert attempt.score == 1
+    assert attempt.total_questions == 2
+    assert attempt.percentage == 50
+    assert attempt.results[0].is_correct is True
+    assert attempt.results[1].is_correct is False
+    assert attempt.results[1].correct_index == 2
+    assert len(updated_data["attempts"]) == 1
+
+    with pytest.raises(AccessError) as bad_quiz_exc:
+        parse_practice_quiz_response("not valid json", difficulty="easy")
+    assert bad_quiz_exc.value.status == 422
+    assert bad_quiz_exc.value.code == "quiz_incomplete"

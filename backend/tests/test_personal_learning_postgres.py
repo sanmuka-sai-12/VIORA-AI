@@ -183,7 +183,8 @@ def _seed_actors(
 class _PersonalLearningFakeGateway(FakeAIGateway):
     def complete(self, context, messages, config=None):  # type: ignore[override]
         res = super().complete(context, messages, config)
-        if "mind map" in messages[0].content.lower():
+        sys_lower = messages[0].content.lower()
+        if "mind map" in sys_lower:
             mind_map_json = (
                 "```json\n"
                 '{"title":"Chain Rule Map","nodes":['
@@ -194,6 +195,36 @@ class _PersonalLearningFakeGateway(FakeAIGateway):
             )
             return CompletionResult(
                 content=mind_map_json,
+                model=res.model,
+                usage=res.usage,
+                metadata=res.metadata,
+                finish_reason="stop",
+            )
+        if "flashcards" in sys_lower:
+            cards_json = (
+                "```json\n"
+                '{"title":"Chain Rule Cards","cards":['
+                '{"front":"What is the Chain Rule?","back":"Differentiate outer f keeping g(x), then multiply by g\'(x).","hint":"Outer times inner"},'
+                '{"front":"What is d/dx sin(3x)?","back":"3cos(3x).","hint":"Inner derivative of 3x is 3"}'
+                "]}\n```"
+            )
+            return CompletionResult(
+                content=cards_json,
+                model=res.model,
+                usage=res.usage,
+                metadata=res.metadata,
+                finish_reason="stop",
+            )
+        if "practice quiz" in sys_lower:
+            quiz_json = (
+                "```json\n"
+                '{"title":"Chain Rule Quiz","questions":['
+                '{"prompt":"What is d/dx((2x+1)^2)?","options":["4(2x+1)","2(2x+1)","2x+1","8x"],"correct_index":0,"explanation":"Outer 2(2x+1) times inner derivative 2 equals 4(2x+1)."},'
+                '{"prompt":"In d/dx f(g(x)), what do we multiply by?","options":["f(x)","g(x)","g\'(x)","f\'(x)"],"correct_index":2,"explanation":"Multiply by the inner derivative g\'(x)."}'
+                "]}\n```"
+            )
+            return CompletionResult(
+                content=quiz_json,
                 model=res.model,
                 usage=res.usage,
                 metadata=res.metadata,
@@ -445,6 +476,84 @@ def test_personal_learning_persistence_library_resume_rename_delete_and_privacy(
                     ).status_code
                     == 200
                 )
+
+                # 6d) R3.3 Flashcards generation, known/unknown progress persistence, and privacy
+                fc_res = fresh_client.post(
+                    f"/api/v1/tenants/{actors.tenant}/learning/resources/generate",
+                    headers=_hdr(relogin_tok),
+                    json={
+                        "tool_kind": "flashcards",
+                        "session_id": sid,
+                        "topic": "Chain Rule",
+                        "attachment_ids": [att["attachment_id"]],
+                    },
+                )
+                assert fc_res.status_code == 200
+                fc_item = fc_res.json()
+                assert fc_item["tool_kind"] == "flashcards"
+                assert len(fc_item["flashcards"]["cards"]) == 2
+                assert len(fc_item["sources"]) >= 1
+
+                fc_prog = fresh_client.patch(
+                    f"/api/v1/tenants/{actors.tenant}/learning/resources/{fc_item['resource_id']}/flashcards",
+                    headers=_hdr(relogin_tok),
+                    json={"statuses": {"c1": "known", "c2": "unknown"}},
+                )
+                assert fc_prog.status_code == 200
+                assert fc_prog.json()["flashcards"]["cards"][0]["status"] == "known"
+                assert fc_prog.json()["flashcards"]["cards"][1]["status"] == "unknown"
+
+                # 6e) R3.3 Practice Quiz generation (no answer keys leaked), deterministic scoring, saved attempts & privacy
+                qz_res = fresh_client.post(
+                    f"/api/v1/tenants/{actors.tenant}/learning/resources/generate",
+                    headers=_hdr(relogin_tok),
+                    json={
+                        "tool_kind": "practice_quiz",
+                        "session_id": sid,
+                        "topic": "Chain Rule",
+                        "difficulty": "hard",
+                        "attachment_ids": [att["attachment_id"]],
+                    },
+                )
+                assert qz_res.status_code == 200
+                qz_item = qz_res.json()
+                assert qz_item["practice_quiz"]["difficulty"] == "hard"
+                assert "correct_index" not in qz_item["practice_quiz"]["questions"][0]
+                assert "explanation" not in qz_item["practice_quiz"]["questions"][0]
+
+                # Other student cannot submit or mutate student 1's quiz or flashcards
+                assert (
+                    fresh_client.post(
+                        f"/api/v1/tenants/{actors.tenant}/learning/resources/{qz_item['resource_id']}/quiz/submit",
+                        headers=_hdr(actors.student2_token),
+                        json={"answers": {"q1": 0, "q2": 2}},
+                    ).status_code
+                    == 404
+                )
+
+                sub_res = fresh_client.post(
+                    f"/api/v1/tenants/{actors.tenant}/learning/resources/{qz_item['resource_id']}/quiz/submit",
+                    headers=_hdr(relogin_tok),
+                    json={"answers": {"q1": 0, "q2": 1}},
+                )
+                assert sub_res.status_code == 200
+                attempt = sub_res.json()
+                assert attempt["score"] == 1
+                assert attempt["total_questions"] == 2
+                assert attempt["percentage"] == 50
+                assert attempt["results"][1]["is_correct"] is False
+                assert attempt["results"][1]["correct_index"] == 2
+
+                # Saved attempt persists when session is reopened
+                reopened_r33 = fresh_client.get(
+                    f"/api/v1/tenants/{actors.tenant}/learning/sessions/{sid}",
+                    headers=_hdr(relogin_tok),
+                ).json()
+                quiz_reopened = next(
+                    r for r in reopened_r33["resources"] if r["tool_kind"] == "practice_quiz"
+                )
+                assert len(quiz_reopened["practice_quiz"]["attempts"]) == 1
+                assert quiz_reopened["practice_quiz"]["attempts"][0]["score"] == 1
 
                 # 7) Delete material detaches it from session; delete session removes it from history
                 assert (

@@ -793,7 +793,7 @@ class PersonalLearningStudyResourceModel(Base):
     __tablename__ = "personal_learning_study_resources"
     __table_args__ = (
         CheckConstraint(
-            "tool_kind IN ('study_notes', 'academic_insights', 'mind_map')",
+            "tool_kind IN ('study_notes', 'academic_insights', 'mind_map', 'flashcards', 'practice_quiz')",
             name="ck_pl_resources_tool_kind",
         ),
         CheckConstraint(

@@ -2830,6 +2830,97 @@
         "title": "FigureReference",
         "type": "object"
       },
+      "FlashcardDeck": {
+        "additionalProperties": false,
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/FlashcardItem"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "cards"
+        ],
+        "title": "FlashcardDeck",
+        "type": "object"
+      },
+      "FlashcardItem": {
+        "additionalProperties": false,
+        "properties": {
+          "back": {
+            "title": "Back",
+            "type": "string"
+          },
+          "card_id": {
+            "title": "Card Id",
+            "type": "string"
+          },
+          "front": {
+            "title": "Front",
+            "type": "string"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "status": {
+            "default": "unseen",
+            "enum": [
+              "unseen",
+              "known",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "card_id",
+          "front",
+          "back"
+        ],
+        "title": "FlashcardItem",
+        "type": "object"
+      },
+      "FlashcardProgressUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "statuses": {
+            "additionalProperties": {
+              "enum": [
+                "unseen",
+                "known",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "maxProperties": 20,
+            "minProperties": 1,
+            "title": "Statuses",
+            "type": "object"
+          }
+        },
+        "required": [
+          "statuses"
+        ],
+        "title": "FlashcardProgressUpdateRequest",
+        "type": "object"
+      },
       "FormulaReference": {
         "additionalProperties": false,
         "properties": {
@@ -6551,6 +6642,16 @@
             "title": "Attachments",
             "type": "array"
           },
+          "difficulty": {
+            "default": "medium",
+            "enum": [
+              "easy",
+              "medium",
+              "hard"
+            ],
+            "title": "Difficulty",
+            "type": "string"
+          },
           "history": {
             "default": [],
             "items": {
@@ -6593,7 +6694,9 @@
             "enum": [
               "study_notes",
               "academic_insights",
-              "mind_map"
+              "mind_map",
+              "flashcards",
+              "practice_quiz"
             ],
             "title": "Tool Kind",
             "type": "string"
@@ -6981,6 +7084,16 @@
             "title": "Created At",
             "type": "string"
           },
+          "flashcards": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlashcardDeck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "focus_topic": {
             "anyOf": [
               {
@@ -7005,6 +7118,16 @@
           "model": {
             "title": "Model",
             "type": "string"
+          },
+          "practice_quiz": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PracticeQuizData"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "provider": {
             "title": "Provider",
@@ -7057,7 +7180,9 @@
             "enum": [
               "study_notes",
               "academic_insights",
-              "mind_map"
+              "mind_map",
+              "flashcards",
+              "practice_quiz"
             ],
             "title": "Tool Kind",
             "type": "string"
@@ -7117,6 +7242,164 @@
           "content"
         ],
         "title": "PersonalLearningTurn",
+        "type": "object"
+      },
+      "PracticeQuizAttemptRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "percentage": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Percentage",
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/PracticeQuizQuestionResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "total_questions": {
+            "minimum": 1.0,
+            "title": "Total Questions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "score",
+          "total_questions",
+          "percentage",
+          "submitted_at",
+          "results"
+        ],
+        "title": "PracticeQuizAttemptRecord",
+        "type": "object"
+      },
+      "PracticeQuizData": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PracticeQuizAttemptRecord"
+            },
+            "title": "Attempts",
+            "type": "array"
+          },
+          "difficulty": {
+            "enum": [
+              "easy",
+              "medium",
+              "hard"
+            ],
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/StudentSafeQuizQuestion"
+            },
+            "title": "Questions",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "difficulty",
+          "questions"
+        ],
+        "title": "PracticeQuizData",
+        "type": "object"
+      },
+      "PracticeQuizQuestionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "correct_index": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Correct Index",
+            "type": "integer"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "is_correct": {
+            "title": "Is Correct",
+            "type": "boolean"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          },
+          "selected_index": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Selected Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "question_id",
+          "prompt",
+          "options",
+          "selected_index",
+          "correct_index",
+          "is_correct",
+          "explanation"
+        ],
+        "title": "PracticeQuizQuestionResult",
+        "type": "object"
+      },
+      "PracticeQuizSubmitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "answers": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "maxProperties": 12,
+            "minProperties": 1,
+            "title": "Answers",
+            "type": "object"
+          }
+        },
+        "required": [
+          "answers"
+        ],
+        "title": "PracticeQuizSubmitRequest",
         "type": "object"
       },
       "PrerequisiteAnalysis": {
@@ -9889,6 +10172,34 @@
           "interpretation_label"
         ],
         "title": "StudentSafeAssessmentItem",
+        "type": "object"
+      },
+      "StudentSafeQuizQuestion": {
+        "additionalProperties": false,
+        "description": "Student-facing quiz question with server-held answer keys stripped.",
+        "properties": {
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "prompt",
+          "options"
+        ],
+        "title": "StudentSafeQuizQuestion",
         "type": "object"
       },
       "StudentSummary": {
@@ -16807,6 +17118,262 @@
           }
         ],
         "summary": "Delete Personal Learning Resource",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/flashcards": {
+      "patch": {
+        "operationId": "updatePersonalLearningFlashcards",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Resource Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlashcardProgressUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalLearningStudyResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Personal Learning Flashcards",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/quiz/submit": {
+      "post": {
+        "operationId": "submitPersonalLearningQuiz",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Resource Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PracticeQuizSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeQuizAttemptRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Submit Personal Learning Quiz",
         "tags": [
           "knowledge"
         ]

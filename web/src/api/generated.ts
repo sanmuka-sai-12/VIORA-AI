@@ -662,6 +662,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/flashcards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Personal Learning Flashcards */
+        patch: operations["updatePersonalLearningFlashcards"];
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/quiz/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Personal Learning Quiz */
+        post: operations["submitPersonalLearningQuiz"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/learning/sessions": {
         parameters: {
             query?: never;
@@ -2845,6 +2879,37 @@ export interface components {
             /** Section Id */
             section_id?: string | null;
         };
+        /** FlashcardDeck */
+        FlashcardDeck: {
+            /** Cards */
+            cards: components["schemas"]["FlashcardItem"][];
+            /** Title */
+            title: string;
+        };
+        /** FlashcardItem */
+        FlashcardItem: {
+            /** Back */
+            back: string;
+            /** Card Id */
+            card_id: string;
+            /** Front */
+            front: string;
+            /** Hint */
+            hint?: string | null;
+            /**
+             * Status
+             * @default unseen
+             * @enum {string}
+             */
+            status: "unseen" | "known" | "unknown";
+        };
+        /** FlashcardProgressUpdateRequest */
+        FlashcardProgressUpdateRequest: {
+            /** Statuses */
+            statuses: {
+                [key: string]: "unseen" | "known" | "unknown";
+            };
+        };
         /** FormulaReference */
         FormulaReference: {
             bbox?: components["schemas"]["BoundingBox"] | null;
@@ -4415,6 +4480,12 @@ export interface components {
              */
             attachments: components["schemas"]["PersonalLearningAttachmentRef"][];
             /**
+             * Difficulty
+             * @default medium
+             * @enum {string}
+             */
+            difficulty: "easy" | "medium" | "hard";
+            /**
              * History
              * @default []
              */
@@ -4432,7 +4503,7 @@ export interface components {
              * Tool Kind
              * @enum {string}
              */
-            tool_kind: "study_notes" | "academic_insights" | "mind_map";
+            tool_kind: "study_notes" | "academic_insights" | "mind_map" | "flashcards" | "practice_quiz";
             /** Topic */
             topic?: string | null;
         };
@@ -4600,11 +4671,13 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            flashcards?: components["schemas"]["FlashcardDeck"] | null;
             /** Focus Topic */
             focus_topic?: string | null;
             mind_map?: components["schemas"]["MindMapGraph"] | null;
             /** Model */
             model: string;
+            practice_quiz?: components["schemas"]["PracticeQuizData"] | null;
             /** Provider */
             provider: string;
             /**
@@ -4635,7 +4708,7 @@ export interface components {
              * Tool Kind
              * @enum {string}
              */
-            tool_kind: "study_notes" | "academic_insights" | "mind_map";
+            tool_kind: "study_notes" | "academic_insights" | "mind_map" | "flashcards" | "practice_quiz";
             /**
              * Truncated
              * @default false
@@ -4661,6 +4734,68 @@ export interface components {
              * @enum {string}
              */
             role: "user" | "assistant";
+        };
+        /** PracticeQuizAttemptRecord */
+        PracticeQuizAttemptRecord: {
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            attempt_id: string;
+            /** Percentage */
+            percentage: number;
+            /** Results */
+            results: components["schemas"]["PracticeQuizQuestionResult"][];
+            /** Score */
+            score: number;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /** Total Questions */
+            total_questions: number;
+        };
+        /** PracticeQuizData */
+        PracticeQuizData: {
+            /**
+             * Attempts
+             * @default []
+             */
+            attempts: components["schemas"]["PracticeQuizAttemptRecord"][];
+            /**
+             * Difficulty
+             * @enum {string}
+             */
+            difficulty: "easy" | "medium" | "hard";
+            /** Questions */
+            questions: components["schemas"]["StudentSafeQuizQuestion"][];
+            /** Title */
+            title: string;
+        };
+        /** PracticeQuizQuestionResult */
+        PracticeQuizQuestionResult: {
+            /** Correct Index */
+            correct_index: number;
+            /** Explanation */
+            explanation: string;
+            /** Is Correct */
+            is_correct: boolean;
+            /** Options */
+            options: string[];
+            /** Prompt */
+            prompt: string;
+            /** Question Id */
+            question_id: string;
+            /** Selected Index */
+            selected_index: number;
+        };
+        /** PracticeQuizSubmitRequest */
+        PracticeQuizSubmitRequest: {
+            /** Answers */
+            answers: {
+                [key: string]: number;
+            };
         };
         /**
          * PrerequisiteAnalysis
@@ -5825,6 +5960,18 @@ export interface components {
             question_type: "mcq" | "short_answer" | "concept_check";
             /** Stem */
             stem: string;
+        };
+        /**
+         * StudentSafeQuizQuestion
+         * @description Student-facing quiz question with server-held answer keys stripped.
+         */
+        StudentSafeQuizQuestion: {
+            /** Options */
+            options: string[];
+            /** Prompt */
+            prompt: string;
+            /** Question Id */
+            question_id: string;
         };
         /** StudentSummary */
         StudentSummary: {
@@ -10397,6 +10544,186 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonalLearningDeleteResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updatePersonalLearningFlashcards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                resource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FlashcardProgressUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalLearningStudyResource"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    submitPersonalLearningQuiz: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                resource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PracticeQuizSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeQuizAttemptRecord"];
                 };
             };
             /** @description Unauthorized */

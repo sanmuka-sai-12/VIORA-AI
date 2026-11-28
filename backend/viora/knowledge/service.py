@@ -37,6 +37,7 @@ from .retrieval import HybridKnowledgeRetriever
 from .schemas import (
     ConceptExtractionRecord,
     ConceptExtractionTriggerResult,
+    FlashcardProgressUpdateRequest,
     KnowledgeIndexStatus,
     KnowledgeIndexTriggerResult,
     KnowledgePublicationState,
@@ -63,6 +64,8 @@ from .schemas import (
     PersonalLearningSessionSummary,
     PersonalLearningSessionUpdateRequest,
     PersonalLearningStudyResource,
+    PracticeQuizAttemptRecord,
+    PracticeQuizSubmitRequest,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -1187,6 +1190,46 @@ class ConceptKnowledgeService:
                 scope.context, resource_id
             )
             return PersonalLearningDeleteResult(deleted=True)
+
+    def update_personal_learning_flashcards(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        resource_id: UUID,
+        req: FlashcardProgressUpdateRequest,
+    ) -> PersonalLearningStudyResource:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning resources require database persistence",
+                )
+            return SqlPersonalLearningRepository(
+                scope.session
+            ).update_flashcard_progress(scope.context, resource_id, req.statuses)
+
+    def submit_personal_learning_quiz(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        resource_id: UUID,
+        req: PracticeQuizSubmitRequest,
+    ) -> PracticeQuizAttemptRecord:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning quizzes require database persistence",
+                )
+            return SqlPersonalLearningRepository(
+                scope.session
+            ).submit_practice_quiz(scope.context, resource_id, req.answers)
 
     def trigger_lesson_blueprint(
         self,

@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type {
+  FlashcardStatus,
   LearningPromptMode,
   LearningToolKind,
   PersonalLearningAttachment,
@@ -15,10 +16,14 @@ import type {
   PersonalLearningSessionSummary,
   PersonalLearningStudyResource,
   PersonalLearningTurn,
+  PracticeQuizAttemptRecord,
+  QuizDifficulty,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { RichAcademicContent } from "../../components/common/RichAcademicContent";
+import { FlashcardDeckViewer } from "../../components/learning/FlashcardDeckViewer";
 import { MindMapViewer } from "../../components/learning/MindMapViewer";
+import { PracticeQuizViewer } from "../../components/learning/PracticeQuizViewer";
 import {
   AlertBanner,
   PageHeader,
@@ -154,6 +159,7 @@ export function StudentLearningPage() {
     null,
   );
   const [toolTopic, setToolTopic] = useState("");
+  const [quizDifficulty, setQuizDifficulty] = useState<QuizDifficulty>("medium");
   const [copiedResourceId, setCopiedResourceId] = useState<string | null>(null);
   const [uploadingLabel, setUploadingLabel] = useState<string | null>(null);
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
@@ -560,6 +566,7 @@ export function StudentLearningPage() {
             tool_kind: toolKind,
             session_id: sessionId,
             topic: focusTopic || null,
+            difficulty: quizDifficulty,
             include_conversation: messages.length > 0,
             history: buildHistory(messages),
             attachments: activeAttachmentRefs,
@@ -572,7 +579,11 @@ export function StudentLearningPage() {
           ? "Could not generate Study Notes right now."
           : toolKind === "academic_insights"
             ? "Could not generate Academic Insights right now."
-            : "Could not generate a complete Mind Map right now. Try narrowing the focus topic.",
+            : toolKind === "mind_map"
+              ? "Could not generate a complete Mind Map right now. Try narrowing the focus topic."
+              : toolKind === "flashcards"
+                ? "Could not generate Flashcards right now. Try narrowing the focus topic."
+                : "Could not generate Practice Quiz right now. Try narrowing the focus topic.",
       onSuccess: (created) => {
         setSessionId(created.session_id);
         if (created.session_title) {
@@ -590,6 +601,62 @@ export function StudentLearningPage() {
       },
     });
     setGeneratingTool(null);
+  };
+
+  const handleUpdateFlashcards = async (
+    resourceId: string,
+    statuses: Record<string, FlashcardStatus>,
+  ) => {
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.PATCH(
+          "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/flashcards",
+          {
+            params: { path: { tenant_id: tenantId, resource_id: resourceId } },
+            body: { statuses },
+          },
+        ),
+      fallbackError: "Could not save flashcard progress.",
+      onSuccess: (updated) => {
+        setResources((prev) =>
+          prev.map((r) => (r.resource_id === resourceId ? updated : r)),
+        );
+      },
+    });
+  };
+
+  const handleSubmitQuiz = async (
+    resourceId: string,
+    answers: Record<string, number>,
+  ): Promise<PracticeQuizAttemptRecord | null> => {
+    let attemptOut: PracticeQuizAttemptRecord | null = null;
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.POST(
+          "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}/quiz/submit",
+          {
+            params: { path: { tenant_id: tenantId, resource_id: resourceId } },
+            body: { answers },
+          },
+        ),
+      fallbackError: "Could not score quiz attempt.",
+      onSuccess: (attempt) => {
+        attemptOut = attempt;
+        setResources((prev) =>
+          prev.map((r) => {
+            if (r.resource_id !== resourceId || !r.practice_quiz) return r;
+            return {
+              ...r,
+              practice_quiz: {
+                ...r.practice_quiz,
+                attempts: [attempt, ...r.practice_quiz.attempts],
+              },
+            };
+          }),
+        );
+      },
+    });
+    return attemptOut;
   };
 
   const handleCopyResource = async (resource: PersonalLearningStudyResource) => {
@@ -916,7 +983,7 @@ export function StudentLearningPage() {
               className={`viora-rail-tab${workspaceTab === "resources" ? " is-active" : ""}`}
               onClick={() => setWorkspaceTab("resources")}
             >
-              Study Notes, Insights &amp; Maps ({resources.length})
+              Study Tools ({resources.length})
             </button>
           </div>
 
@@ -989,6 +1056,54 @@ export function StudentLearningPage() {
             >
               {generatingTool === "mind_map" ? "Mapping..." : "Mind Map"}
             </button>
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm"
+              disabled={
+                !canGenerateResource ||
+                busy ||
+                Boolean(generatingTool) ||
+                Boolean(uploadingLabel)
+              }
+              title={
+                canGenerateResource
+                  ? "Generate interactive revision Flashcards from your topic, conversation, or attached materials"
+                  : "Enter a topic, ask a question, or attach material first"
+              }
+              onClick={() => void handleGenerateResource("flashcards")}
+            >
+              {generatingTool === "flashcards" ? "Building..." : "Flashcards"}
+            </button>
+            <select
+              aria-label="Practice quiz difficulty"
+              className="viora-select"
+              style={{ width: "auto", padding: "0.28rem 0.5rem", fontSize: "0.78rem" }}
+              value={quizDifficulty}
+              disabled={busy || Boolean(generatingTool) || Boolean(uploadingLabel)}
+              onChange={(e) => setQuizDifficulty(e.target.value as QuizDifficulty)}
+            >
+              <option value="easy">Easy Quiz</option>
+              <option value="medium">Medium Quiz</option>
+              <option value="hard">Hard Quiz</option>
+            </select>
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm"
+              disabled={
+                !canGenerateResource ||
+                busy ||
+                Boolean(generatingTool) ||
+                Boolean(uploadingLabel)
+              }
+              title={
+                canGenerateResource
+                  ? "Generate a multiple-choice Practice Quiz from your topic, conversation, or attached materials"
+                  : "Enter a topic, ask a question, or attach material first"
+              }
+              onClick={() => void handleGenerateResource("practice_quiz")}
+            >
+              {generatingTool === "practice_quiz" ? "Creating Quiz..." : "Practice Quiz"}
+            </button>
           </div>
         </div>
 
@@ -1003,7 +1118,11 @@ export function StudentLearningPage() {
                   ? "Generating structured Study Notes (concepts, definitions, formulas, summary)..."
                   : generatingTool === "academic_insights"
                     ? "Generating Academic Insights (key takeaways, pitfalls, exam points)..."
-                    : "Building interactive concept Mind Map..."}
+                    : generatingTool === "mind_map"
+                      ? "Building interactive concept Mind Map..."
+                      : generatingTool === "flashcards"
+                        ? "Creating interactive revision Flashcards..."
+                        : `Creating ${quizDifficulty} Practice Quiz...`}
               </span>
             </div>
           </div>
@@ -1037,13 +1156,24 @@ export function StudentLearningPage() {
                     </h3>
                     <div className="viora-row" style={{ marginTop: "0.3rem", flexWrap: "wrap" }}>
                       <StatusBadge
-                        tone={res.tool_kind === "study_notes" || res.tool_kind === "mind_map" ? "brand" : "neutral"}
+                        tone={
+                          res.tool_kind === "study_notes" ||
+                          res.tool_kind === "mind_map" ||
+                          res.tool_kind === "flashcards" ||
+                          res.tool_kind === "practice_quiz"
+                            ? "brand"
+                            : "neutral"
+                        }
                       >
                         {res.tool_kind === "study_notes"
                           ? "Study Notes"
                           : res.tool_kind === "academic_insights"
                             ? "Academic Insights"
-                            : "Mind Map"}
+                            : res.tool_kind === "mind_map"
+                              ? "Mind Map"
+                              : res.tool_kind === "flashcards"
+                                ? "Flashcards"
+                                : "Practice Quiz"}
                       </StatusBadge>
                       <StatusBadge tone="neutral">
                         {formatResourceScope(res.source_scope)}
@@ -1102,6 +1232,22 @@ export function StudentLearningPage() {
 
                 {res.tool_kind === "mind_map" && res.mind_map ? (
                   <MindMapViewer graph={res.mind_map} />
+                ) : res.tool_kind === "flashcards" && res.flashcards ? (
+                  <FlashcardDeckViewer
+                    deck={res.flashcards}
+                    busy={busy || Boolean(generatingTool)}
+                    onUpdateStatuses={(statuses) =>
+                      handleUpdateFlashcards(res.resource_id, statuses)
+                    }
+                  />
+                ) : res.tool_kind === "practice_quiz" && res.practice_quiz ? (
+                  <PracticeQuizViewer
+                    quiz={res.practice_quiz}
+                    busy={busy || Boolean(generatingTool)}
+                    onSubmitAnswers={(answers) =>
+                      handleSubmitQuiz(res.resource_id, answers)
+                    }
+                  />
                 ) : (
                   <RichAcademicContent content={res.content} />
                 )}

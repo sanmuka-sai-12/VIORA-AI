@@ -79,6 +79,12 @@ export type PersonalLearningStudyResource =
   ApiSchema<"PersonalLearningStudyResource">;
 export type MindMapGraph = ApiSchema<"MindMapGraph">;
 export type MindMapNode = ApiSchema<"MindMapNode">;
+export type FlashcardDeck = ApiSchema<"FlashcardDeck">;
+export type FlashcardItem = ApiSchema<"FlashcardItem">;
+export type FlashcardStatus = FlashcardItem["status"];
+export type PracticeQuizData = ApiSchema<"PracticeQuizData">;
+export type PracticeQuizAttemptRecord = ApiSchema<"PracticeQuizAttemptRecord">;
+export type QuizDifficulty = PracticeQuizData["difficulty"];
 export type PersonalLearningResourceGenerateRequest =
   ApiSchema<"PersonalLearningResourceGenerateRequest">;
 export type LearningToolKind = PersonalLearningStudyResource["tool_kind"];

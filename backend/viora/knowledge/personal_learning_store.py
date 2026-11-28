@@ -18,6 +18,8 @@ from .models import (
     PersonalLearningStudyResourceModel,
 )
 from .schemas import (
+    FlashcardDeck,
+    FlashcardStatus,
     LearningPromptMode,
     LearningResourceSourceScope,
     LearningToolKind,
@@ -31,7 +33,9 @@ from .schemas import (
     PersonalLearningSourceRef,
     PersonalLearningStudyResource,
     PersonalLearningTurn,
+    PracticeQuizAttemptRecord,
 )
+from .study_tools import project_student_safe_quiz, score_practice_quiz
 
 
 def derive_session_title(prompt: str, *, max_len: int = 72) -> str:
@@ -85,8 +89,15 @@ def _resource_dto(
     session_title: str | None = None,
 ) -> PersonalLearningStudyResource:
     parsed_map: MindMapGraph | None = None
-    if row.structured_data and row.tool_kind == "mind_map":
-        parsed_map = MindMapGraph(**row.structured_data)
+    parsed_flashcards: FlashcardDeck | None = None
+    parsed_quiz = None
+    if row.structured_data:
+        if row.tool_kind == "mind_map":
+            parsed_map = MindMapGraph(**row.structured_data)
+        elif row.tool_kind == "flashcards":
+            parsed_flashcards = FlashcardDeck(**row.structured_data)
+        elif row.tool_kind == "practice_quiz":
+            parsed_quiz = project_student_safe_quiz(row.structured_data)
     return PersonalLearningStudyResource(
         resource_id=row.resource_id,
         session_id=row.session_id,
@@ -97,6 +108,8 @@ def _resource_dto(
         focus_topic=row.focus_topic,
         content=row.content,
         mind_map=parsed_map,
+        flashcards=parsed_flashcards,
+        practice_quiz=parsed_quiz,
         sources=tuple(
             PersonalLearningSourceRef(**src) for src in (row.sources or ())
         ),
@@ -665,3 +678,62 @@ class SqlPersonalLearningRepository:
         row.updated_at = datetime.now(UTC)
         self.session.flush()
         return True
+
+    def _require_study_resource(
+        self, context: TenantContext, resource_id: UUID, *, expected_kind: LearningToolKind
+    ) -> PersonalLearningStudyResourceModel:
+        row = self.session.scalar(
+            select(PersonalLearningStudyResourceModel).where(
+                PersonalLearningStudyResourceModel.tenant_id == context.tenant_id,
+                PersonalLearningStudyResourceModel.owner_user_id == context.actor_id,
+                PersonalLearningStudyResourceModel.resource_id == resource_id,
+                PersonalLearningStudyResourceModel.deleted_at.is_(None),
+            )
+        )
+        if row is None or row.tool_kind != expected_kind or not row.structured_data:
+            raise AccessError(
+                404,
+                "study_resource_not_found",
+                "Requested study resource was not found",
+            )
+        return row
+
+    def update_flashcard_progress(
+        self,
+        context: TenantContext,
+        resource_id: UUID,
+        statuses: dict[str, FlashcardStatus],
+    ) -> PersonalLearningStudyResource:
+        row = self._require_study_resource(
+            context, resource_id, expected_kind="flashcards"
+        )
+        data = dict(row.structured_data or {})
+        updated_cards: list[dict] = []
+        for card in data.get("cards", ()):
+            c = dict(card)
+            cid = str(c.get("card_id", ""))
+            if cid in statuses:
+                c["status"] = statuses[cid]
+            updated_cards.append(c)
+        data["cards"] = updated_cards
+        row.structured_data = data
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        return _resource_dto(row)
+
+    def submit_practice_quiz(
+        self,
+        context: TenantContext,
+        resource_id: UUID,
+        answers: dict[str, int],
+    ) -> PracticeQuizAttemptRecord:
+        row = self._require_study_resource(
+            context, resource_id, expected_kind="practice_quiz"
+        )
+        attempt, updated_data = score_practice_quiz(
+            dict(row.structured_data or {}), answers
+        )
+        row.structured_data = updated_data
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        return attempt

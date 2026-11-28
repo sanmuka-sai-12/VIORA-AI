@@ -1191,7 +1191,15 @@ class LessonBlueprintApprovalState(Contract):
 
 
 LearningPromptMode = Literal["question", "explain"]
-LearningToolKind = Literal["study_notes", "academic_insights", "mind_map"]
+LearningToolKind = Literal[
+    "study_notes",
+    "academic_insights",
+    "mind_map",
+    "flashcards",
+    "practice_quiz",
+]
+QuizDifficulty = Literal["easy", "medium", "hard"]
+FlashcardStatus = Literal["unseen", "known", "unknown"]
 LearningResourceSourceScope = Literal["topic", "conversation", "materials", "combined"]
 PersonalLearningAttachmentStatus = Literal["ready", "partial", "unreadable"]
 PersonalLearningAttachmentKind = Literal["pdf", "image", "text"]
@@ -1319,6 +1327,92 @@ class MindMapGraph(Contract):
     nodes: tuple[MindMapNode, ...]
 
 
+class RawFlashcardItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    front: str = Field(min_length=1, max_length=160)
+    back: str = Field(min_length=1, max_length=260)
+    hint: str | None = Field(default=None, max_length=120)
+
+
+class RawFlashcardsPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=120)
+    cards: list[RawFlashcardItem] = Field(min_length=2, max_length=10)
+
+
+class FlashcardItem(Contract):
+    card_id: str
+    front: str
+    back: str
+    hint: str | None = None
+    status: FlashcardStatus = "unseen"
+
+
+class FlashcardDeck(Contract):
+    title: str
+    cards: tuple[FlashcardItem, ...]
+
+
+class FlashcardProgressUpdateRequest(Contract):
+    statuses: dict[str, FlashcardStatus] = Field(min_length=1, max_length=20)
+
+
+class RawPracticeQuizQuestion(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    prompt: str = Field(min_length=1, max_length=240)
+    options: list[str] = Field(min_length=4, max_length=4)
+    correct_index: int = Field(ge=0, le=3)
+    explanation: str = Field(min_length=1, max_length=260)
+
+
+class RawPracticeQuizPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=120)
+    questions: list[RawPracticeQuizQuestion] = Field(min_length=2, max_length=8)
+
+
+class StudentSafeQuizQuestion(Contract):
+    """Student-facing quiz question with server-held answer keys stripped."""
+
+    question_id: str
+    prompt: str
+    options: tuple[str, ...]
+
+
+class PracticeQuizQuestionResult(Contract):
+    question_id: str
+    prompt: str
+    options: tuple[str, ...]
+    selected_index: int = Field(ge=0, le=3)
+    correct_index: int = Field(ge=0, le=3)
+    is_correct: bool
+    explanation: str
+
+
+class PracticeQuizAttemptRecord(Contract):
+    attempt_id: UUID
+    score: int = Field(ge=0)
+    total_questions: int = Field(ge=1)
+    percentage: int = Field(ge=0, le=100)
+    submitted_at: datetime
+    results: tuple[PracticeQuizQuestionResult, ...]
+
+
+class PracticeQuizData(Contract):
+    title: str
+    difficulty: QuizDifficulty
+    questions: tuple[StudentSafeQuizQuestion, ...]
+    attempts: tuple[PracticeQuizAttemptRecord, ...] = ()
+
+
+class PracticeQuizSubmitRequest(Contract):
+    answers: dict[str, int] = Field(min_length=1, max_length=12)
+
+
 class PersonalLearningStudyResource(Contract):
     resource_id: UUID
     session_id: UUID
@@ -1329,6 +1423,8 @@ class PersonalLearningStudyResource(Contract):
     focus_topic: str | None = None
     content: str
     mind_map: MindMapGraph | None = None
+    flashcards: FlashcardDeck | None = None
+    practice_quiz: PracticeQuizData | None = None
     sources: tuple[PersonalLearningSourceRef, ...] = ()
     model: str
     provider: str
@@ -1342,6 +1438,7 @@ class PersonalLearningResourceGenerateRequest(Contract):
     tool_kind: LearningToolKind
     session_id: UUID | None = None
     topic: str | None = Field(default=None, max_length=500)
+    difficulty: QuizDifficulty = "medium"
     include_conversation: bool = True
     history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
     attachments: tuple[PersonalLearningAttachmentRef, ...] = Field(

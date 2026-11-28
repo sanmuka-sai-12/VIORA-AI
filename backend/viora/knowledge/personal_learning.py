@@ -41,6 +41,7 @@ from .mind_map import (
 from .prompts import sanitize_untrusted_text
 from .schemas import (
     ChunkingConfig,
+    FlashcardDeck,
     LearningResourceSourceScope,
     LearningToolKind,
     MindMapGraph,
@@ -52,6 +53,14 @@ from .schemas import (
     PersonalLearningResourceGenerateRequest,
     PersonalLearningResponse,
     PersonalLearningSourceRef,
+)
+from .study_tools import (
+    FLASHCARDS_SYSTEM_PROMPT,
+    build_practice_quiz_system_prompt,
+    flashcards_to_markdown,
+    parse_flashcards_response,
+    parse_practice_quiz_response,
+    quiz_to_student_markdown,
 )
 
 _MAX_HISTORY_CHARS = 7_500
@@ -665,8 +674,12 @@ def _study_resource_title(
         prefix = "Study Notes"
     elif tool_kind == "academic_insights":
         prefix = "Academic Insights"
-    else:
+    elif tool_kind == "mind_map":
         prefix = "Mind Map"
+    elif tool_kind == "flashcards":
+        prefix = "Flashcards"
+    else:
+        prefix = "Practice Quiz"
     label = (topic or "").strip() or (
         session_title.strip()
         if session_title and session_title.strip() != "New Study Session"
@@ -708,9 +721,15 @@ def build_study_resource_messages(
     elif req.tool_kind == "academic_insights":
         sys_prompt = _ACADEMIC_INSIGHTS_SYSTEM_PROMPT
         action_line = "Generate concise, high-yield Academic Insights covering core connections, key definitions, formulas, common pitfalls, and exam takeaways."
-    else:
+    elif req.tool_kind == "mind_map":
         sys_prompt = MIND_MAP_SYSTEM_PROMPT
         action_line = "Generate a structured hierarchical concept mind map in JSON with clear parent-child relationships and concise node explanations."
+    elif req.tool_kind == "flashcards":
+        sys_prompt = FLASHCARDS_SYSTEM_PROMPT
+        action_line = "Generate 5 or 6 concise, high-yield study flashcards as raw JSON."
+    else:
+        sys_prompt = build_practice_quiz_system_prompt(req.difficulty)
+        action_line = f"Generate a 4-question {req.difficulty}-difficulty practice quiz as raw JSON."
     clean_topic, _ = sanitize_untrusted_text((req.topic or "").strip())
     kept_turns: list[str] = []
     if req.include_conversation and req.history:
@@ -885,6 +904,63 @@ class DirectAcademicLearning:
                 "focus_topic": (request.topic or "").strip() or None,
                 "content": mind_map_to_markdown(graph),
                 "structured_data": graph.model_dump(mode="json"),
+                "sources": sources,
+                "model": result.model,
+                "provider": result.metadata.provider,
+                "usage_tokens": result.usage.total_tokens,
+                "truncated": False,
+            }
+
+        if request.tool_kind == "flashcards":
+            result = self.gateway.complete(
+                context,
+                messages,
+                config=self.request_config,
+            )
+            deck: FlashcardDeck = parse_flashcards_response(
+                result.content,
+                finish_reason=result.finish_reason,
+            )
+            return {
+                "tool_kind": request.tool_kind,
+                "source_scope": scope,
+                "title": (
+                    deck.title
+                    if not (request.topic or "").strip() and deck.title
+                    else title
+                ),
+                "focus_topic": (request.topic or "").strip() or None,
+                "content": flashcards_to_markdown(deck),
+                "structured_data": deck.model_dump(mode="json"),
+                "sources": sources,
+                "model": result.model,
+                "provider": result.metadata.provider,
+                "usage_tokens": result.usage.total_tokens,
+                "truncated": False,
+            }
+
+        if request.tool_kind == "practice_quiz":
+            result = self.gateway.complete(
+                context,
+                messages,
+                config=self.request_config,
+            )
+            quiz_data = parse_practice_quiz_response(
+                result.content,
+                difficulty=request.difficulty,
+                finish_reason=result.finish_reason,
+            )
+            return {
+                "tool_kind": request.tool_kind,
+                "source_scope": scope,
+                "title": (
+                    str(quiz_data["title"])
+                    if not (request.topic or "").strip() and quiz_data.get("title")
+                    else title
+                ),
+                "focus_topic": (request.topic or "").strip() or None,
+                "content": quiz_to_student_markdown(quiz_data),
+                "structured_data": quiz_data,
                 "sources": sources,
                 "model": result.model,
                 "provider": result.metadata.provider,

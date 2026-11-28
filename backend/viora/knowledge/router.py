@@ -20,6 +20,7 @@ from .schemas import (
     ConceptExtractionRecord,
     ConceptExtractionTriggerRequest,
     ConceptExtractionTriggerResult,
+    FlashcardProgressUpdateRequest,
     KnowledgeIndexStatus,
     KnowledgeIndexTriggerRequest,
     KnowledgeIndexTriggerResult,
@@ -48,6 +49,8 @@ from .schemas import (
     PersonalLearningSessionSummary,
     PersonalLearningSessionUpdateRequest,
     PersonalLearningStudyResource,
+    PracticeQuizAttemptRecord,
+    PracticeQuizSubmitRequest,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -638,6 +641,48 @@ def build_router(
             _token(creds),
             tenant_id,
             resource_id,
+        )
+
+    @router.patch(
+        "/tenants/{tenant_id}/learning/resources/{resource_id}/flashcards",
+        response_model=PersonalLearningStudyResource,
+        operation_id="updatePersonalLearningFlashcards",
+    )
+    def update_personal_learning_flashcards(
+        tenant_id: UUID,
+        resource_id: UUID,
+        body: FlashcardProgressUpdateRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningStudyResource:
+        return service.update_personal_learning_flashcards(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            resource_id,
+            body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/resources/{resource_id}/quiz/submit",
+        response_model=PracticeQuizAttemptRecord,
+        operation_id="submitPersonalLearningQuiz",
+    )
+    def submit_personal_learning_quiz(
+        tenant_id: UUID,
+        resource_id: UUID,
+        body: PracticeQuizSubmitRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PracticeQuizAttemptRecord:
+        return service.submit_personal_learning_quiz(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            resource_id,
+            body,
         )
 
     @router.post(

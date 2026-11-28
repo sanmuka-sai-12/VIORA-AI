@@ -9,7 +9,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import IntegrityError
 
 from ..contracts import Page, ResourceRef
-from ..identity.public import IdentityDirectory, identity_directory
+from ..identity.public import (
+    IdentityDirectory,
+    InstitutionRole,
+    MembershipStatus,
+    identity_directory,
+)
 from ..security import AccessError, AuthorizedScope, TransactionalAccess
 from . import service
 from .repository import SqlAcademicRepository, SqlInstitutionStatus
@@ -26,6 +31,8 @@ from .schemas import (
     DepartmentHeadSummary,
     DepartmentSummary,
     DepartmentUpdate,
+    FacultyProfileSummary,
+    FacultyProfileUpdate,
     GuardianLinkCreate,
     GuardianLinkSummary,
     InstitutionDiscovery,
@@ -42,6 +49,8 @@ from .schemas import (
     SemesterCreate,
     SemesterSummary,
     SemesterUpdate,
+    StudentProfileSummary,
+    StudentProfileUpdate,
     StudentSummary,
     SubjectCreate,
     SubjectOfferingCreate,
@@ -375,5 +384,124 @@ def build_router(access: TransactionalAccess) -> APIRouter:
     @router.get("/tenants/{tenant_id}/students/{student_id}/summary", tags=["guardians"], operation_id="readStudentSummary")
     def get_student_summary(tenant_id: UUID, student_id: UUID, bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep]) -> StudentSummary:
         return _run_read(access, bearer, "student.summary.read", _ref(tenant_id, "student_summary", student_id), lambda s, _r: service.read_student_summary(_identities(s), tenant_id, student_id))
+
+    # --- Student & Faculty Directories and Academic Profiles ---
+    @router.get("/tenants/{tenant_id}/students", tags=["profiles"], operation_id="listStudentProfiles")
+    def get_student_profiles(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        q: str | None = None,
+        department_id: UUID | None = None,
+        section_id: UUID | None = None,
+        academic_year_id: UUID | None = None,
+        semester_id: UUID | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[StudentProfileSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "student.directory.list",
+            _inst_ref(tenant_id),
+            lambda _s, r: r.list_student_profiles(
+                tenant_id,
+                q=q,
+                department_id=department_id,
+                section_id=section_id,
+                academic_year_id=academic_year_id,
+                semester_id=semester_id,
+                status=status,
+                cursor=cursor,
+                limit=limit,
+            ),
+        )
+
+    @router.get("/tenants/{tenant_id}/students/{user_id}", tags=["profiles"], operation_id="readStudentProfile")
+    def get_student_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> StudentProfileSummary:
+        def _read(_s: AuthorizedScope, r: SqlAcademicRepository) -> StudentProfileSummary:
+            profile = r.get_student_profile(tenant_id, user_id)
+            if profile is None:
+                raise AccessError(404, "profile_missing", "Student profile unavailable")
+            return profile
+
+        return _run_read(access, bearer, "student.profile.read", _ref(tenant_id, "student_profile", user_id), _read)
+
+    @router.patch("/tenants/{tenant_id}/students/{user_id}/profile", tags=["profiles"], operation_id="updateStudentProfile")
+    def patch_student_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        body: StudentProfileUpdate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> StudentProfileSummary:
+        def _update(s: AuthorizedScope, r: SqlAcademicRepository) -> StudentProfileSummary:
+            updated = r.update_student_profile(tenant_id, user_id, body)
+            if updated is None:
+                raise AccessError(404, "profile_missing", "Student profile unavailable")
+            s.audit.change(s.context, "student.profile.update", _ref(tenant_id, "student_profile", user_id))
+            return updated
+
+        return _run_mutation(access, bearer, "student.profile.update", _ref(tenant_id, "student_profile", user_id), _update)
+
+    @router.get("/tenants/{tenant_id}/faculty", tags=["profiles"], operation_id="listFacultyProfiles")
+    def get_faculty_profiles(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        q: str | None = None,
+        department_id: UUID | None = None,
+        role: InstitutionRole | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[FacultyProfileSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "faculty.directory.list",
+            _inst_ref(tenant_id),
+            lambda _s, r: r.list_faculty_profiles(
+                tenant_id,
+                q=q,
+                department_id=department_id,
+                role=role,
+                status=status,
+                cursor=cursor,
+                limit=limit,
+            ),
+        )
+
+    @router.get("/tenants/{tenant_id}/faculty/{user_id}", tags=["profiles"], operation_id="readFacultyProfile")
+    def get_faculty_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> FacultyProfileSummary:
+        def _read(_s: AuthorizedScope, r: SqlAcademicRepository) -> FacultyProfileSummary:
+            profile = r.get_faculty_profile(tenant_id, user_id)
+            if profile is None:
+                raise AccessError(404, "profile_missing", "Faculty profile unavailable")
+            return profile
+
+        return _run_read(access, bearer, "faculty.profile.read", _ref(tenant_id, "faculty_profile", user_id), _read)
+
+    @router.patch("/tenants/{tenant_id}/faculty/{user_id}/profile", tags=["profiles"], operation_id="updateFacultyProfile")
+    def patch_faculty_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        body: FacultyProfileUpdate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> FacultyProfileSummary:
+        def _update(s: AuthorizedScope, r: SqlAcademicRepository) -> FacultyProfileSummary:
+            updated = r.update_faculty_profile(tenant_id, user_id, body)
+            if updated is None:
+                raise AccessError(404, "profile_missing", "Faculty profile unavailable")
+            s.audit.change(s.context, "faculty.profile.update", _ref(tenant_id, "faculty_profile", user_id))
+            return updated
+
+        return _run_mutation(access, bearer, "faculty.profile.update", _ref(tenant_id, "faculty_profile", user_id), _update)
 
     return router

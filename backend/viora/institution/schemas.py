@@ -249,3 +249,72 @@ class OfferingActorAccess(Contract):
     academic_active: bool
     is_assigned_teacher: bool
     is_enrolled_student: bool
+
+
+OptionalShortText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+]
+
+
+class StudentProfileUpdate(Contract):
+    display_name: NonEmptyName | None = None
+    roll_number: OptionalShortText | None = None
+    department_id: UUID | None = None
+    section_id: UUID | None = None
+    academic_year_id: UUID | None = None
+    semester_id: UUID | None = None
+    phone: OptionalShortText | None = None
+    contact_email: OptionalShortText | None = None
+    guardian_contact: OptionalShortText | None = None
+
+
+class StudentProfileSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    display_name: str
+    email: str | None
+    account_status: str
+    membership_status: str
+    roles: tuple[str, ...]
+    roll_number: str | None
+    department_id: UUID | None
+    department_name: str | None
+    section_id: UUID | None
+    section_name: str | None
+    academic_year_id: UUID | None
+    academic_year_name: str | None
+    semester_id: UUID | None
+    semester_name: str | None
+    phone: str | None
+    contact_email: str | None
+    guardian_contact: str | None
+    updated_at: datetime | None
+
+
+class FacultyProfileUpdate(Contract):
+    display_name: NonEmptyName | None = None
+    employee_code: OptionalShortText | None = None
+    department_id: UUID | None = None
+    designation: OptionalShortText | None = None
+    phone: OptionalShortText | None = None
+    contact_email: OptionalShortText | None = None
+    office_location: OptionalShortText | None = None
+
+
+class FacultyProfileSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    display_name: str
+    email: str | None
+    account_status: str
+    membership_status: str
+    roles: tuple[str, ...]
+    employee_code: str | None
+    department_id: UUID | None
+    department_name: str | None
+    designation: str | None
+    phone: str | None
+    contact_email: str | None
+    office_location: str | None
+    updated_at: datetime | None

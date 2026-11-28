@@ -18,20 +18,22 @@ from pwdlib import PasswordHash
 from pwdlib.exceptions import HashVerificationError, UnknownHashError
 from pwdlib.hashers.argon2 import Argon2Hasher
 from pydantic import SecretStr
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import AuthSettings
 from ..contracts import Actor, Contract
 from .models import (
+    AccountInvitation,
     AuthSession,
+    MembershipRecord,
     PasswordCredential,
     RefreshToken,
     User,
     VerifiedIdentityAttribute,
 )
-from .schemas import AccountStatus, IdentityAttributeKind
+from .schemas import AccountStatus, IdentityAttributeKind, MembershipStatus
 
 REFRESH_ENTROPY_BYTES = 32
 MAX_ACCESS_TOKEN_LENGTH = 4096
@@ -354,3 +356,56 @@ class AuthService:
                 raise AuthFailure()
             credential.password_hash = self.passwords.hash(new_password)
             self._revoke_all(db, user.user_id)
+
+    def accept_invite(self, token: str, new_password: SecretStr) -> UUID:
+        cleaned_token = token.strip()
+        if not cleaned_token:
+            raise AuthFailure()
+        encoded_password = self.passwords.hash(new_password)
+        digest = hashlib.sha256(cleaned_token.encode("utf-8")).hexdigest()
+        now = datetime.now(UTC)
+        with self.sessions.begin() as db:
+            invite = db.scalar(
+                select(AccountInvitation)
+                .where(
+                    AccountInvitation.token_hash == digest,
+                    AccountInvitation.accepted_at.is_(None),
+                    AccountInvitation.expires_at > now,
+                )
+                .with_for_update()
+            )
+            if invite is None:
+                raise AuthFailure()
+            user = self._lock_user(db, invite.user_id)
+            if user is None or user.status == AccountStatus.disabled:
+                raise AuthFailure()
+            user.status = AccountStatus.active
+            credential = db.get(PasswordCredential, user.user_id)
+            if credential is None:
+                db.add(
+                    PasswordCredential(
+                        user_id=user.user_id, password_hash=encoded_password
+                    )
+                )
+            else:
+                credential.password_hash = encoded_password
+            invite.accepted_at = now
+            if invite.invited_tenant_id is not None:
+                db.execute(
+                    text("SELECT set_config('viora.tenant_id', :tenant, true)"),
+                    {"tenant": str(invite.invited_tenant_id)},
+                )
+                membership = db.scalar(
+                    select(MembershipRecord)
+                    .where(
+                        MembershipRecord.tenant_id == invite.invited_tenant_id,
+                        MembershipRecord.user_id == user.user_id,
+                    )
+                    .with_for_update()
+                )
+                if (
+                    membership is not None
+                    and membership.status == MembershipStatus.invited
+                ):
+                    membership.status = MembershipStatus.active
+            return user.user_id

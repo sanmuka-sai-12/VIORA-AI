@@ -18,6 +18,7 @@ INSTITUTION_ADMIN_ACTIONS = frozenset({
     "department.create", "department.list", "programme.create", "programme.list",
     "academic_year.create", "academic_year.list", "semester.list", "section.list",
     "subject.create", "subject.list", "offering.list",
+    "student.directory.list", "faculty.directory.list",
 })
 ENTITY_ADMIN_ACTIONS: dict[str, frozenset[str]] = {
     "campus": frozenset({"campus.read", "campus.update", "campus.lifecycle", "campus.department.create"}),
@@ -163,6 +164,18 @@ class Policy:
             return (actor == target and "student" in roles) or (
                 "guardian" in roles and self.institutions.guardian_link(tenant, actor, target)
             )
+        if resource.kind == "student_profile":
+            if action == "student.profile.read":
+                return is_admin or bool(roles & {"department_head", "class_coordinator", "subject_teacher"}) or (actor == target and "student" in roles)
+            if action == "student.profile.update":
+                return is_admin
+            return False
+        if resource.kind == "faculty_profile":
+            if action == "faculty.profile.read":
+                return is_admin or bool(roles & {"department_head", "class_coordinator", "subject_teacher"})
+            if action == "faculty.profile.update":
+                return is_admin
+            return False
         if resource.kind == "workflow_job":
             job_source = None if self.workflows is None else self.workflows.job_source_id(tenant, target)
             if job_source is None:
@@ -182,6 +195,8 @@ class Policy:
             return "class_coordinator" in roles
         if action == "offering.list":
             return bool(roles & {"class_coordinator", "subject_teacher", "student"})
+        if action in {"student.directory.list", "faculty.directory.list"}:
+            return bool(roles & {"department_head", "class_coordinator", "subject_teacher"})
         if action == "guardian_link.list":
             return bool(roles & {"student", "guardian"})
         return action == "knowledge.retrieve" and bool(

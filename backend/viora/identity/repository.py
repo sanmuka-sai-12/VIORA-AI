@@ -1,15 +1,29 @@
-from uuid import UUID
+import hashlib
+import secrets
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
+from pydantic import SecretStr
 from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
 
 from ..contracts import Actor, Page, TenantContext
 from ..security import AccessError
-from .models import MembershipRecord, RoleGrant, User, VerifiedIdentityAttribute
+from .auth import Passwords
+from .models import (
+    AccountInvitation,
+    MembershipRecord,
+    PasswordCredential,
+    RoleGrant,
+    User,
+    VerifiedIdentityAttribute,
+)
 from .ports import InstitutionStatusReader
 from .schemas import (
     AccountStatus,
+    IdentityAttributeKind,
     InstitutionRole,
+    MemberOnboardResponse,
     MembershipStatus,
     MembershipSummary,
     MemberSummary,
@@ -416,3 +430,125 @@ class SqlMembershipRepository:
         existing.revoked_at = datetime.now(UTC)
         self.session.flush()
         return self._member_summary(tenant_id, user_id)
+
+    def onboard_member(
+        self,
+        tenant_id: UUID,
+        *,
+        email: str,
+        display_name: str,
+        role: InstitutionRole | None = None,
+        initial_password: SecretStr | None = None,
+    ) -> MemberOnboardResponse:
+        normalized_email = email.strip().lower()
+        cleaned_name = display_name.strip()
+        if not normalized_email or "@" not in normalized_email:
+            raise AccessError(422, "invalid_request", "A valid email address is required")
+        if not cleaned_name:
+            raise AccessError(422, "invalid_request", "A non-empty display name is required")
+
+        now = datetime.now(UTC)
+        existing_uid = self.session.scalar(
+            select(VerifiedIdentityAttribute.user_id).where(
+                VerifiedIdentityAttribute.kind == IdentityAttributeKind.email.value,
+                VerifiedIdentityAttribute.normalized_value == normalized_email,
+            )
+        )
+
+        account_created = False
+        invite_token: str | None = None
+        invite_expires_at: datetime | None = None
+
+        if existing_uid is not None:
+            user = self.session.scalar(
+                select(User).where(User.user_id == existing_uid).with_for_update()
+            )
+            assert user is not None
+            if user.status == AccountStatus.disabled:
+                raise AccessError(
+                    409,
+                    "user_ineligible",
+                    "Cannot onboard a disabled user account",
+                )
+            existing_membership = self.session.scalar(
+                select(MembershipRecord)
+                .where(
+                    MembershipRecord.tenant_id == tenant_id,
+                    MembershipRecord.user_id == existing_uid,
+                )
+                .with_for_update()
+            )
+            if existing_membership is not None:
+                raise AccessError(
+                    409, "duplicate_record", "User already has a membership record"
+                )
+            membership_status = (
+                MembershipStatus.active
+                if user.status == AccountStatus.active
+                else MembershipStatus.invited
+            )
+            uid = existing_uid
+        else:
+            account_created = True
+            uid = uuid4()
+            if initial_password is not None:
+                try:
+                    encoded_password = Passwords().hash(initial_password)
+                except ValueError as exc:
+                    raise AccessError(422, "invalid_request", str(exc)) from None
+                user_status = AccountStatus.active
+                membership_status = MembershipStatus.active
+            else:
+                encoded_password = None
+                user_status = AccountStatus.pending
+                membership_status = MembershipStatus.invited
+
+            self.session.add(
+                User(user_id=uid, display_name=cleaned_name, status=user_status)
+            )
+            self.session.flush()
+            self.session.add(
+                VerifiedIdentityAttribute(
+                    user_id=uid,
+                    kind=IdentityAttributeKind.email.value,
+                    normalized_value=normalized_email,
+                    verified_at=now,
+                )
+            )
+            if encoded_password is not None:
+                self.session.add(
+                    PasswordCredential(user_id=uid, password_hash=encoded_password)
+                )
+
+        self.session.add(
+            MembershipRecord(tenant_id=tenant_id, user_id=uid, status=membership_status)
+        )
+        if role is not None:
+            self.session.add(RoleGrant(tenant_id=tenant_id, user_id=uid, role=role))
+
+        if membership_status == MembershipStatus.invited:
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+            invite_expires_at = now + timedelta(days=7)
+            self.session.add(
+                AccountInvitation(
+                    invitation_id=uuid4(),
+                    invited_tenant_id=tenant_id,
+                    user_id=uid,
+                    token_hash=token_hash,
+                    expires_at=invite_expires_at,
+                    created_at=now,
+                )
+            )
+            invite_token = raw_token
+
+        self.session.flush()
+        summary = self._member_summary(tenant_id, uid)
+        assert summary is not None
+        return MemberOnboardResponse(
+            member=summary,
+            email=normalized_email,
+            account_created=account_created,
+            invite_token=invite_token,
+            invite_expires_at=invite_expires_at,
+        )

@@ -6,6 +6,7 @@ import type {
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import {
+  AlertBanner,
   ConfirmDialog,
   DataTable,
   FormField,
@@ -23,7 +24,6 @@ import {
   ROLE_LABELS,
 } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
-import { validateRequiredUuid } from "../../tenant/validation";
 import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 
@@ -44,8 +44,15 @@ export function MembershipsPage({ embedded = false }: { embedded?: boolean }) {
   const feedback = useActionFeedback();
 
   const [statusFilter, setStatusFilter] = useState<MembershipStatus | "all">("all");
-  const [addUserId, setAddUserId] = useState("");
-  const [addStatus, setAddStatus] = useState<"active" | "invited">("active");
+  const [onboardName, setOnboardName] = useState("");
+  const [onboardEmail, setOnboardEmail] = useState("");
+  const [onboardRole, setOnboardRole] = useState<InstitutionRole | "">("");
+  const [onboardPassword, setOnboardPassword] = useState("");
+  const [latestInvite, setLatestInvite] = useState<{
+    name: string;
+    email: string;
+    token: string;
+  } | null>(null);
   const [adding, setAdding] = useState(false);
 
   const [roleModalMember, setRoleModalMember] = useState<MemberSummary | null>(null);
@@ -82,22 +89,49 @@ export function MembershipsPage({ embedded = false }: { embedded?: boolean }) {
   const handleAddMember = async (e: FormEvent) => {
     e.preventDefault();
     if (!tenantId) return;
-    const problem = validateRequiredUuid(addUserId, "User ID");
-    if (problem) {
-      feedback.setValidationError(problem);
+    if (!onboardName.trim() || !onboardEmail.trim() || !onboardEmail.includes("@")) {
+      feedback.setValidationError("Valid display name and email are required.");
       return;
     }
+    if (onboardPassword && onboardPassword.length < 12) {
+      feedback.setValidationError(
+        "Initial password must be at least 12 characters (or leave blank to generate an invite).",
+      );
+      return;
+    }
+    setLatestInvite(null);
     await feedback.runApiAction({
       setBusy: setAdding,
       call: () =>
-        apiClient.POST("/api/v1/tenants/{tenant_id}/memberships", {
+        apiClient.POST("/api/v1/tenants/{tenant_id}/memberships/onboard", {
           params: { path: { tenant_id: tenantId } },
-          body: { user_id: addUserId.trim(), status: addStatus },
+          body: {
+            email: onboardEmail.trim(),
+            display_name: onboardName.trim(),
+            role: onboardRole ? onboardRole : null,
+            initial_password: onboardPassword ? onboardPassword : null,
+          },
         }),
-      fallbackError: "Unable to add institutional member.",
+      fallbackError: "Unable to onboard institutional member.",
       onSuccess: (data) => {
-        setAddUserId("");
-        feedback.setActionSuccess(`Added member "${data.display_name}" with status "${data.status}".`);
+        setOnboardName("");
+        setOnboardEmail("");
+        setOnboardRole("");
+        setOnboardPassword("");
+        if (data.invite_token) {
+          setLatestInvite({
+            name: data.member.display_name,
+            email: data.email,
+            token: data.invite_token,
+          });
+          feedback.setActionSuccess(
+            `Invited "${data.member.display_name}". Share the invitation link below.`,
+          );
+        } else {
+          feedback.setActionSuccess(
+            `Onboarded member "${data.member.display_name}" (${data.email}).`,
+          );
+        }
         list.resetToFirstPage();
         list.reload();
       },
@@ -178,43 +212,87 @@ export function MembershipsPage({ embedded = false }: { embedded?: boolean }) {
 
       {feedback.alerts}
 
+      {latestInvite && (
+        <AlertBanner
+          tone="info"
+          title={`Invitation ready for ${latestInvite.name} (${latestInvite.email})`}
+          message={`Share this one-time activation link: ${window.location.origin}/?invite=${latestInvite.token}`}
+        />
+      )}
+
       {flags.isAdmin && (
         <SectionCard
-          title="Add Member"
-          subtitle="Enter an existing verified User ID to associate them with this institution."
+          title="Onboard Member"
+          subtitle="Create or associate an account by email. Leave Initial Password blank to generate an invitation token."
         >
-          <form onSubmit={handleAddMember} className="viora-row" style={{ alignItems: "flex-end" }}>
-            <div style={{ flex: 2, minWidth: "280px" }}>
-              <FormField label="Existing User UUID" htmlFor="mem-add-uuid">
+          <form onSubmit={handleAddMember} className="viora-stack">
+            <div className="viora-grid viora-grid-2">
+              <FormField label="Display Name *" htmlFor="mem-onboard-name">
                 <input
-                  id="mem-add-uuid"
+                  id="mem-onboard-name"
                   type="text"
-                  className="viora-input viora-mono"
-                  placeholder="00000000-0000-0000-0000-000000000000"
-                  value={addUserId}
-                  onChange={(e) => setAddUserId(e.target.value)}
+                  className="viora-input"
+                  placeholder="Full name"
+                  value={onboardName}
+                  onChange={(e) => setOnboardName(e.target.value)}
                   disabled={adding}
                   required
                 />
               </FormField>
-            </div>
-            <div style={{ flex: 1, minWidth: "160px" }}>
-              <FormField label="Initial status" htmlFor="mem-add-status">
+              <FormField label="Login Email *" htmlFor="mem-onboard-email">
+                <input
+                  id="mem-onboard-email"
+                  type="email"
+                  className="viora-input"
+                  placeholder="user@college.edu"
+                  value={onboardEmail}
+                  onChange={(e) => setOnboardEmail(e.target.value)}
+                  disabled={adding}
+                  required
+                />
+              </FormField>
+              <FormField label="Initial Role (optional)" htmlFor="mem-onboard-role">
                 <select
-                  id="mem-add-status"
+                  id="mem-onboard-role"
                   className="viora-select"
-                  value={addStatus}
-                  onChange={(e) => setAddStatus(e.target.value as "active" | "invited")}
+                  value={onboardRole}
+                  onChange={(e) =>
+                    setOnboardRole(e.target.value as InstitutionRole | "")
+                  }
                   disabled={adding}
                 >
-                  <option value="active">Active</option>
-                  <option value="invited">Invited (inactive until activated)</option>
+                  <option value="">No initial role</option>
+                  {ALL_INSTITUTION_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </option>
+                  ))}
                 </select>
               </FormField>
+              <FormField
+                label="Initial Password (optional, 12+ chars)"
+                htmlFor="mem-onboard-password"
+              >
+                <input
+                  id="mem-onboard-password"
+                  type="password"
+                  className="viora-input"
+                  placeholder="Leave blank to generate invite"
+                  value={onboardPassword}
+                  onChange={(e) => setOnboardPassword(e.target.value)}
+                  disabled={adding}
+                />
+              </FormField>
             </div>
-            <button type="submit" className="viora-btn viora-btn-primary" disabled={adding}>
-              {adding ? "Associating..." : "Add member"}
-            </button>
+            <div className="viora-row">
+              <button type="submit" className="viora-btn viora-btn-primary" disabled={adding}>
+                {adding
+                  ? "Onboarding..."
+                  : onboardPassword
+                    ? "Create Member"
+                    : "Invite Member"}
+              </button>
+            </div>
           </form>
         </SectionCard>
       )}

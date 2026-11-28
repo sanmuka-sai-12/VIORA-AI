@@ -44,6 +44,11 @@ class PasswordChangeRequest(Contract):
     new_password: SecretStr = Field(min_length=12, max_length=1024)
 
 
+class AcceptInviteRequest(Contract):
+    token: str = Field(min_length=1, max_length=512)
+    new_password: SecretStr = Field(min_length=12, max_length=1024)
+
+
 class TokenResponse(Contract):
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"
@@ -488,5 +493,40 @@ def build_auth_router(
         response = Response(status_code=204, headers={"Cache-Control": "no-store"})
         _clear_refresh_cookie(response, config)
         return response
+
+    @router.post(
+        "/accept-invite",
+        operation_id="acceptInvite",
+        status_code=204,
+    )
+    async def accept_invite(request: Request) -> Response:
+        _verify_origin(request, config)
+        _verify_csrf(request)
+        _enforce_rate_limit(db, config, request, "accept_invite")
+        payload = await _read_bounded_json(request, required=True)
+        try:
+            body = AcceptInviteRequest.model_validate(payload)
+        except ValidationError:
+            raise AccessError(
+                422, "invalid_request", "Request validation failed"
+            ) from None
+
+        service = _require_service(auth_service)
+        try:
+            await run_in_threadpool(
+                service.accept_invite, body.token, body.new_password
+            )
+        except AuthFailure:
+            raise AccessError(
+                400, "invalid_invite", "Invitation token is invalid or expired"
+            ) from None
+        except ValueError:
+            raise AccessError(
+                422,
+                "invalid_request",
+                "Password must contain 12 to 1024 characters",
+            ) from None
+
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
     return router

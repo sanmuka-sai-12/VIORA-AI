@@ -6,7 +6,15 @@ from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..contracts import Page
-from ..identity.public import IdentityDirectory, InstitutionRole
+from ..identity.public import (
+    IdentityDirectory,
+    InstitutionRole,
+    MembershipStatus,
+    get_tenant_member,
+    list_tenant_members,
+    update_user_display_name,
+    user_emails,
+)
 from ..security import AccessError
 from .models import (
     AcademicYear,
@@ -14,12 +22,14 @@ from .models import (
     ClassCoordinator,
     Department,
     DepartmentHead,
+    FacultyProfile,
     GuardianLink,
     Institution,
     Programme,
     Section,
     Semester,
     StudentEnrolment,
+    StudentProfile,
     Subject,
     SubjectOffering,
     TeacherAssignment,
@@ -31,6 +41,8 @@ from .schemas import (
     ClassCoordinatorSummary,
     DepartmentHeadSummary,
     DepartmentSummary,
+    FacultyProfileSummary,
+    FacultyProfileUpdate,
     GuardianLinkSummary,
     InstitutionInfo,
     OfferingAssignment,
@@ -38,6 +50,8 @@ from .schemas import (
     ProgrammeSummary,
     SectionSummary,
     SemesterSummary,
+    StudentProfileSummary,
+    StudentProfileUpdate,
     SubjectOfferingSummary,
     SubjectSummary,
 )
@@ -1500,3 +1514,333 @@ class SqlAcademicRepository:
         row.consent_at = None
         self.session.flush()
         return self._guardian_dto(row)
+
+    # --- Student & Faculty Academic Profiles ---
+
+    def _name_map(self, model: type[Any], tenant_id: UUID, ids: set[UUID]) -> dict[UUID, str]:
+        if not ids:
+            return {}
+        rows = self.session.execute(
+            select(model.id, model.name).where(
+                model.tenant_id == tenant_id,
+                model.id.in_(ids),
+            )
+        ).all()
+        return {row.id: row.name for row in rows}
+
+    def _build_student_summaries(
+        self, tenant_id: UUID, members: list[Any]
+    ) -> list[StudentProfileSummary]:
+        if not members:
+            return []
+        user_ids = [m.user_id for m in members]
+        profiles = {
+            p.user_id: p
+            for p in self.session.scalars(
+                select(StudentProfile).where(
+                    StudentProfile.tenant_id == tenant_id,
+                    StudentProfile.user_id.in_(user_ids),
+                )
+            ).all()
+        }
+        emails = user_emails(self.session, user_ids)
+        dept_names = self._name_map(
+            Department,
+            tenant_id,
+            {p.department_id for p in profiles.values() if p.department_id is not None},
+        )
+        section_names = self._name_map(
+            Section,
+            tenant_id,
+            {p.section_id for p in profiles.values() if p.section_id is not None},
+        )
+        year_names = self._name_map(
+            AcademicYear,
+            tenant_id,
+            {p.academic_year_id for p in profiles.values() if p.academic_year_id is not None},
+        )
+        sem_names = self._name_map(
+            Semester,
+            tenant_id,
+            {p.semester_id for p in profiles.values() if p.semester_id is not None},
+        )
+        result: list[StudentProfileSummary] = []
+        for m in members:
+            p = profiles.get(m.user_id)
+            result.append(
+                StudentProfileSummary(
+                    tenant_id=tenant_id,
+                    user_id=m.user_id,
+                    display_name=m.display_name,
+                    email=emails.get(m.user_id),
+                    account_status=m.account_status.value,
+                    membership_status=m.status.value,
+                    roles=tuple(r.value for r in m.roles),
+                    roll_number=p.roll_number if p else None,
+                    department_id=p.department_id if p else None,
+                    department_name=dept_names.get(p.department_id) if p and p.department_id else None,
+                    section_id=p.section_id if p else None,
+                    section_name=section_names.get(p.section_id) if p and p.section_id else None,
+                    academic_year_id=p.academic_year_id if p else None,
+                    academic_year_name=year_names.get(p.academic_year_id) if p and p.academic_year_id else None,
+                    semester_id=p.semester_id if p else None,
+                    semester_name=sem_names.get(p.semester_id) if p and p.semester_id else None,
+                    phone=p.phone if p else None,
+                    contact_email=p.contact_email if p else None,
+                    guardian_contact=p.guardian_contact if p else None,
+                    updated_at=p.updated_at if p else None,
+                )
+            )
+        return result
+
+    def list_student_profiles(
+        self,
+        tenant_id: UUID,
+        *,
+        q: str | None = None,
+        department_id: UUID | None = None,
+        section_id: UUID | None = None,
+        academic_year_id: UUID | None = None,
+        semester_id: UUID | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = 50,
+    ) -> Page[StudentProfileSummary]:
+        members = [
+            m
+            for m in list_tenant_members(self.session, tenant_id, status=status)
+            if InstitutionRole.student in m.roles
+        ]
+        summaries = self._build_student_summaries(tenant_id, members)
+        needle = q.strip().lower() if q and q.strip() else None
+        filtered: list[StudentProfileSummary] = []
+        for item in summaries:
+            if department_id is not None and item.department_id != department_id:
+                continue
+            if section_id is not None and item.section_id != section_id:
+                continue
+            if academic_year_id is not None and item.academic_year_id != academic_year_id:
+                continue
+            if semester_id is not None and item.semester_id != semester_id:
+                continue
+            if needle is not None:
+                haystack = " ".join(
+                    v
+                    for v in (
+                        item.display_name,
+                        item.email,
+                        item.roll_number,
+                        item.phone,
+                        item.contact_email,
+                    )
+                    if v
+                ).lower()
+                if needle not in haystack:
+                    continue
+            if cursor is not None and item.user_id <= cursor:
+                continue
+            filtered.append(item)
+        page_items = filtered[:limit]
+        next_cursor = str(page_items[-1].user_id) if len(filtered) > limit and page_items else None
+        return Page[StudentProfileSummary](items=tuple(page_items), next_cursor=next_cursor)
+
+    def get_student_profile(
+        self, tenant_id: UUID, user_id: UUID
+    ) -> StudentProfileSummary | None:
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or InstitutionRole.student not in member.roles:
+            return None
+        return self._build_student_summaries(tenant_id, [member])[0]
+
+    def update_student_profile(
+        self, tenant_id: UUID, user_id: UUID, body: StudentProfileUpdate
+    ) -> StudentProfileSummary | None:
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or InstitutionRole.student not in member.roles:
+            return None
+        if "display_name" in body.model_fields_set and body.display_name is not None:
+            update_user_display_name(self.session, user_id, body.display_name)
+        profile = self.session.scalar(
+            select(StudentProfile)
+            .where(
+                StudentProfile.tenant_id == tenant_id,
+                StudentProfile.user_id == user_id,
+            )
+            .with_for_update()
+        )
+        now = datetime.now(UTC)
+        if profile is None:
+            profile = StudentProfile(tenant_id=tenant_id, user_id=user_id, updated_at=now)
+            self.session.add(profile)
+        for field in (
+            "roll_number",
+            "department_id",
+            "section_id",
+            "academic_year_id",
+            "semester_id",
+            "phone",
+            "contact_email",
+            "guardian_contact",
+        ):
+            if field in body.model_fields_set:
+                setattr(profile, field, getattr(body, field))
+        profile.updated_at = now
+        self.session.flush()
+        refreshed = get_tenant_member(self.session, tenant_id, user_id)
+        assert refreshed is not None
+        return self._build_student_summaries(tenant_id, [refreshed])[0]
+
+    def _build_faculty_summaries(
+        self, tenant_id: UUID, members: list[Any]
+    ) -> list[FacultyProfileSummary]:
+        if not members:
+            return []
+        user_ids = [m.user_id for m in members]
+        profiles = {
+            p.user_id: p
+            for p in self.session.scalars(
+                select(FacultyProfile).where(
+                    FacultyProfile.tenant_id == tenant_id,
+                    FacultyProfile.user_id.in_(user_ids),
+                )
+            ).all()
+        }
+        emails = user_emails(self.session, user_ids)
+        dept_names = self._name_map(
+            Department,
+            tenant_id,
+            {p.department_id for p in profiles.values() if p.department_id is not None},
+        )
+        result: list[FacultyProfileSummary] = []
+        for m in members:
+            p = profiles.get(m.user_id)
+            result.append(
+                FacultyProfileSummary(
+                    tenant_id=tenant_id,
+                    user_id=m.user_id,
+                    display_name=m.display_name,
+                    email=emails.get(m.user_id),
+                    account_status=m.account_status.value,
+                    membership_status=m.status.value,
+                    roles=tuple(r.value for r in m.roles),
+                    employee_code=p.employee_code if p else None,
+                    department_id=p.department_id if p else None,
+                    department_name=dept_names.get(p.department_id) if p and p.department_id else None,
+                    designation=p.designation if p else None,
+                    phone=p.phone if p else None,
+                    contact_email=p.contact_email if p else None,
+                    office_location=p.office_location if p else None,
+                    updated_at=p.updated_at if p else None,
+                )
+            )
+        return result
+
+    def list_faculty_profiles(
+        self,
+        tenant_id: UUID,
+        *,
+        q: str | None = None,
+        department_id: UUID | None = None,
+        role: InstitutionRole | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = 50,
+    ) -> Page[FacultyProfileSummary]:
+        faculty_roles = frozenset(
+            {
+                InstitutionRole.department_head,
+                InstitutionRole.class_coordinator,
+                InstitutionRole.subject_teacher,
+            }
+        )
+        members = [
+            m
+            for m in list_tenant_members(self.session, tenant_id, status=status)
+            if any(r in faculty_roles for r in m.roles)
+            and (role is None or role in m.roles)
+        ]
+        summaries = self._build_faculty_summaries(tenant_id, members)
+        needle = q.strip().lower() if q and q.strip() else None
+        filtered: list[FacultyProfileSummary] = []
+        for item in summaries:
+            if department_id is not None and item.department_id != department_id:
+                continue
+            if needle is not None:
+                haystack = " ".join(
+                    v
+                    for v in (
+                        item.display_name,
+                        item.email,
+                        item.employee_code,
+                        item.designation,
+                        item.phone,
+                        item.contact_email,
+                    )
+                    if v
+                ).lower()
+                if needle not in haystack:
+                    continue
+            if cursor is not None and item.user_id <= cursor:
+                continue
+            filtered.append(item)
+        page_items = filtered[:limit]
+        next_cursor = str(page_items[-1].user_id) if len(filtered) > limit and page_items else None
+        return Page[FacultyProfileSummary](items=tuple(page_items), next_cursor=next_cursor)
+
+    def get_faculty_profile(
+        self, tenant_id: UUID, user_id: UUID
+    ) -> FacultyProfileSummary | None:
+        faculty_roles = frozenset(
+            {
+                InstitutionRole.department_head,
+                InstitutionRole.class_coordinator,
+                InstitutionRole.subject_teacher,
+            }
+        )
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or not any(r in faculty_roles for r in member.roles):
+            return None
+        return self._build_faculty_summaries(tenant_id, [member])[0]
+
+    def update_faculty_profile(
+        self, tenant_id: UUID, user_id: UUID, body: FacultyProfileUpdate
+    ) -> FacultyProfileSummary | None:
+        faculty_roles = frozenset(
+            {
+                InstitutionRole.department_head,
+                InstitutionRole.class_coordinator,
+                InstitutionRole.subject_teacher,
+            }
+        )
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or not any(r in faculty_roles for r in member.roles):
+            return None
+        if "display_name" in body.model_fields_set and body.display_name is not None:
+            update_user_display_name(self.session, user_id, body.display_name)
+        profile = self.session.scalar(
+            select(FacultyProfile)
+            .where(
+                FacultyProfile.tenant_id == tenant_id,
+                FacultyProfile.user_id == user_id,
+            )
+            .with_for_update()
+        )
+        now = datetime.now(UTC)
+        if profile is None:
+            profile = FacultyProfile(tenant_id=tenant_id, user_id=user_id, updated_at=now)
+            self.session.add(profile)
+        for field in (
+            "employee_code",
+            "department_id",
+            "designation",
+            "phone",
+            "contact_email",
+            "office_location",
+        ):
+            if field in body.model_fields_set:
+                setattr(profile, field, getattr(body, field))
+        profile.updated_at = now
+        self.session.flush()
+        refreshed = get_tenant_member(self.session, tenant_id, user_id)
+        assert refreshed is not None
+        return self._build_faculty_summaries(tenant_id, [refreshed])[0]

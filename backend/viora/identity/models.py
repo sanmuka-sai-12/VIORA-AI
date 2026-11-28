@@ -175,3 +175,22 @@ class AuthRateLimit(Base):
     bucket_key: Mapped[str] = mapped_column(Text, primary_key=True)
     window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     request_count: Mapped[int] = mapped_column(Integer)
+
+
+class AccountInvitation(Base):
+    """One-time institution-issued invitation token for activating a pending account."""
+
+    __tablename__ = "account_invitations"
+    __table_args__ = (Index("ix_account_invitations_user_id", "user_id"),)
+
+    invitation_id: Mapped[UUID] = mapped_column(primary_key=True)
+    invited_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE")
+    )
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

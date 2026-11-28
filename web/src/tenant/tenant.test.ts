@@ -286,6 +286,7 @@ test("Personal learning conversation state preserves across route transitions, s
         },
       },
     ],
+    resources: [],
   });
 
   // Same user & tenant restores preserved conversation and active attachments
@@ -319,6 +320,7 @@ test("Personal learning conversation state preserves across route transitions, s
           created_at: "2026-11-28T00:00:00Z",
         },
       ],
+      resources: [],
       created_at: "2026-11-28T00:00:00Z",
       updated_at: "2026-11-28T00:00:00Z",
     }),
@@ -367,6 +369,7 @@ test("Personal learning conversation state preserves across route transitions, s
     prompt: "",
     messages: [{ id: "m2", role: "user", content: "Active chat" }],
     attachments: [],
+    resources: [],
   });
   ctrl.clear();
   assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A), null);

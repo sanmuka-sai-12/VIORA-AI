@@ -32,6 +32,7 @@ TENANT_TABLES = (
     "personal_learning_materials",
     "personal_learning_sessions",
     "personal_learning_messages",
+    "personal_learning_study_resources",
 )
 
 APPEND_ONLY_TENANT_TABLES = (

@@ -785,3 +785,66 @@ class PersonalLearningMessageModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class PersonalLearningStudyResourceModel(Base):
+    """Persisted student-generated Study Notes and Academic Insights per session."""
+
+    __tablename__ = "personal_learning_study_resources"
+    __table_args__ = (
+        CheckConstraint(
+            "tool_kind IN ('study_notes', 'academic_insights')",
+            name="ck_pl_resources_tool_kind",
+        ),
+        CheckConstraint(
+            "source_scope IN ('topic', 'conversation', 'materials', 'combined')",
+            name="ck_pl_resources_scope",
+        ),
+        CheckConstraint(
+            "usage_tokens >= 0",
+            name="ck_pl_resources_tokens",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "session_id"],
+            ["personal_learning_sessions.tenant_id", "personal_learning_sessions.session_id"],
+            name="fk_pl_resources_session",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_pl_resources_session_recent",
+            "tenant_id",
+            "owner_user_id",
+            "session_id",
+            "updated_at",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    resource_id: Mapped[UUID] = mapped_column(primary_key=True)
+    session_id: Mapped[UUID]
+    owner_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="RESTRICT")
+    )
+    tool_kind: Mapped[str] = mapped_column(Text)
+    source_scope: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    focus_topic: Mapped[str | None] = mapped_column(Text, default=None)
+    content: Mapped[str] = mapped_column(Text)
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    model: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(Text)
+    usage_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
+    truncated: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )

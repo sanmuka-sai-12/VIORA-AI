@@ -30,11 +30,14 @@ from .chunking import chunk_extracted_document
 from .prompts import sanitize_untrusted_text
 from .schemas import (
     ChunkingConfig,
+    LearningResourceSourceScope,
+    LearningToolKind,
     PersonalLearningAttachment,
     PersonalLearningAttachmentKind,
     PersonalLearningAttachmentRef,
     PersonalLearningAttachmentStatus,
     PersonalLearningRequest,
+    PersonalLearningResourceGenerateRequest,
     PersonalLearningResponse,
     PersonalLearningSourceRef,
 )
@@ -61,6 +64,37 @@ _LEARNING_SYSTEM_PROMPT = (
     "- Always finish with a complete final sentence. If a topic is broad, cover the core cleanly and let the student ask follow-ups.\n"
     "CODE RULE:\n"
     "- Do NOT include programming code, pseudocode, or code blocks unless the student explicitly asks for code or software implementation. Explain math, science, and theory purely with concepts, equations, and words."
+)
+
+_STUDY_NOTES_SYSTEM_PROMPT = (
+    "You are VIORA, an academic study assistant creating structured, exam-ready Study Notes.\n"
+    "Keep total length concise (~180-240 words) so all sections finish cleanly before token limits.\n"
+    "SECTIONS (use exact markdown headings with spaces):\n"
+    "## Key Concepts & Definitions\n"
+    "## Formulas & Core Rules\n"
+    "## Important Points\n"
+    "## Exam-Ready Summary\n"
+    "RULES:\n"
+    "- Ground notes directly in the provided topic, conversation, and study material excerpts; cite uploaded sources by title and page (e.g. (Notes, p. 1)).\n"
+    "- Use LaTeX `$...$` for inline math and `$$...$$` on its own lines for key formulas (omit formula section if strictly non-mathematical humanities).\n"
+    "- Maintain exact consistency (including 0-based indexing for array algorithms).\n"
+    "- Finish cleanly with a complete final sentence.\n"
+    "- Do NOT include programming code unless the topic/material is explicitly about programming or software implementation."
+)
+
+_ACADEMIC_INSIGHTS_SYSTEM_PROMPT = (
+    "You are VIORA, an academic tutor distilling deep Academic Insights and exam takeaways.\n"
+    "Keep total length concise (~180-240 words) so all insights finish cleanly before token limits.\n"
+    "SECTIONS (use exact markdown headings with spaces):\n"
+    "## Core Insights & Connections\n"
+    "## Key Definitions & Formulas\n"
+    "## Common Pitfalls to Avoid\n"
+    "## High-Yield Exam Takeaways\n"
+    "RULES:\n"
+    "- Synthesize from the student's topic, conversation, and uploaded study materials; cite uploaded materials by title and page (e.g. (Notes, p. 1)).\n"
+    "- Use LaTeX `$...$` for inline math and `$$...$$` on its own lines for formulas.\n"
+    "- Finish cleanly with a complete final sentence.\n"
+    "- Do NOT include programming code unless the topic/material is explicitly about programming or software implementation."
 )
 
 _TRAILING_INCOMPLETE_WORD_RE = re.compile(
@@ -608,8 +642,107 @@ def suggest_follow_up_prompts(
     )
 
 
+def _study_resource_title(
+    tool_kind: LearningToolKind,
+    *,
+    topic: str | None,
+    session_title: str | None,
+    sources: Sequence[PersonalLearningSourceRef],
+) -> str:
+    prefix = "Study Notes" if tool_kind == "study_notes" else "Academic Insights"
+    label = (topic or "").strip() or (
+        session_title.strip()
+        if session_title and session_title.strip() != "New Study Session"
+        else ""
+    )
+    if not label and sources:
+        label = sources[0].title
+    if not label:
+        return prefix
+    short = label if len(label) <= 72 else label[:69].rstrip() + "..."
+    return f"{prefix}: {short}"
+
+
+def _resolve_study_scope(
+    *,
+    has_topic: bool,
+    has_conversation: bool,
+    has_materials: bool,
+) -> LearningResourceSourceScope:
+    active_dims = int(has_topic) + int(has_conversation) + int(has_materials)
+    if active_dims >= 2:
+        return "combined"
+    if has_materials:
+        return "materials"
+    if has_conversation:
+        return "conversation"
+    return "topic"
+
+
+def build_study_resource_messages(
+    req: PersonalLearningResourceGenerateRequest,
+    *,
+    attachment_context: str = "",
+) -> list[ChatMessage]:
+    """Build bounded chat messages for explicit Study Notes or Academic Insights generation."""
+    sys_prompt = (
+        _STUDY_NOTES_SYSTEM_PROMPT
+        if req.tool_kind == "study_notes"
+        else _ACADEMIC_INSIGHTS_SYSTEM_PROMPT
+    )
+    clean_topic, _ = sanitize_untrusted_text((req.topic or "").strip())
+    kept_turns: list[str] = []
+    if req.include_conversation and req.history:
+        budget = 3_200
+        used = 0
+        for turn in reversed(req.history[-8:]):
+            clean_turn, _ = sanitize_untrusted_text(turn.content.strip())
+            if not clean_turn:
+                continue
+            speaker = "Student" if turn.role == "user" else "Assistant"
+            line = f"{speaker}: {clean_turn[:900]}"
+            if used + len(line) > budget:
+                break
+            used += len(line)
+            kept_turns.append(line)
+        kept_turns.reverse()
+
+    if not clean_topic and not kept_turns and not attachment_context:
+        raise AccessError(
+            422,
+            "empty_study_context",
+            "Provide a topic, have a conversation, or attach study materials before generating Study Notes or Academic Insights.",
+        )
+
+    parts: list[str] = []
+    if clean_topic:
+        parts.append(f"Selected topic or focus:\n{clean_topic}")
+    if kept_turns:
+        parts.append("Recent conversation context:\n" + "\n".join(kept_turns))
+    if attachment_context:
+        parts.append(f"Student uploaded study materials:\n{attachment_context}")
+
+    action_line = (
+        "Generate concise, exam-ready Study Notes covering key concepts, definitions, formulas, important points, and an exam summary."
+        if req.tool_kind == "study_notes"
+        else "Generate concise, high-yield Academic Insights covering core connections, key definitions, formulas, common pitfalls, and exam takeaways."
+    )
+    parts.append(action_line)
+    user_payload = "\n\n".join(parts)
+
+    # Enforce hard Worker input budget safety ceiling cleanly.
+    max_user_chars = max(800, _MAX_HISTORY_CHARS - len(sys_prompt))
+    if len(user_payload) > max_user_chars:
+        user_payload = user_payload[: max_user_chars - 3].rstrip() + "..."
+
+    return [
+        ChatMessage(role=Role.system, content=sys_prompt),
+        ChatMessage(role=Role.user, content=user_payload),
+    ]
+
+
 class DirectAcademicLearning:
-    """Executes bounded conversational academic Q&A and topic explanations."""
+    """Executes bounded conversational academic Q&A, explanations, and study resources."""
 
     def __init__(
         self,
@@ -674,3 +807,63 @@ class DirectAcademicLearning:
             usage_tokens=result.usage.total_tokens,
             truncated=truncated,
         )
+
+    def generate_study_resource(
+        self,
+        *,
+        context: TenantContext,
+        request: PersonalLearningResourceGenerateRequest,
+        session_title: str | None = None,
+    ) -> dict[str, Any]:
+        attachment_context = ""
+        sources: tuple[PersonalLearningSourceRef, ...] = ()
+        query_hint = (request.topic or "").strip()
+        if not query_hint and request.history:
+            query_hint = request.history[-1].content
+        if request.attachments:
+            if self.attachment_service is None:
+                raise AccessError(
+                    503,
+                    "attachment_storage_unavailable",
+                    "Study attachment storage is not configured",
+                )
+            attachment_context, sources = self.attachment_service.load_context_excerpts(
+                context=context,
+                attachments=request.attachments,
+                prompt=query_hint or session_title or "key concepts summary definitions formulas",
+            )
+
+        messages = build_study_resource_messages(
+            request,
+            attachment_context=attachment_context,
+        )
+        result = self.gateway.complete(
+            context,
+            messages,
+            config=self.request_config,
+        )
+        max_tok = self.request_config.max_tokens or _MAX_OUTPUT_TOKENS
+        truncated = is_response_truncated(result, max_tokens=max_tok)
+        scope = _resolve_study_scope(
+            has_topic=bool((request.topic or "").strip()),
+            has_conversation=bool(request.include_conversation and request.history),
+            has_materials=bool(sources),
+        )
+        title = _study_resource_title(
+            request.tool_kind,
+            topic=request.topic,
+            session_title=session_title,
+            sources=sources,
+        )
+        return {
+            "tool_kind": request.tool_kind,
+            "source_scope": scope,
+            "title": title,
+            "focus_topic": (request.topic or "").strip() or None,
+            "content": result.content.strip(),
+            "sources": sources,
+            "model": result.model,
+            "provider": result.metadata.provider,
+            "usage_tokens": result.usage.total_tokens,
+            "truncated": truncated,
+        }

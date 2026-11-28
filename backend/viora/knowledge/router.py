@@ -41,11 +41,13 @@ from .schemas import (
     PersonalLearningAttachmentTextRequest,
     PersonalLearningDeleteResult,
     PersonalLearningRequest,
+    PersonalLearningResourceGenerateRequest,
     PersonalLearningResponse,
     PersonalLearningSessionCreateRequest,
     PersonalLearningSessionDetail,
     PersonalLearningSessionSummary,
     PersonalLearningSessionUpdateRequest,
+    PersonalLearningStudyResource,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -579,6 +581,63 @@ def build_router(
             _token(creds),
             tenant_id,
             body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/resources/generate",
+        response_model=PersonalLearningStudyResource,
+        operation_id="generatePersonalLearningResource",
+    )
+    def generate_personal_learning_resource(
+        tenant_id: UUID,
+        body: PersonalLearningResourceGenerateRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningStudyResource:
+        return service.generate_personal_learning_resource(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            body,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/learning/sessions/{session_id}/resources",
+        response_model=Page[PersonalLearningStudyResource],
+        operation_id="listPersonalLearningSessionResources",
+    )
+    def list_personal_learning_resources(
+        tenant_id: UUID,
+        session_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> Page[PersonalLearningStudyResource]:
+        return service.list_personal_learning_resources(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            session_id,
+        )
+
+    @router.delete(
+        "/tenants/{tenant_id}/learning/resources/{resource_id}",
+        response_model=PersonalLearningDeleteResult,
+        operation_id="deletePersonalLearningResource",
+    )
+    def delete_personal_learning_resource(
+        tenant_id: UUID,
+        resource_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningDeleteResult:
+        return service.delete_personal_learning_resource(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            resource_id,
         )
 
     @router.post(

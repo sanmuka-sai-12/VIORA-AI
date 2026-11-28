@@ -15,9 +15,12 @@ from .models import (
     PersonalLearningMaterialModel,
     PersonalLearningMessageModel,
     PersonalLearningSessionModel,
+    PersonalLearningStudyResourceModel,
 )
 from .schemas import (
     LearningPromptMode,
+    LearningResourceSourceScope,
+    LearningToolKind,
     PersonalLearningAttachment,
     PersonalLearningAttachmentRef,
     PersonalLearningMessageRecord,
@@ -25,6 +28,7 @@ from .schemas import (
     PersonalLearningSessionSummary,
     PersonalLearningSessionUpdateRequest,
     PersonalLearningSourceRef,
+    PersonalLearningStudyResource,
     PersonalLearningTurn,
 )
 
@@ -71,6 +75,32 @@ def _message_dto(row: PersonalLearningMessageModel) -> PersonalLearningMessageRe
         follow_up_prompts=tuple(str(p) for p in (row.follow_up_prompts or ())),
         truncated=bool(row.truncated),
         created_at=row.created_at,
+    )
+
+
+def _resource_dto(
+    row: PersonalLearningStudyResourceModel,
+    *,
+    session_title: str | None = None,
+) -> PersonalLearningStudyResource:
+    return PersonalLearningStudyResource(
+        resource_id=row.resource_id,
+        session_id=row.session_id,
+        session_title=session_title,
+        tool_kind=row.tool_kind,  # type: ignore[arg-type]
+        source_scope=row.source_scope,  # type: ignore[arg-type]
+        title=row.title,
+        focus_topic=row.focus_topic,
+        content=row.content,
+        sources=tuple(
+            PersonalLearningSourceRef(**src) for src in (row.sources or ())
+        ),
+        model=row.model,
+        provider=row.provider,
+        usage_tokens=int(row.usage_tokens or 0),
+        truncated=bool(row.truncated),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -336,12 +366,14 @@ class SqlPersonalLearningRepository:
         attachments = self._load_materials_map(
             context, [UUID(s) for s in (row.active_attachment_ids or ())]
         )
+        resources = self.list_session_resources(context, row.session_id, session_title=row.title)
         return PersonalLearningSessionDetail(
             session_id=row.session_id,
             title=row.title,
             mode=row.mode,  # type: ignore[arg-type]
             attachments=attachments,
             messages=tuple(_message_dto(m) for m in msgs),
+            resources=resources,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -483,3 +515,145 @@ class SqlPersonalLearningRepository:
         self.session.add(assistant_msg)
         self.session.flush()
         return sess.session_id, sess.title
+
+    def list_session_resources(
+        self,
+        context: TenantContext,
+        session_id: UUID,
+        *,
+        session_title: str | None = None,
+    ) -> tuple[PersonalLearningStudyResource, ...]:
+        sess = self._require_session(context, session_id)
+        resolved_title = session_title or sess.title
+        rows = self.session.scalars(
+            select(PersonalLearningStudyResourceModel)
+            .where(
+                PersonalLearningStudyResourceModel.tenant_id == context.tenant_id,
+                PersonalLearningStudyResourceModel.owner_user_id == context.actor_id,
+                PersonalLearningStudyResourceModel.session_id == session_id,
+                PersonalLearningStudyResourceModel.deleted_at.is_(None),
+            )
+            .order_by(PersonalLearningStudyResourceModel.updated_at.desc())
+        ).all()
+        return tuple(_resource_dto(r, session_title=resolved_title) for r in rows)
+
+    def save_study_resource(
+        self,
+        context: TenantContext,
+        *,
+        session_id: UUID | None,
+        replace_resource_id: UUID | None,
+        fallback_title: str,
+        active_attachment_ids: Sequence[UUID],
+        tool_kind: LearningToolKind,
+        source_scope: LearningResourceSourceScope,
+        title: str,
+        focus_topic: str | None,
+        content: str,
+        sources: Sequence[PersonalLearningSourceRef],
+        model: str,
+        provider: str,
+        usage_tokens: int,
+        truncated: bool,
+    ) -> PersonalLearningStudyResource:
+        now = datetime.now(UTC)
+        resolved_ids = [str(aid) for aid in dict.fromkeys(active_attachment_ids)][:5]
+
+        if session_id is None:
+            sess = PersonalLearningSessionModel(
+                tenant_id=context.tenant_id,
+                session_id=uuid4(),
+                owner_user_id=context.actor_id,
+                title=derive_session_title(fallback_title),
+                mode="explain",
+                active_attachment_ids=resolved_ids,
+                created_at=now,
+                updated_at=now,
+            )
+            self.session.add(sess)
+            self.session.flush()
+        else:
+            sess = self._require_session(context, session_id)
+            if sess.title == "New Study Session" and fallback_title.strip():
+                sess.title = derive_session_title(fallback_title)
+            if resolved_ids:
+                sess.active_attachment_ids = resolved_ids
+            sess.updated_at = now
+
+        existing: PersonalLearningStudyResourceModel | None = None
+        if replace_resource_id is not None:
+            existing = self.session.scalar(
+                select(PersonalLearningStudyResourceModel).where(
+                    PersonalLearningStudyResourceModel.tenant_id == context.tenant_id,
+                    PersonalLearningStudyResourceModel.owner_user_id == context.actor_id,
+                    PersonalLearningStudyResourceModel.session_id == sess.session_id,
+                    PersonalLearningStudyResourceModel.resource_id == replace_resource_id,
+                    PersonalLearningStudyResourceModel.deleted_at.is_(None),
+                )
+            )
+            if existing is None:
+                raise AccessError(
+                    404,
+                    "study_resource_not_found",
+                    "Study resource was not found in this session",
+                )
+
+        serialized_sources = [src.model_dump(mode="json") for src in sources]
+        if existing is not None:
+            existing.tool_kind = tool_kind
+            existing.source_scope = source_scope
+            existing.title = title[:200]
+            existing.focus_topic = focus_topic[:500] if focus_topic else None
+            existing.content = content
+            existing.sources = serialized_sources
+            existing.model = model
+            existing.provider = provider
+            existing.usage_tokens = max(0, int(usage_tokens))
+            existing.truncated = bool(truncated)
+            existing.updated_at = now
+            row = existing
+        else:
+            row = PersonalLearningStudyResourceModel(
+                tenant_id=context.tenant_id,
+                resource_id=uuid4(),
+                session_id=sess.session_id,
+                owner_user_id=context.actor_id,
+                tool_kind=tool_kind,
+                source_scope=source_scope,
+                title=title[:200],
+                focus_topic=focus_topic[:500] if focus_topic else None,
+                content=content,
+                sources=serialized_sources,
+                model=model,
+                provider=provider,
+                usage_tokens=max(0, int(usage_tokens)),
+                truncated=bool(truncated),
+                created_at=now,
+                updated_at=now,
+            )
+            self.session.add(row)
+
+        self.session.flush()
+        return _resource_dto(row, session_title=sess.title)
+
+    def delete_study_resource(
+        self, context: TenantContext, resource_id: UUID
+    ) -> bool:
+        row = self.session.scalar(
+            select(PersonalLearningStudyResourceModel).where(
+                PersonalLearningStudyResourceModel.tenant_id == context.tenant_id,
+                PersonalLearningStudyResourceModel.owner_user_id == context.actor_id,
+                PersonalLearningStudyResourceModel.resource_id == resource_id,
+                PersonalLearningStudyResourceModel.deleted_at.is_(None),
+            )
+        )
+        if row is None:
+            raise AccessError(
+                404,
+                "study_resource_not_found",
+                "Generated study resource was not found",
+            )
+        row.deleted_at = datetime.now(UTC)
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        return True

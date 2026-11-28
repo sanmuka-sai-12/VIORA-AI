@@ -628,6 +628,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/learning/resources/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Personal Learning Resource */
+        post: operations["generatePersonalLearningResource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Personal Learning Resource */
+        delete: operations["deletePersonalLearningResource"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/learning/sessions": {
         parameters: {
             query?: never;
@@ -663,6 +697,23 @@ export interface paths {
         head?: never;
         /** Update Personal Learning Session */
         patch: operations["updatePersonalLearningSession"];
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/learning/sessions/{session_id}/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Personal Learning Resources */
+        get: operations["listPersonalLearningSessionResources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/tenants/{tenant_id}/memberships": {
@@ -4109,6 +4160,13 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[PersonalLearningStudyResource] */
+        Page_PersonalLearningStudyResource_: {
+            /** Items */
+            items: components["schemas"]["PersonalLearningStudyResource"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[ProgrammeSummary] */
         Page_ProgrammeSummary_: {
             /** Items */
@@ -4318,6 +4376,40 @@ export interface components {
             /** Session Id */
             session_id?: string | null;
         };
+        /** PersonalLearningResourceGenerateRequest */
+        PersonalLearningResourceGenerateRequest: {
+            /**
+             * Attachment Ids
+             * @default []
+             */
+            attachment_ids: string[];
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["PersonalLearningAttachmentRef"][];
+            /**
+             * History
+             * @default []
+             */
+            history: components["schemas"]["PersonalLearningTurn"][];
+            /**
+             * Include Conversation
+             * @default true
+             */
+            include_conversation: boolean;
+            /** Replace Resource Id */
+            replace_resource_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
+            /**
+             * Tool Kind
+             * @enum {string}
+             */
+            tool_kind: "study_notes" | "academic_insights";
+            /** Topic */
+            topic?: string | null;
+        };
         /** PersonalLearningResponse */
         PersonalLearningResponse: {
             /** Answer */
@@ -4395,6 +4487,11 @@ export interface components {
              */
             mode: "question" | "explain";
             /**
+             * Resources
+             * @default []
+             */
+            resources: components["schemas"]["PersonalLearningStudyResource"][];
+            /**
              * Session Id
              * Format: uuid
              */
@@ -4467,6 +4564,66 @@ export interface components {
             section_title?: string | null;
             /** Title */
             title: string;
+        };
+        /** PersonalLearningStudyResource */
+        PersonalLearningStudyResource: {
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Focus Topic */
+            focus_topic?: string | null;
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Resource Id
+             * Format: uuid
+             */
+            resource_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Session Title */
+            session_title?: string | null;
+            /**
+             * Source Scope
+             * @enum {string}
+             */
+            source_scope: "topic" | "conversation" | "materials" | "combined";
+            /**
+             * Sources
+             * @default []
+             */
+            sources: components["schemas"]["PersonalLearningSourceRef"][];
+            /** Title */
+            title: string;
+            /**
+             * Tool Kind
+             * @enum {string}
+             */
+            tool_kind: "study_notes" | "academic_insights";
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Usage Tokens
+             * @default 0
+             */
+            usage_tokens: number;
         };
         /** PersonalLearningTurn */
         PersonalLearningTurn: {
@@ -10105,6 +10262,181 @@ export interface operations {
             };
         };
     };
+    generatePersonalLearningResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonalLearningResourceGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalLearningStudyResource"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deletePersonalLearningResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                resource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalLearningDeleteResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listPersonalLearningSessions: {
         parameters: {
             query?: {
@@ -10476,6 +10808,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonalLearningSessionDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listPersonalLearningSessionResources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PersonalLearningStudyResource_"];
                 };
             };
             /** @description Unauthorized */

@@ -1018,6 +1018,61 @@ textarea:focus-visible {
   border-radius: var(--radius-md);
 }
 
+.viora-workspace-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.viora-workspace-tabs {
+  display: inline-flex;
+  gap: 0.35rem;
+  background: var(--color-bg-subtle);
+  padding: 0.22rem;
+  border-radius: var(--radius-md);
+}
+
+.viora-tools-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.viora-resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.viora-resource-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.15rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.viora-resource-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
 .viora-mobile-menu-btn {
   display: none;
 }

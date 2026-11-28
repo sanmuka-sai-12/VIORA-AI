@@ -1191,6 +1191,8 @@ class LessonBlueprintApprovalState(Contract):
 
 
 LearningPromptMode = Literal["question", "explain"]
+LearningToolKind = Literal["study_notes", "academic_insights"]
+LearningResourceSourceScope = Literal["topic", "conversation", "materials", "combined"]
 PersonalLearningAttachmentStatus = Literal["ready", "partial", "unreadable"]
 PersonalLearningAttachmentKind = Literal["pdf", "image", "text"]
 
@@ -1283,12 +1285,44 @@ class PersonalLearningMessageRecord(Contract):
     created_at: datetime
 
 
+class PersonalLearningStudyResource(Contract):
+    resource_id: UUID
+    session_id: UUID
+    session_title: str | None = None
+    tool_kind: LearningToolKind
+    source_scope: LearningResourceSourceScope
+    title: str
+    focus_topic: str | None = None
+    content: str
+    sources: tuple[PersonalLearningSourceRef, ...] = ()
+    model: str
+    provider: str
+    usage_tokens: int = Field(default=0, ge=0)
+    truncated: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalLearningResourceGenerateRequest(Contract):
+    tool_kind: LearningToolKind
+    session_id: UUID | None = None
+    topic: str | None = Field(default=None, max_length=500)
+    include_conversation: bool = True
+    history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
+    attachments: tuple[PersonalLearningAttachmentRef, ...] = Field(
+        default=(), max_length=5
+    )
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5)
+    replace_resource_id: UUID | None = None
+
+
 class PersonalLearningSessionDetail(Contract):
     session_id: UUID
     title: str
     mode: LearningPromptMode
     attachments: tuple[PersonalLearningAttachment, ...] = ()
     messages: tuple[PersonalLearningMessageRecord, ...] = ()
+    resources: tuple[PersonalLearningStudyResource, ...] = ()
     created_at: datetime
     updated_at: datetime
 

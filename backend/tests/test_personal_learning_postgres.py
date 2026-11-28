@@ -316,6 +316,81 @@ def test_personal_learning_persistence_library_resume_rename_delete_and_privacy(
                 assert len(detail["messages"]) == 4
                 assert len(detail["attachments"]) == 1
 
+                # 6b) R3.1 Study Notes & Academic Insights explicit generation, persistence, source refs, regenerate, privacy, and delete
+                notes_res = fresh_client.post(
+                    f"/api/v1/tenants/{actors.tenant}/learning/resources/generate",
+                    headers=_hdr(relogin_tok),
+                    json={
+                        "tool_kind": "study_notes",
+                        "session_id": sid,
+                        "topic": "Chain Rule",
+                        "include_conversation": True,
+                        "attachment_ids": [att["attachment_id"]],
+                    },
+                )
+                assert notes_res.status_code == 200
+                note_item = notes_res.json()
+                assert note_item["session_id"] == sid
+                assert note_item["tool_kind"] == "study_notes"
+                assert note_item["source_scope"] == "combined"
+                assert len(note_item["sources"]) >= 1
+                assert note_item["sources"][0]["title"] == "Calculus Sheet"
+
+                # Regenerate in place
+                regen_res = fresh_client.post(
+                    f"/api/v1/tenants/{actors.tenant}/learning/resources/generate",
+                    headers=_hdr(relogin_tok),
+                    json={
+                        "tool_kind": "academic_insights",
+                        "session_id": sid,
+                        "topic": "Chain Rule Pitfalls",
+                        "replace_resource_id": note_item["resource_id"],
+                    },
+                )
+                assert regen_res.status_code == 200
+                assert regen_res.json()["resource_id"] == note_item["resource_id"]
+                assert regen_res.json()["tool_kind"] == "academic_insights"
+
+                # Persisted on reopened session detail & list endpoint
+                reopened = fresh_client.get(
+                    f"/api/v1/tenants/{actors.tenant}/learning/sessions/{sid}",
+                    headers=_hdr(relogin_tok),
+                ).json()
+                assert len(reopened["resources"]) == 1
+                assert reopened["resources"][0]["title"] == "Academic Insights: Chain Rule Pitfalls"
+
+                # Student-private isolation on resources
+                assert (
+                    fresh_client.get(
+                        f"/api/v1/tenants/{actors.tenant}/learning/sessions/{sid}/resources",
+                        headers=_hdr(actors.student2_token),
+                    ).status_code
+                    == 404
+                )
+                assert (
+                    fresh_client.delete(
+                        f"/api/v1/tenants/{actors.tenant}/learning/resources/{note_item['resource_id']}",
+                        headers=_hdr(actors.student2_token),
+                    ).status_code
+                    == 404
+                )
+
+                # Delete study resource
+                assert (
+                    fresh_client.delete(
+                        f"/api/v1/tenants/{actors.tenant}/learning/resources/{note_item['resource_id']}",
+                        headers=_hdr(relogin_tok),
+                    ).status_code
+                    == 200
+                )
+                assert (
+                    fresh_client.get(
+                        f"/api/v1/tenants/{actors.tenant}/learning/sessions/{sid}/resources",
+                        headers=_hdr(relogin_tok),
+                    ).json()["items"]
+                    == []
+                )
+
                 # 7) Delete material detaches it from session; delete session removes it from history
                 assert (
                     fresh_client.delete(

@@ -9,9 +9,11 @@ import {
 } from "react";
 import type {
   LearningPromptMode,
+  LearningToolKind,
   PersonalLearningAttachment,
   PersonalLearningAttachmentStatus,
   PersonalLearningSessionSummary,
+  PersonalLearningStudyResource,
   PersonalLearningTurn,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
@@ -91,6 +93,15 @@ function attachmentKindLabel(att: PersonalLearningAttachment): string {
   return "Text";
 }
 
+function formatResourceScope(
+  scope: PersonalLearningStudyResource["source_scope"],
+): string {
+  if (scope === "materials") return "From Materials";
+  if (scope === "conversation") return "From Conversation";
+  if (scope === "combined") return "Topic + Materials";
+  return "Selected Topic";
+}
+
 function formatShortDate(iso: string): string {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return "";
@@ -124,16 +135,25 @@ export function StudentLearningPage() {
   const [attachments, setAttachments] = useState<LearningAttachmentEntry[]>(
     () => initial?.attachments ?? [],
   );
+  const [resources, setResources] = useState<PersonalLearningStudyResource[]>(
+    () => initial?.resources ?? [],
+  );
 
   const [sessions, setSessions] = useState<PersonalLearningSessionSummary[]>([]);
   const [library, setLibrary] = useState<PersonalLearningAttachment[]>([]);
   const [railTab, setRailTab] = useState<"history" | "library">("history");
+  const [workspaceTab, setWorkspaceTab] = useState<"chat" | "resources">("chat");
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
   const [busy, setBusy] = useState(false);
+  const [generatingTool, setGeneratingTool] = useState<LearningToolKind | null>(
+    null,
+  );
+  const [toolTopic, setToolTopic] = useState("");
+  const [copiedResourceId, setCopiedResourceId] = useState<string | null>(null);
   const [uploadingLabel, setUploadingLabel] = useState<string | null>(null);
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
   const [noteTitle, setNoteTitle] = useState("");
@@ -163,6 +183,8 @@ export function StudentLearningPage() {
         setMode(res.data.mode);
         setMessages(mapSessionDetailToChatEntries(res.data));
         setAttachments(mapSessionAttachments(res.data.attachments));
+        setResources(res.data.resources ?? []);
+        setWorkspaceTab("chat");
         setPrompt("");
         setRenamingId(null);
         writeActiveSessionHint(userId, tenantId, res.data.session_id);
@@ -222,11 +244,15 @@ export function StudentLearningPage() {
       setPrompt(cached?.prompt ?? "");
       setMessages(cached?.messages ?? []);
       setAttachments(cached?.attachments ?? []);
+      setResources(cached?.resources ?? []);
       nextIdRef.current = (cached?.messages.length ?? 0) + 1;
     }
 
     const coldWorkspace =
-      !cached || (cached.sessionId === null && cached.messages.length === 0);
+      !cached ||
+      (cached.sessionId === null &&
+        cached.messages.length === 0 &&
+        cached.resources.length === 0);
     void refreshSidebarLists(coldWorkspace);
   }, [refreshSidebarLists, tenantController, tenantId, userId]);
 
@@ -242,12 +268,14 @@ export function StudentLearningPage() {
       prompt,
       messages,
       attachments,
+      resources,
     });
   }, [
     attachments,
     messages,
     mode,
     prompt,
+    resources,
     sessionId,
     sessionTitle,
     tenantController,
@@ -485,6 +513,9 @@ export function StudentLearningPage() {
     setSessionTitle("New Study Session");
     setMessages([]);
     setAttachments([]);
+    setResources([]);
+    setWorkspaceTab("chat");
+    setToolTopic("");
     setPrompt("");
     setShowNoteDrawer(false);
     setNoteTitle("");
@@ -492,6 +523,99 @@ export function StudentLearningPage() {
     setRenamingId(null);
     writeActiveSessionHint(userId, tenantId, NEW_CHAT_SENTINEL);
     clearLearningSession(tenantController, userId, tenantId);
+  };
+
+  const canGenerateResource = Boolean(
+    toolTopic.trim() ||
+      prompt.trim() ||
+      messages.length > 0 ||
+      activeAttachmentRefs.length > 0,
+  );
+
+  const handleGenerateResource = async (
+    toolKind: LearningToolKind,
+    options?: { replaceResourceId?: string; overrideTopic?: string | null },
+  ) => {
+    if (busy || Boolean(generatingTool) || Boolean(uploadingLabel)) return;
+    const focusTopic = (
+      options?.overrideTopic ??
+      (toolTopic.trim() || prompt.trim())
+    ).trim();
+
+    if (
+      !focusTopic &&
+      messages.length === 0 &&
+      activeAttachmentRefs.length === 0
+    ) {
+      return;
+    }
+
+    setGeneratingTool(toolKind);
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.POST("/api/v1/tenants/{tenant_id}/learning/resources/generate", {
+          params: { path: { tenant_id: tenantId } },
+          body: {
+            tool_kind: toolKind,
+            session_id: sessionId,
+            topic: focusTopic || null,
+            include_conversation: messages.length > 0,
+            history: buildHistory(messages),
+            attachments: activeAttachmentRefs,
+            attachment_ids: activeAttachmentIds,
+            replace_resource_id: options?.replaceResourceId ?? null,
+          },
+        }),
+      fallbackError:
+        toolKind === "study_notes"
+          ? "Could not generate Study Notes right now."
+          : "Could not generate Academic Insights right now.",
+      onSuccess: (created) => {
+        setSessionId(created.session_id);
+        if (created.session_title) {
+          setSessionTitle(created.session_title);
+        }
+        writeActiveSessionHint(userId, tenantId, created.session_id);
+        setResources((prev) => {
+          const filtered = prev.filter(
+            (r) => r.resource_id !== created.resource_id,
+          );
+          return [created, ...filtered];
+        });
+        setWorkspaceTab("resources");
+        void refreshSidebarLists(false);
+      },
+    });
+    setGeneratingTool(null);
+  };
+
+  const handleCopyResource = async (resource: PersonalLearningStudyResource) => {
+    const header = `${resource.title}\n\n`;
+    try {
+      await navigator.clipboard.writeText(`${header}${resource.content}`);
+      setCopiedResourceId(resource.resource_id);
+      window.setTimeout(() => setCopiedResourceId(null), 1500);
+    } catch {
+      // Clipboard may be restricted outside secure contexts.
+    }
+  };
+
+  const handleDeleteResource = async (resourceId: string) => {
+    await feedback.runApiAction({
+      call: () =>
+        apiClient.DELETE(
+          "/api/v1/tenants/{tenant_id}/learning/resources/{resource_id}",
+          {
+            params: { path: { tenant_id: tenantId, resource_id: resourceId } },
+          },
+        ),
+      fallbackError: "Could not delete study resource.",
+      onSuccess: () => {
+        setResources((prev) =>
+          prev.filter((r) => r.resource_id !== resourceId),
+        );
+      },
+    });
   };
 
   const handleSaveRename = async (targetSessionId: string) => {
@@ -771,7 +895,220 @@ export function StudentLearningPage() {
 
         {feedback.alerts}
 
-        {messages.length === 0 && (
+        <div className="viora-workspace-bar">
+          <div className="viora-workspace-tabs" role="tablist" aria-label="Session view">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={workspaceTab === "chat"}
+              className={`viora-rail-tab${workspaceTab === "chat" ? " is-active" : ""}`}
+              onClick={() => setWorkspaceTab("chat")}
+            >
+              Conversation
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={workspaceTab === "resources"}
+              className={`viora-rail-tab${workspaceTab === "resources" ? " is-active" : ""}`}
+              onClick={() => setWorkspaceTab("resources")}
+            >
+              Study Notes &amp; Insights ({resources.length})
+            </button>
+          </div>
+
+          <div className="viora-tools-actions">
+            <input
+              type="text"
+              className="viora-input"
+              aria-label="Focus topic for Study Notes or Insights"
+              placeholder="Optional focus topic..."
+              style={{ width: "190px", padding: "0.32rem 0.6rem", fontSize: "0.8rem" }}
+              value={toolTopic}
+              onChange={(e) => setToolTopic(e.target.value)}
+              disabled={busy || Boolean(generatingTool) || Boolean(uploadingLabel)}
+            />
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm viora-btn-primary"
+              disabled={
+                !canGenerateResource ||
+                busy ||
+                Boolean(generatingTool) ||
+                Boolean(uploadingLabel)
+              }
+              title={
+                canGenerateResource
+                  ? "Generate structured Study Notes from your topic, conversation, or attached materials"
+                  : "Enter a topic, ask a question, or attach material first"
+              }
+              onClick={() => void handleGenerateResource("study_notes")}
+            >
+              {generatingTool === "study_notes"
+                ? "Creating Notes..."
+                : "Study Notes"}
+            </button>
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm"
+              disabled={
+                !canGenerateResource ||
+                busy ||
+                Boolean(generatingTool) ||
+                Boolean(uploadingLabel)
+              }
+              title={
+                canGenerateResource
+                  ? "Generate high-yield Academic Insights from your topic, conversation, or attached materials"
+                  : "Enter a topic, ask a question, or attach material first"
+              }
+              onClick={() => void handleGenerateResource("academic_insights")}
+            >
+              {generatingTool === "academic_insights"
+                ? "Analyzing..."
+                : "Academic Insights"}
+            </button>
+          </div>
+        </div>
+
+        {generatingTool && (
+          <div className="viora-msg-assistant" role="status">
+            <div className="viora-typing-dots">
+              <span className="viora-typing-dot" aria-hidden="true" />
+              <span className="viora-typing-dot" aria-hidden="true" />
+              <span className="viora-typing-dot" aria-hidden="true" />
+              <span>
+                {generatingTool === "study_notes"
+                  ? "Generating structured Study Notes (concepts, definitions, formulas, summary)..."
+                  : "Generating Academic Insights (key takeaways, pitfalls, exam points)..."}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {workspaceTab === "resources" && (
+          <div className="viora-resource-list">
+            {resources.length === 0 && !generatingTool && (
+              <section className="viora-learning-hero">
+                <h2 style={{ fontSize: "1.05rem", color: "var(--color-brand-primary)" }}>
+                  No Study Notes or Insights generated in this session yet
+                </h2>
+                <p
+                  style={{
+                    fontSize: "0.86rem",
+                    color: "var(--color-text-muted)",
+                    marginTop: "0.3rem",
+                  }}
+                >
+                  Use <strong>Study Notes</strong> or <strong>Academic Insights</strong> above when you want structured concepts, definitions, formulas, and exam summaries saved with this session.
+                </p>
+              </section>
+            )}
+
+            {resources.map((res) => (
+              <article key={res.resource_id} className="viora-resource-card">
+                <div className="viora-resource-head">
+                  <div>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--color-brand-primary)" }}>
+                      {res.title}
+                    </h3>
+                    <div className="viora-row" style={{ marginTop: "0.3rem", flexWrap: "wrap" }}>
+                      <StatusBadge
+                        tone={res.tool_kind === "study_notes" ? "brand" : "neutral"}
+                      >
+                        {res.tool_kind === "study_notes"
+                          ? "Study Notes"
+                          : "Academic Insights"}
+                      </StatusBadge>
+                      <StatusBadge tone="neutral">
+                        {formatResourceScope(res.source_scope)}
+                      </StatusBadge>
+                      {res.truncated && (
+                        <StatusBadge tone="warning">
+                          Incomplete Output (Length Limit)
+                        </StatusBadge>
+                      )}
+                      <span className="viora-field-hint">
+                        {formatShortDate(res.updated_at)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="viora-row">
+                    <button
+                      type="button"
+                      className="viora-btn viora-btn-sm"
+                      disabled={busy || Boolean(generatingTool)}
+                      onClick={() => void handleCopyResource(res)}
+                    >
+                      {copiedResourceId === res.resource_id ? "Copied" : "Copy"}
+                    </button>
+                    <button
+                      type="button"
+                      className="viora-btn viora-btn-sm"
+                      disabled={busy || Boolean(generatingTool)}
+                      onClick={() =>
+                        void handleGenerateResource(res.tool_kind, {
+                          replaceResourceId: res.resource_id,
+                          overrideTopic: res.focus_topic,
+                        })
+                      }
+                    >
+                      Regenerate
+                    </button>
+                    <button
+                      type="button"
+                      className="viora-btn viora-btn-sm"
+                      disabled={busy || Boolean(generatingTool)}
+                      onClick={() => void handleDeleteResource(res.resource_id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                {res.truncated && (
+                  <AlertBanner
+                    tone="warning"
+                    title="Generated output reached length limit"
+                    message="This resource stopped before finishing cleanly. Narrow the focus topic or click Regenerate."
+                  />
+                )}
+
+                <RichAcademicContent content={res.content} />
+
+                {res.sources && res.sources.length > 0 && (
+                  <div className="viora-sources-box">
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
+                      Preserved Material References
+                    </span>
+                    <div className="viora-sources-list">
+                      {res.sources.map((src, idx) => (
+                        <span
+                          key={`${src.attachment_id}-${src.page_start}-${idx}`}
+                          className="viora-source-pill"
+                          title={src.excerpt}
+                        >
+                          <strong>{src.title}</strong>
+                          <span>• {formatSourcePageLabel(src)}</span>
+                          {src.section_title && <span>• {src.section_title}</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+
+        {workspaceTab === "chat" && messages.length === 0 && (
           <section className="viora-learning-hero">
             <div className="viora-row" style={{ justifyContent: "space-between" }}>
               <div>
@@ -827,7 +1164,7 @@ export function StudentLearningPage() {
           </section>
         )}
 
-        {messages.length > 0 && (
+        {workspaceTab === "chat" && messages.length > 0 && (
           <div className="viora-chat-thread" aria-live="polite">
             {messages.map((msg) => {
               if (msg.role === "user") {

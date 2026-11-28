@@ -21,8 +21,10 @@ from viora.knowledge.personal_learning import is_response_truncated
 from viora.knowledge.public import (
     DirectAcademicLearning,
     PersonalLearningRequest,
+    PersonalLearningResourceGenerateRequest,
     PersonalLearningTurn,
     build_personal_learning_messages,
+    build_study_resource_messages,
 )
 from viora.main import create_app
 from viora.security import AccessError
@@ -355,3 +357,49 @@ def test_personal_learning_private_attachments_upload_ocr_grounding_and_isolatio
     )
     assert forbid_resp.status_code == 403
     assert forbid_resp.json()["code"] == "attachment_forbidden"
+
+
+def test_study_notes_and_academic_insights_generation_bounds_and_validation() -> None:
+    import pytest
+
+    ctx = TenantContext(actor_id=uuid4(), tenant_id=uuid4(), roles=frozenset({"student"}))
+    # Empty context raises clean 422 AccessError without hitting AI gateway
+    with pytest.raises(AccessError) as exc_info:
+        build_study_resource_messages(
+            PersonalLearningResourceGenerateRequest(tool_kind="study_notes")
+        )
+    assert exc_info.value.status == 422
+    assert exc_info.value.code == "empty_study_context"
+
+    notes_req = PersonalLearningResourceGenerateRequest(
+        tool_kind="study_notes",
+        topic="Eigenvalues and Eigenvectors",
+        history=(
+            PersonalLearningTurn(role="user", content="What is $Av = \\lambda v$?"),
+            PersonalLearningTurn(
+                role="assistant",
+                content="An eigenvector $v \\neq 0$ only scales by eigenvalue $\\lambda$.",
+            ),
+        ),
+    )
+    notes_msgs = build_study_resource_messages(notes_req)
+    assert "## Key Concepts & Definitions" in notes_msgs[0].content
+    assert "Do NOT include programming code" in notes_msgs[0].content
+    assert "Eigenvalues and Eigenvectors" in notes_msgs[1].content
+
+    fake = FakeAIGateway(
+        default_completion="## Key Definitions & Formulas\n- Eigenvalue equation: $$Av = \\lambda v$$.\n\n## High-Yield Exam Takeaways\nSolve $\\det(A - \\lambda I) = 0$."
+    )
+    learner = DirectAcademicLearning(fake)
+    draft = learner.generate_study_resource(
+        context=ctx,
+        request=PersonalLearningResourceGenerateRequest(
+            tool_kind="academic_insights",
+            topic="Eigenvalues",
+        ),
+    )
+    assert draft["tool_kind"] == "academic_insights"
+    assert draft["source_scope"] == "topic"
+    assert draft["title"] == "Academic Insights: Eigenvalues"
+    assert draft["truncated"] is False
+    assert "\\det(A - \\lambda I)" in draft["content"]

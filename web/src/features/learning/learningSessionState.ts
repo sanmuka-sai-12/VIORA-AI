@@ -4,6 +4,7 @@ import type {
   PersonalLearningAttachmentRef,
   PersonalLearningSessionDetail,
   PersonalLearningSourceRef,
+  PersonalLearningStudyResource,
 } from "../../api/client";
 import type { TenantController } from "../../tenant/tenantState";
 
@@ -32,6 +33,7 @@ export interface LearningSessionSnapshot {
   prompt: string;
   messages: LearningChatEntry[];
   attachments: LearningAttachmentEntry[];
+  resources: PersonalLearningStudyResource[];
 }
 
 export const NEW_CHAT_SENTINEL = "__new__";
@@ -191,5 +193,6 @@ export function clearLearningSession(
     prompt: "",
     messages: [],
     attachments: [],
+    resources: [],
   } satisfies LearningSessionSnapshot);
 }

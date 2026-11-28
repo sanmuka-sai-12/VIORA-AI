@@ -56,11 +56,13 @@ from .schemas import (
     PersonalLearningAttachmentTextRequest,
     PersonalLearningDeleteResult,
     PersonalLearningRequest,
+    PersonalLearningResourceGenerateRequest,
     PersonalLearningResponse,
     PersonalLearningSessionCreateRequest,
     PersonalLearningSessionDetail,
     PersonalLearningSessionSummary,
     PersonalLearningSessionUpdateRequest,
+    PersonalLearningStudyResource,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -925,6 +927,57 @@ class ConceptKnowledgeService:
             )
             return PersonalLearningDeleteResult(deleted=True)
 
+    def _resolve_learning_inputs(
+        self,
+        scope,
+        *,
+        session_id: UUID | None,
+        history: tuple,
+        attachments: tuple,
+        attachment_ids: tuple[UUID, ...],
+        include_conversation: bool = True,
+    ):
+        resolved_refs = list(attachments)
+        effective_history = history
+        active_ids: list[UUID] = [
+            *attachment_ids,
+            *(att.attachment_id for att in attachments),
+        ]
+        dedup_active_ids = list(dict.fromkeys(active_ids))[:5]
+        active_titles: list[str] = []
+        session_title: str | None = None
+
+        if scope.session is not None:
+            pl_repo = SqlPersonalLearningRepository(scope.session)
+            if session_id is not None:
+                detail = pl_repo.get_session(scope.context, session_id)
+                session_title = detail.title
+                if include_conversation and not effective_history:
+                    effective_history = pl_repo.load_recent_turns(
+                        scope.context, session_id
+                    )
+                if not dedup_active_ids and detail.attachments:
+                    dedup_active_ids = [
+                        att.attachment_id for att in detail.attachments[:5]
+                    ]
+            if dedup_active_ids:
+                db_refs = pl_repo.resolve_material_refs(scope.context, dedup_active_ids)
+                seen_att_ids = {r.attachment_id for r in resolved_refs}
+                for dref in db_refs:
+                    if dref.attachment_id not in seen_att_ids:
+                        resolved_refs.append(dref)
+                        seen_att_ids.add(dref.attachment_id)
+                mat_rows = pl_repo._load_materials_map(scope.context, dedup_active_ids)
+                active_titles = [m.title for m in mat_rows]
+
+        return (
+            tuple(resolved_refs[:5]),
+            effective_history,
+            dedup_active_ids,
+            active_titles,
+            session_title,
+        )
+
     def ask_personal_learning(
         self,
         access: TransactionalAccess,
@@ -933,15 +986,6 @@ class ConceptKnowledgeService:
         req: PersonalLearningRequest,
     ) -> PersonalLearningResponse:
         ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
-        resolved_refs = list(req.attachments)
-        effective_history = req.history
-        active_ids: list[UUID] = [
-            *req.attachment_ids,
-            *(att.attachment_id for att in req.attachments),
-        ]
-        dedup_active_ids = list(dict.fromkeys(active_ids))[:5]
-        active_titles: list[str] = []
-
         with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
             if self.ai_gateway is None:
                 raise AccessError(
@@ -950,28 +994,19 @@ class ConceptKnowledgeService:
                     "Personal learning AI service is not configured",
                 )
             scoped_context = scope.context
-            if scope.session is not None:
-                pl_repo = SqlPersonalLearningRepository(scope.session)
-                if req.session_id is not None:
-                    loaded_turns = pl_repo.load_recent_turns(
-                        scoped_context, req.session_id
-                    )
-                    if not effective_history and loaded_turns:
-                        effective_history = loaded_turns
-                if req.attachment_ids:
-                    db_refs = pl_repo.resolve_material_refs(
-                        scoped_context, req.attachment_ids
-                    )
-                    seen_att_ids = {r.attachment_id for r in resolved_refs}
-                    for dref in db_refs:
-                        if dref.attachment_id not in seen_att_ids:
-                            resolved_refs.append(dref)
-                            seen_att_ids.add(dref.attachment_id)
-                if dedup_active_ids:
-                    mat_rows = pl_repo._load_materials_map(
-                        scoped_context, dedup_active_ids
-                    )
-                    active_titles = [m.title for m in mat_rows]
+            (
+                resolved_refs,
+                effective_history,
+                dedup_active_ids,
+                active_titles,
+                _,
+            ) = self._resolve_learning_inputs(
+                scope,
+                session_id=req.session_id,
+                history=req.history,
+                attachments=req.attachments,
+                attachment_ids=req.attachment_ids,
+            )
             attachments_svc = (
                 self._personal_learning_attachments() if resolved_refs else None
             )
@@ -979,7 +1014,7 @@ class ConceptKnowledgeService:
         effective_req = req.model_copy(
             update={
                 "history": effective_history,
-                "attachments": tuple(resolved_refs[:5]),
+                "attachments": resolved_refs,
             }
         )
         try:
@@ -1025,6 +1060,132 @@ class ConceptKnowledgeService:
                     }
                 )
             return response
+
+    def generate_personal_learning_resource(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        req: PersonalLearningResourceGenerateRequest,
+    ) -> PersonalLearningStudyResource:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if self.ai_gateway is None:
+                raise AccessError(
+                    503,
+                    "ai_gateway_unavailable",
+                    "Personal learning AI service is not configured",
+                )
+            scoped_context = scope.context
+            (
+                resolved_refs,
+                effective_history,
+                dedup_active_ids,
+                active_titles,
+                session_title,
+            ) = self._resolve_learning_inputs(
+                scope,
+                session_id=req.session_id,
+                history=req.history,
+                attachments=req.attachments,
+                attachment_ids=req.attachment_ids,
+                include_conversation=req.include_conversation,
+            )
+            attachments_svc = (
+                self._personal_learning_attachments() if resolved_refs else None
+            )
+
+        effective_req = req.model_copy(
+            update={
+                "history": effective_history,
+                "attachments": resolved_refs,
+            }
+        )
+        try:
+            draft = DirectAcademicLearning(
+                self.ai_gateway,
+                attachment_service=attachments_svc,
+            ).generate_study_resource(
+                context=scoped_context,
+                request=effective_req,
+                session_title=session_title,
+            )
+        except AIResourceLimitError as exc:
+            raise AccessError(422, exc.code, exc.message) from None
+        except AIError as exc:
+            raise AccessError(503, exc.code, exc.message) from None
+
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.context != scoped_context:
+                raise AccessError(
+                    403,
+                    "access_changed",
+                    "Institution access changed during generation",
+                )
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning resources require database persistence",
+                )
+            fallback_title = (
+                (req.topic or "").strip()
+                or (active_titles[0] if active_titles else "")
+                or (effective_history[-1].content if effective_history else "Study Notes")
+            )
+            return SqlPersonalLearningRepository(scope.session).save_study_resource(
+                scoped_context,
+                session_id=req.session_id,
+                replace_resource_id=req.replace_resource_id,
+                fallback_title=fallback_title,
+                active_attachment_ids=dedup_active_ids,
+                tool_kind=draft["tool_kind"],
+                source_scope=draft["source_scope"],
+                title=draft["title"],
+                focus_topic=draft["focus_topic"],
+                content=draft["content"],
+                sources=draft["sources"],
+                model=draft["model"],
+                provider=draft["provider"],
+                usage_tokens=draft["usage_tokens"],
+                truncated=draft["truncated"],
+            )
+
+    def list_personal_learning_resources(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        session_id: UUID,
+    ) -> Page[PersonalLearningStudyResource]:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                return Page(items=())
+            items = SqlPersonalLearningRepository(scope.session).list_session_resources(
+                scope.context, session_id
+            )
+            return Page(items=items)
+
+    def delete_personal_learning_resource(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        resource_id: UUID,
+    ) -> PersonalLearningDeleteResult:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning resources require database persistence",
+                )
+            SqlPersonalLearningRepository(scope.session).delete_study_resource(
+                scope.context, resource_id
+            )
+            return PersonalLearningDeleteResult(deleted=True)
 
     def trigger_lesson_blueprint(
         self,

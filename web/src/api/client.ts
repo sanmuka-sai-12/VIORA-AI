@@ -75,6 +75,11 @@ export type PersonalLearningSessionUpdateRequest =
   ApiSchema<"PersonalLearningSessionUpdateRequest">;
 export type PersonalLearningDeleteResult =
   ApiSchema<"PersonalLearningDeleteResult">;
+export type PersonalLearningStudyResource =
+  ApiSchema<"PersonalLearningStudyResource">;
+export type PersonalLearningResourceGenerateRequest =
+  ApiSchema<"PersonalLearningResourceGenerateRequest">;
+export type LearningToolKind = PersonalLearningStudyResource["tool_kind"];
 export type LearningPromptMode = PersonalLearningRequest["mode"];
 
 export interface NormalizedApiError {

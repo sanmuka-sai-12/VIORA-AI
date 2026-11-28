@@ -34,6 +34,7 @@ from .indexing import (
     compute_chunk_content_sha256,
     compute_embedding_fingerprint,
 )
+from .personal_learning import DirectAcademicLearning, build_personal_learning_messages
 from .ports import ConceptCacheRepository, ConceptExtractionRepository
 from .prompts import (
     build_concept_extraction_messages,
@@ -113,6 +114,9 @@ from .schemas import (
     LessonModule,
     LessonOutlineStep,
     NarrationCueSpec,
+    PersonalLearningRequest,
+    PersonalLearningResponse,
+    PersonalLearningTurn,
     PrerequisiteAnalysis,
     PrerequisiteCandidate,
     PrerequisiteCycle,
@@ -206,6 +210,7 @@ __all__ = [
     "ConceptKnowledgeService",
     "ConceptRelationshipCandidate",
     "DeterministicFakeEmbedder",
+    "DirectAcademicLearning",
     "DocumentChunk",
     "ExtractedKnowledgeGraph",
     "GraphEnrichmentConcept",
@@ -242,6 +247,9 @@ __all__ = [
     "LessonOutlineStep",
     "LocalOnnxEmbedder",
     "NarrationCueSpec",
+    "PersonalLearningRequest",
+    "PersonalLearningResponse",
+    "PersonalLearningTurn",
     "PrerequisiteAnalysis",
     "PrerequisiteCandidate",
     "PrerequisiteCycle",
@@ -301,6 +309,7 @@ __all__ = [
     "build_grounded_qa_messages",
     "build_knowledge_scope_key",
     "build_lesson_blueprint_messages",
+    "build_personal_learning_messages",
     "chunk_extracted_document",
     "compute_chunk_content_sha256",
     "compute_embedding_fingerprint",

@@ -1,379 +1,405 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type {
-  SourceSummary,
-  SubjectOfferingSummary,
+  LearningPromptMode,
+  PersonalLearningTurn,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
-import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStates";
+import { RichAcademicContent } from "../../components/common/RichAcademicContent";
 import {
   AlertBanner,
-  DataTable,
-  FormField,
   PageHeader,
-  PaginationBar,
-  SectionCard,
+  StatusBadge,
 } from "../../components/common/UiPrimitives";
 import { useTenant } from "../../tenant/TenantContext";
 import { useActionFeedback } from "../common/useActionFeedback";
-import { useCursorList } from "../common/useCursorList";
-import { OfferingQAPanel } from "../sources/OfferingQAPanel";
-import { SourceKnowledgePanel } from "../sources/SourceKnowledgePanel";
-import { buildSourceUploadFormData } from "../sources/sourceHelpers";
+import {
+  clearLearningSession,
+  loadLearningSession,
+  saveLearningSession,
+  type LearningChatEntry,
+} from "./learningSessionState";
+
+const STARTER_PROMPTS: ReadonlyArray<{
+  label: string;
+  prompt: string;
+  mode: LearningPromptMode;
+}> = [
+  {
+    label: "Calculus: Chain Rule",
+    prompt:
+      "Explain the chain rule in calculus with a step-by-step derivative example.",
+    mode: "explain",
+  },
+  {
+    label: "Algorithms: Binary Search",
+    prompt:
+      "Explain why binary search runs in O(log n) time and show clean Python code.",
+    mode: "explain",
+  },
+  {
+    label: "Algebra: Quadratic Formula",
+    prompt: "How is the quadratic formula derived from completing the square?",
+    mode: "question",
+  },
+  {
+    label: "Physics: Newton's Second Law",
+    prompt:
+      "Explain Newton's second law F = ma with units and a worked force example.",
+    mode: "explain",
+  },
+];
 
 export function StudentLearningPage() {
-  const { apiClient, controller: authController } = useAuth();
-  const { snapshot: tenant } = useTenant();
+  const { apiClient, snapshot: auth } = useAuth();
+  const { snapshot: tenant, controller: tenantController } = useTenant();
+  const userId = auth.user?.user_id;
   const tenantId = tenant.selectedTenantId;
   const feedback = useActionFeedback();
 
-  const [offerings, setOfferings] = useState<SubjectOfferingSummary[]>([]);
-  const [offeringsLoading, setOfferingsLoading] = useState(false);
-  const [offeringId, setOfferingId] = useState("");
-  const [selectedSource, setSelectedSource] = useState<SourceSummary | null>(null);
+  const initial = loadLearningSession(tenantController, userId, tenantId);
+  const [mode, setMode] = useState<LearningPromptMode>(
+    () => initial?.mode ?? "question",
+  );
+  const [prompt, setPrompt] = useState(() => initial?.prompt ?? "");
+  const [messages, setMessages] = useState<LearningChatEntry[]>(
+    () => initial?.messages ?? [],
+  );
+  const [busy, setBusy] = useState(false);
 
-  const [noteMode, setNoteMode] = useState<"text" | "file">("text");
-  const [noteTitle, setNoteTitle] = useState("");
-  const [noteContent, setNoteContent] = useState("");
-  const [noteFile, setNoteFile] = useState<File | null>(null);
-  const [submittingNote, setSubmittingNote] = useState(false);
+  const nextIdRef = useRef((initial?.messages.length ?? 0) + 1);
+  const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const loadedScopeRef = useRef<string | null>(
+    userId && tenantId ? `${userId}:${tenantId}` : null,
+  );
+
+  // Reload scoped session if user or active institution changes while mounted.
+  useEffect(() => {
+    const scopeKey = userId && tenantId ? `${userId}:${tenantId}` : null;
+    if (scopeKey === loadedScopeRef.current) {
+      return;
+    }
+    loadedScopeRef.current = scopeKey;
+    const restored = loadLearningSession(tenantController, userId, tenantId);
+    setMode(restored?.mode ?? "question");
+    setPrompt(restored?.prompt ?? "");
+    setMessages(restored?.messages ?? []);
+    nextIdRef.current = (restored?.messages.length ?? 0) + 1;
+  }, [tenantController, tenantId, userId]);
+
+  // Persist active conversation inside TenantController cache scoped to (userId, tenantId).
+  useEffect(() => {
+    if (!userId || !tenantId) {
+      return;
+    }
+    saveLearningSession(tenantController, {
+      userId,
+      tenantId,
+      mode,
+      prompt,
+      messages,
+    });
+  }, [messages, mode, prompt, tenantController, tenantId, userId]);
 
   useEffect(() => {
-    if (!tenantId) return;
-    let cancelled = false;
-    setOfferingsLoading(true);
-    void authController
-      .runWithFreshToken(() =>
-        apiClient.GET("/api/v1/tenants/{tenant_id}/offerings", {
-          params: { path: { tenant_id: tenantId }, query: { limit: 100 } },
-        }),
-      )
-      .then((res) => {
-        if (!cancelled && res.data) {
-          setOfferings(res.data.items);
-          if (res.data.items.length > 0) {
-            setOfferingId((prev) =>
-              prev && res.data!.items.some((o) => o.id === prev)
-                ? prev
-                : res.data!.items[0].id,
-            );
-          } else {
-            setOfferingId("");
-          }
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setOfferingsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [messages.length, busy]);
+
+  if (!tenantId || !userId) return null;
+
+  const buildHistory = (entries: LearningChatEntry[]): PersonalLearningTurn[] =>
+    entries.slice(-10).map((entry) => ({
+      role: entry.role,
+      content: entry.content,
+    }));
+
+  const submitPrompt = async (
+    rawPrompt: string,
+    selectedMode: LearningPromptMode,
+  ) => {
+    const trimmed = rawPrompt.trim();
+    if (!trimmed || busy) return;
+
+    const historyPayload = buildHistory(messages);
+    const userEntry: LearningChatEntry = {
+      id: `msg-${nextIdRef.current++}`,
+      role: "user",
+      content: trimmed,
+      mode: selectedMode,
     };
-  }, [apiClient, authController, tenantId]);
 
-  useEffect(() => {
-    setSelectedSource(null);
-  }, [offeringId]);
+    setMessages((prev) => [...prev, userEntry]);
+    setPrompt("");
 
-  const fetcher = useCallback(
-    ({ cursor, limit }: { cursor?: string; limit: number }) =>
-      apiClient.GET("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources", {
-        params: {
-          path: { tenant_id: tenantId!, offering_id: offeringId },
-          query: { cursor, limit },
-        },
-      }),
-    [apiClient, offeringId, tenantId],
-  );
-
-  const list = useCursorList<SourceSummary>(
-    tenantId && offeringId ? `${tenantId}:${offeringId}` : null,
-    fetcher,
-  );
-
-  const teacherLessons = list.items.filter(
-    (item) => item.origin_kind === "teacher_resource",
-  );
-  const personalNotes = list.items.filter(
-    (item) => item.origin_kind === "student_submission",
-  );
-
-  const activeOffering = offerings.find((o) => o.id === offeringId) ?? null;
-
-  const handleSubmitNote = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!tenantId || !offeringId) return;
-    if (!noteTitle.trim()) {
-      feedback.setValidationError("Title is required.");
-      return;
-    }
-    if (noteMode === "file" && !noteFile) {
-      feedback.setValidationError("Select a file to upload.");
-      return;
-    }
-
-    await feedback.runApiAction({
-      setBusy: setSubmittingNote,
+    const ok = await feedback.runApiAction({
+      setBusy,
       call: () =>
-        noteMode === "text"
-          ? apiClient.POST(
-              "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources",
-              {
-                params: { path: { tenant_id: tenantId, offering_id: offeringId } },
-                body: {
-                  title: noteTitle.trim(),
-                  input_format: "typed_notes",
-                  content: noteContent,
-                  origin_kind: "student_submission",
-                  visibility: "owner_private",
-                },
-              },
-            )
-          : apiClient.POST(
-              "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources/files",
-              {
-                params: { path: { tenant_id: tenantId, offering_id: offeringId } },
-                body: buildSourceUploadFormData({
-                  title: noteTitle,
-                  file: noteFile!,
-                  originKind: "student_submission",
-                  visibility: "owner_private",
-                }) as never,
-              },
-            ),
-      fallbackError: "Unable to submit personal study notes.",
+        apiClient.POST("/api/v1/tenants/{tenant_id}/learning/ask", {
+          params: { path: { tenant_id: tenantId } },
+          body: {
+            prompt: trimmed,
+            mode: selectedMode,
+            history: historyPayload,
+          },
+        }),
+      fallbackError: "Unable to get a response right now. Please try again.",
       onSuccess: (data) => {
-        setNoteTitle("");
-        setNoteContent("");
-        setNoteFile(null);
-        setSelectedSource(data.source);
-        feedback.setActionSuccess(`Saved personal study note "${data.source.title}".`);
-        list.resetToFirstPage();
-        list.reload();
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${nextIdRef.current++}`,
+            role: "assistant",
+            content: data.answer,
+            mode: data.mode,
+            followUps: data.follow_up_prompts,
+            truncated: data.truncated,
+          },
+        ]);
       },
     });
+
+    if (!ok) {
+      setMessages((prev) => prev.filter((item) => item.id !== userEntry.id));
+      setPrompt(trimmed);
+    }
   };
 
-  if (!tenantId) return null;
+  const handleFormSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitPrompt(prompt, mode);
+  };
+
+  const handleComposerKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submitPrompt(prompt, mode);
+    }
+  };
+
+  const handleNewConversation = () => {
+    feedback.clearFeedback();
+    setMessages([]);
+    setPrompt("");
+    clearLearningSession(tenantController, userId, tenantId);
+  };
+
+  const latestAssistantId = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant")?.id;
 
   return (
-    <div className="viora-stack">
+    <div className="viora-learning-shell">
       <PageHeader
         title="Personal Learning"
-        subtitle={`Study published lessons and ask subject questions in ${tenant.selectedInstitution?.name ?? "your institution"}.`}
+        subtitle="Ask any academic question or explore a topic at your own pace."
+        actions={
+          messages.length > 0 ? (
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm"
+              disabled={busy}
+              onClick={handleNewConversation}
+            >
+              New Topic
+            </button>
+          ) : undefined
+        }
       />
 
       {feedback.alerts}
 
-      {offeringsLoading ? (
-        <LoadingSpinner message="Loading your enrolled subjects..." />
-      ) : offerings.length === 0 ? (
-        <SectionCard title="No Enrolled Subjects Yet">
-          <AlertBanner
-            tone="info"
-            message="You are not enrolled in any active subject offerings yet. Check My Institution or contact your college administrator."
-          />
-        </SectionCard>
-      ) : (
-        <>
-          <SectionCard
-            title="My Subjects"
-            subtitle="Choose a subject to read published lessons and ask questions."
-          >
-            <div className="viora-subject-grid">
-              {offerings.map((o) => {
-                const selected = o.id === offeringId;
-                return (
-                  <button
-                    key={o.id}
-                    type="button"
-                    className={`viora-subject-card ${selected ? "is-selected" : ""}`}
-                    onClick={() => setOfferingId(o.id)}
-                  >
-                    <strong style={{ color: "var(--color-brand-primary)" }}>
-                      {o.name}
-                    </strong>
-                    <span className="viora-field-hint">
-                      {selected ? "Selected subject" : "Click to study"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </SectionCard>
-
-          {offeringId && (
-            <>
-              <SectionCard
-                title={`Lessons — ${activeOffering?.name ?? "Subject"}`}
-                subtitle="Teacher-approved learning materials and lesson guides."
+      {messages.length === 0 && (
+        <section className="viora-learning-hero">
+          <div className="viora-row" style={{ justifyContent: "space-between" }}>
+            <div>
+              <h2
+                style={{
+                  fontSize: "1.15rem",
+                  fontWeight: 700,
+                  color: "var(--color-brand-primary)",
+                }}
               >
-                {list.loading && <LoadingSpinner message="Loading lessons..." />}
-                {list.error && (
-                  <ErrorState
-                    title="Could not load subject materials"
-                    message={list.error.message}
-                    onRetry={list.reload}
-                  />
-                )}
-                {!list.loading && !list.error && (
-                  <>
-                    <DataTable
-                      rows={teacherLessons}
-                      rowKey={(s) => s.source_id}
-                      emptyTitle="No lessons published yet"
-                      emptyDescription="Your teacher has not published learning materials for this subject yet."
-                      columns={[
-                        {
-                          key: "title",
-                          header: "Lesson / Material",
-                          render: (s) => <strong>{s.title}</strong>,
-                        },
-                        {
-                          key: "open",
-                          header: "Action",
-                          render: (s) => (
-                            <button
-                              type="button"
-                              className="viora-btn viora-btn-sm viora-btn-primary"
-                              onClick={() => setSelectedSource(s)}
-                            >
-                              {selectedSource?.source_id === s.source_id
-                                ? "Viewing"
-                                : "Open Lesson"}
-                            </button>
-                          ),
-                        },
-                      ]}
-                    />
-                    <PaginationBar
-                      limit={list.limit}
-                      onLimitChange={list.setLimit}
-                      hasPrevious={list.hasPrevious}
-                      hasNext={list.hasNext}
-                      onPrevious={list.goPrevious}
-                      onNext={list.goNext}
-                      count={list.items.length}
-                    />
-                  </>
-                )}
-              </SectionCard>
+                What would you like to understand today?
+              </h2>
+              <p
+                style={{
+                  fontSize: "0.88rem",
+                  color: "var(--color-text-muted)",
+                  marginTop: "0.25rem",
+                }}
+              >
+                Ask a direct question or request a structured topic explanation with equations, worked steps, and code.
+              </p>
+            </div>
+            <StatusBadge tone="brand">Independent Study</StatusBadge>
+          </div>
 
-              {selectedSource && (
-                <SourceKnowledgePanel
-                  tenantId={tenantId}
-                  source={selectedSource}
-                  isSubjectTeacher={false}
-                  policy={null}
-                  onSourceUpdated={list.reload}
-                />
-              )}
-
-              <OfferingQAPanel
-                tenantId={tenantId}
-                offeringId={offeringId}
-                offeringName={activeOffering?.name ?? ""}
-                isSubjectTeacher={false}
-              />
-
-              <details className="viora-details">
-                <summary>Personal Study Notes (Advanced)</summary>
-                <div className="viora-stack">
-                  {personalNotes.length > 0 && (
-                    <DataTable
-                      rows={personalNotes}
-                      rowKey={(s) => s.source_id}
-                      columns={[
-                        {
-                          key: "title",
-                          header: "My Note",
-                          render: (s) => <strong>{s.title}</strong>,
-                        },
-                        {
-                          key: "open",
-                          header: "Inspect",
-                          render: (s) => (
-                            <button
-                              type="button"
-                              className="viora-btn viora-btn-sm"
-                              onClick={() => setSelectedSource(s)}
-                            >
-                              Open
-                            </button>
-                          ),
-                        },
-                      ]}
-                    />
-                  )}
-
-                  <form className="viora-stack" onSubmit={handleSubmitNote}>
-                    <div className="viora-row">
-                      <button
-                        type="button"
-                        className={`viora-btn viora-btn-sm ${noteMode === "text" ? "viora-btn-primary" : ""}`}
-                        onClick={() => setNoteMode("text")}
-                      >
-                        Typed Notes
-                      </button>
-                      <button
-                        type="button"
-                        className={`viora-btn viora-btn-sm ${noteMode === "file" ? "viora-btn-primary" : ""}`}
-                        onClick={() => setNoteMode("file")}
-                      >
-                        PDF / Image Upload
-                      </button>
-                    </div>
-                    <FormField label="Note title" htmlFor="student-note-title">
-                      <input
-                        id="student-note-title"
-                        className="viora-input"
-                        value={noteTitle}
-                        onChange={(e) => setNoteTitle(e.target.value)}
-                        placeholder="My revision summary"
-                        required
-                      />
-                    </FormField>
-                    {noteMode === "text" ? (
-                      <FormField label="Notes" htmlFor="student-note-content">
-                        <textarea
-                          id="student-note-content"
-                          className="viora-input"
-                          rows={3}
-                          value={noteContent}
-                          onChange={(e) => setNoteContent(e.target.value)}
-                          required
-                        />
-                      </FormField>
-                    ) : (
-                      <FormField
-                        label="Document File (PDF, PNG, JPEG)"
-                        htmlFor="student-note-file"
-                      >
-                        <input
-                          id="student-note-file"
-                          type="file"
-                          accept=".pdf,.png,.jpg,.jpeg"
-                          onChange={(e) => setNoteFile(e.target.files?.[0] ?? null)}
-                          required
-                        />
-                      </FormField>
-                    )}
-                    <div>
-                      <button
-                        type="submit"
-                        className="viora-btn viora-btn-sm viora-btn-primary"
-                        disabled={submittingNote}
-                      >
-                        {submittingNote ? "Saving..." : "Save Personal Note"}
-                      </button>
-                    </div>
-                  </form>
+          <div className="viora-starter-grid">
+            {STARTER_PROMPTS.map((starter) => (
+              <button
+                key={starter.label}
+                type="button"
+                className="viora-starter-btn"
+                disabled={busy}
+                onClick={() => {
+                  setMode(starter.mode);
+                  void submitPrompt(starter.prompt, starter.mode);
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    color: "var(--color-brand-primary)",
+                    marginBottom: "0.2rem",
+                  }}
+                >
+                  {starter.label}
                 </div>
-              </details>
-            </>
-          )}
-        </>
+                <div style={{ color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
+                  {starter.prompt}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
+
+      {messages.length > 0 && (
+        <div className="viora-chat-thread" aria-live="polite">
+          {messages.map((msg) => {
+            if (msg.role === "user") {
+              return (
+                <div key={msg.id} className="viora-msg-user">
+                  {msg.content}
+                </div>
+              );
+            }
+
+            const isLatest = msg.id === latestAssistantId;
+            return (
+              <article key={msg.id} className="viora-msg-assistant">
+                <div className="viora-msg-assistant-head">
+                  <span>VIORA Learning Assistant</span>
+                  {msg.truncated ? (
+                    <StatusBadge tone="warning">
+                      Incomplete Response (Length Limit)
+                    </StatusBadge>
+                  ) : (
+                    <StatusBadge tone="neutral">
+                      {msg.mode === "explain" ? "Topic Explanation" : "Direct Answer"}
+                    </StatusBadge>
+                  )}
+                </div>
+
+                {msg.truncated && (
+                  <div style={{ marginBottom: "0.75rem" }}>
+                    <AlertBanner
+                      tone="warning"
+                      title="Response cut off before finishing"
+                      message="This reply reached the response length limit and is incomplete. Use Continue below to read the remaining steps."
+                    />
+                  </div>
+                )}
+
+                <RichAcademicContent content={msg.content} />
+
+                {isLatest && msg.followUps && msg.followUps.length > 0 && (
+                  <div className="viora-followup-row">
+                    {msg.followUps.map((followUp) => (
+                      <button
+                        key={followUp}
+                        type="button"
+                        className="viora-followup-chip"
+                        disabled={busy}
+                        onClick={() => void submitPrompt(followUp, "question")}
+                      >
+                        {followUp}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+
+          {busy && (
+            <div className="viora-msg-assistant" role="status">
+              <div className="viora-typing-dots">
+                <span className="viora-typing-dot" aria-hidden="true" />
+                <span className="viora-typing-dot" aria-hidden="true" />
+                <span className="viora-typing-dot" aria-hidden="true" />
+                <span>
+                  {mode === "explain"
+                    ? "Preparing a clear topic explanation..."
+                    : "Working through your question..."}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div ref={threadEndRef} />
+        </div>
+      )}
+
+      <form onSubmit={handleFormSubmit} className="viora-composer">
+        <div className="viora-row" style={{ justifyContent: "space-between" }}>
+          <div className="viora-row" role="group" aria-label="Learning mode">
+            <button
+              type="button"
+              className={`viora-btn viora-btn-sm ${mode === "question" ? "viora-btn-primary" : ""}`}
+              disabled={busy}
+              onClick={() => setMode("question")}
+            >
+              Ask a Question
+            </button>
+            <button
+              type="button"
+              className={`viora-btn viora-btn-sm ${mode === "explain" ? "viora-btn-primary" : ""}`}
+              disabled={busy}
+              onClick={() => setMode("explain")}
+            >
+              Explain a Topic
+            </button>
+          </div>
+          <span className="viora-field-hint">
+            Enter to send • Shift+Enter for new line
+          </span>
+        </div>
+
+        <textarea
+          id="personal-learning-input"
+          aria-label="Academic question or topic"
+          className="viora-input"
+          rows={3}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={handleComposerKeyDown}
+          placeholder={
+            mode === "explain"
+              ? "Enter a topic you want explained clearly (e.g. eigenvalues, recursion, photosynthesis)..."
+              : messages.length > 0
+                ? "Ask a follow-up question or change the topic..."
+                : "Ask any academic question across math, science, programming, or theory..."
+          }
+          disabled={busy}
+          required
+        />
+
+        <div className="viora-row" style={{ justifyContent: "flex-end" }}>
+          <button
+            type="submit"
+            className="viora-btn viora-btn-primary"
+            disabled={busy || !prompt.trim()}
+          >
+            {busy
+              ? "Generating..."
+              : mode === "explain"
+                ? "Explain Topic"
+                : messages.length > 0
+                  ? "Send Follow-up"
+                  : "Ask Question"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -140,8 +140,16 @@ test("Phase 3 typed API client routes index, blueprint approval, and QA requests
       publishedOnly: true,
     }),
   });
+  await client.POST("/api/v1/tenants/{tenant_id}/learning/ask", {
+    params: { path: { tenant_id: "t1" } },
+    body: {
+      prompt: "Explain the chain rule",
+      mode: "explain",
+      history: [{ role: "user", content: "What is a derivative?" }],
+    },
+  });
 
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 5);
   assert.deepEqual(
     requests.map((r) => `${r.method} ${r.url}`),
     [
@@ -149,6 +157,7 @@ test("Phase 3 typed API client routes index, blueprint approval, and QA requests
       "POST /api/v1/tenants/t1/sources/s1/versions/v1/blueprint/review",
       "GET /api/v1/tenants/t1/sources/s1/versions/v1/blueprint/published",
       "POST /api/v1/tenants/t1/knowledge/qa",
+      "POST /api/v1/tenants/t1/learning/ask",
     ],
   );
   const qaPayload = JSON.parse(requests[3].body ?? "{}");

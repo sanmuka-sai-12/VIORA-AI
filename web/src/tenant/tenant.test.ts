@@ -188,6 +188,11 @@ test("Validation and pagination state helpers validate inputs and maintain curso
 });
 
 import {
+  clearLearningSession,
+  loadLearningSession,
+  saveLearningSession,
+} from "../features/learning/learningSessionState.ts";
+import {
   canOwnerStudentProcess,
   canTeacherManageSource,
   groundingTone,
@@ -222,4 +227,44 @@ test("Source authorization and badge helpers enforce role boundaries", () => {
   assert.equal(groundingTone("source_supported"), "success");
   assert.equal(groundingTone("learning_request"), "warning");
   assert.equal(reviewTone("approved"), "success");
+});
+
+test("Personal learning conversation state preserves across route transitions, scopes to user & institution, and clears on sign-out", () => {
+  const ctrl = buildTenantController([
+    { tenant_id: TENANT_A, name: "Northbridge College", roles: ["student"] },
+    { tenant_id: TENANT_B, name: "Southvale Institute", roles: ["student"] },
+  ]);
+  ctrl.selectInstitution(TENANT_A);
+
+  saveLearningSession(ctrl, {
+    userId: "user-1",
+    tenantId: TENANT_A,
+    mode: "explain",
+    prompt: "Follow up draft",
+    messages: [{ id: "m1", role: "user", content: "Explain chain rule" }],
+  });
+
+  // Same user & tenant restores preserved conversation (e.g., returning from My Institution)
+  const restored = loadLearningSession(ctrl, "user-1", TENANT_A);
+  assert.equal(restored?.messages.length, 1);
+  assert.equal(restored?.prompt, "Follow up draft");
+
+  // Different user or tenant does not leak state
+  assert.equal(loadLearningSession(ctrl, "user-2", TENANT_A), null);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_B), null);
+
+  // Explicit New Topic clears active conversation
+  clearLearningSession(ctrl, "user-1", TENANT_A);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.messages.length, 0);
+
+  // Sign-out (ctrl.clear()) wipes cached conversation completely
+  saveLearningSession(ctrl, {
+    userId: "user-1",
+    tenantId: TENANT_A,
+    mode: "question",
+    prompt: "",
+    messages: [{ id: "m2", role: "user", content: "Active chat" }],
+  });
+  ctrl.clear();
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A), null);
 });

@@ -1188,3 +1188,29 @@ class LessonBlueprintApprovalState(Contract):
     published_by_user_id: UUID | None = None
     published_at: datetime | None = None
     updated_at: datetime
+
+
+LearningPromptMode = Literal["question", "explain"]
+
+
+class PersonalLearningTurn(Contract):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class PersonalLearningRequest(Contract):
+    prompt: str = Field(min_length=1, max_length=2000)
+    mode: LearningPromptMode = "question"
+    history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
+
+
+class PersonalLearningResponse(Contract):
+    answer: str
+    mode: LearningPromptMode
+    model: str
+    provider: str
+    follow_up_prompts: tuple[str, ...] = ()
+    usage_tokens: int = Field(default=0, ge=0)
+    truncated: bool = False
+
+

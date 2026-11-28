@@ -35,6 +35,8 @@ from .schemas import (
     LessonBlueprintSummary,
     LessonBlueprintTriggerRequest,
     LessonBlueprintTriggerResult,
+    PersonalLearningRequest,
+    PersonalLearningResponse,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -333,6 +335,25 @@ def build_router(
         ] = None,
     ) -> KnowledgeQAResult:
         return service.answer_question(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            body,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/ask",
+        response_model=PersonalLearningResponse,
+        operation_id="askPersonalLearning",
+    )
+    def ask_personal_learning(
+        tenant_id: UUID,
+        body: PersonalLearningRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningResponse:
+        return service.ask_personal_learning(
             access,  # type: ignore[arg-type]
             _token(creds),
             tenant_id,

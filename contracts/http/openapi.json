@@ -6000,6 +6000,117 @@
         "title": "Page[WorkflowJobSummary]",
         "type": "object"
       },
+      "PersonalLearningRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PersonalLearningTurn"
+            },
+            "maxItems": 10,
+            "title": "History",
+            "type": "array"
+          },
+          "mode": {
+            "default": "question",
+            "enum": [
+              "question",
+              "explain"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "prompt": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "PersonalLearningRequest",
+        "type": "object"
+      },
+      "PersonalLearningResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "follow_up_prompts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Follow Up Prompts",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "question",
+              "explain"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "usage_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Usage Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "answer",
+          "mode",
+          "model",
+          "provider"
+        ],
+        "title": "PersonalLearningResponse",
+        "type": "object"
+      },
+      "PersonalLearningTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "PersonalLearningTurn",
+        "type": "object"
+      },
       "PrerequisiteAnalysis": {
         "additionalProperties": false,
         "description": "Deterministic prerequisite DAG analysis, cycle report, and teaching order.",
@@ -14860,6 +14971,124 @@
           }
         ],
         "summary": "Retrieve Knowledge",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/learning/ask": {
+      "post": {
+        "operationId": "askPersonalLearning",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalLearningRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalLearningResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ask Personal Learning",
         "tags": [
           "knowledge"
         ]

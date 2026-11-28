@@ -21,6 +21,7 @@ from .blueprint_store import SqlLessonBlueprintRepository
 from .curriculum import generate_lesson_outline
 from .embeddings import TextEmbedder
 from .indexing import SqlKnowledgeIndexRepository
+from .personal_learning import DirectAcademicLearning
 from .ports import ConceptExtractionRepository
 from .publication import publication_complete, reviewed_graph
 from .qa import GroundedKnowledgeQA
@@ -43,6 +44,8 @@ from .schemas import (
     LessonBlueprintRecord,
     LessonBlueprintSummary,
     LessonBlueprintTriggerResult,
+    PersonalLearningRequest,
+    PersonalLearningResponse,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -693,6 +696,38 @@ class ConceptKnowledgeService:
                 scope.context, retrieve_req, evidence
             )
             return answer
+
+    def ask_personal_learning(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        req: PersonalLearningRequest,
+    ) -> PersonalLearningResponse:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if self.ai_gateway is None:
+                raise AccessError(
+                    503,
+                    "ai_gateway_unavailable",
+                    "Personal learning AI service is not configured",
+                )
+            scoped_context = scope.context
+        try:
+            response = DirectAcademicLearning(self.ai_gateway).ask(
+                context=scoped_context,
+                request=req,
+            )
+        except AIResourceLimitError as exc:
+            raise AccessError(422, exc.code, exc.message) from None
+        except AIError as exc:
+            raise AccessError(503, exc.code, exc.message) from None
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.context != scoped_context:
+                raise AccessError(
+                    403, "access_changed", "Institution access changed during inference"
+                )
+            return response
 
     def trigger_lesson_blueprint(
         self,

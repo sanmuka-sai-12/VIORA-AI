@@ -543,6 +543,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/learning/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask Personal Learning */
+        post: operations["askPersonalLearning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/memberships": {
         parameters: {
             query?: never;
@@ -4021,6 +4038,61 @@ export interface components {
             items: components["schemas"]["WorkflowJobSummary"][];
             /** Next Cursor */
             next_cursor?: string | null;
+        };
+        /** PersonalLearningRequest */
+        PersonalLearningRequest: {
+            /**
+             * History
+             * @default []
+             */
+            history: components["schemas"]["PersonalLearningTurn"][];
+            /**
+             * Mode
+             * @default question
+             * @enum {string}
+             */
+            mode: "question" | "explain";
+            /** Prompt */
+            prompt: string;
+        };
+        /** PersonalLearningResponse */
+        PersonalLearningResponse: {
+            /** Answer */
+            answer: string;
+            /**
+             * Follow Up Prompts
+             * @default []
+             */
+            follow_up_prompts: string[];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "question" | "explain";
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Usage Tokens
+             * @default 0
+             */
+            usage_tokens: number;
+        };
+        /** PersonalLearningTurn */
+        PersonalLearningTurn: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
         };
         /**
          * PrerequisiteAnalysis
@@ -9142,6 +9214,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnowledgeRetrievalResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    askPersonalLearning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonalLearningRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalLearningResponse"];
                 };
             };
             /** @description Unauthorized */

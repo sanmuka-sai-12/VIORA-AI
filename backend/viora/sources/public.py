@@ -1,11 +1,14 @@
 """Public source domain interface, unified document contracts, and router composition."""
 
 from collections.abc import Iterator
+from uuid import UUID
 
 from fastapi import APIRouter
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..config import Settings
+from ..contracts import TenantContext
 from ..db import Database
 from ..security import Access, TransactionalAccess
 from ..storage.public import ArtifactStore
@@ -134,6 +137,56 @@ def register_models() -> None:
 
 def source_directory(session: Session) -> SourceDirectory:
     return SqlSourceDirectory(session)
+
+
+def find_offering_source_ids_by_digest_and_title(
+    session: Session,
+    tenant_id: UUID,
+    *,
+    title: str,
+    content_sha256: str,
+    is_text_note: bool = False,
+) -> list[UUID]:
+    """Locate institutional offering sources matching a legacy imported material."""
+    match_cond = (
+        or_(
+            models.SourceVersion.content_sha256 == content_sha256,
+            models.Source.origin_kind == "teacher_resource",
+        )
+        if is_text_note
+        else (models.SourceVersion.content_sha256 == content_sha256)
+    )
+    rows = session.scalars(
+        select(models.Source.source_id)
+        .join(
+            models.SourceVersion,
+            (models.SourceVersion.tenant_id == models.Source.tenant_id)
+            & (models.SourceVersion.source_id == models.Source.source_id),
+        )
+        .where(
+            models.Source.tenant_id == tenant_id,
+            models.Source.offering_id.is_not(None),
+            models.Source.title == title,
+            match_cond,
+        )
+    ).all()
+    return list(rows)
+
+
+def read_source_material_bytes(
+    session: Session,
+    context: TenantContext,
+    artifact_store: ArtifactStore,
+    tenant_id: UUID,
+    source_id: UUID,
+) -> tuple[str, str, str | None, bytes] | None:
+    """Return (title, input_format, original_filename, raw_bytes) for an authorized source."""
+    info = SqlSourceRepository(session).get_latest_download_info(tenant_id, source_id)
+    if info is None:
+        return None
+    title, input_format, original_filename, storage_ref = info
+    raw_bytes = artifact_store.read(context, storage_ref)
+    return (title, input_format, original_filename, raw_bytes)
 
 
 def router(

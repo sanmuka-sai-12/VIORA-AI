@@ -5,6 +5,7 @@ export type AppRouteId =
   | "login"
   | "institution"
   | "student-learning"
+  | "student-classrooms"
   | "teacher-class"
   | "teacher-subjects"
   | "teacher-department"
@@ -35,6 +36,7 @@ export const PUBLIC_ROUTES = new Set<AppRouteId>(["login", "health"]);
 export const INSTITUTION_SCOPED_ROUTES = new Set<AppRouteId>([
   "institution",
   "student-learning",
+  "student-classrooms",
   "teacher-class",
   "teacher-subjects",
   "teacher-department",
@@ -120,6 +122,7 @@ const PATH_TO_ROUTE: Record<string, AppRouteId> = {
   "/login": "login",
   "/institution": "institution",
   "/learning": "student-learning",
+  "/learning/classrooms": "student-classrooms",
   "/teaching/class": "teacher-class",
   "/teaching/subjects": "teacher-subjects",
   "/teaching/department": "teacher-department",
@@ -146,6 +149,7 @@ const ROUTE_TO_PATH: Record<AppRouteId, string> = {
   login: "/login",
   institution: "/institution",
   "student-learning": "/learning",
+  "student-classrooms": "/learning/classrooms",
   "teacher-class": "/teaching/class",
   "teacher-subjects": "/teaching/subjects",
   "teacher-department": "/teaching/department",

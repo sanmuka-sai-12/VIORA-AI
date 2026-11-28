@@ -13,6 +13,8 @@ from .repository import SqlMembershipRepository
 from .schemas import (
     InstitutionRole,
     MemberCreate,
+    MemberOnboardCreate,
+    MemberOnboardResponse,
     MembershipLifecycleUpdate,
     MembershipStatus,
     MemberSummary,
@@ -31,6 +33,54 @@ def _token(bearer: HTTPAuthorizationCredentials | None) -> str | None:
 def build_membership_router(access: TransactionalAccess) -> APIRouter:
     router = APIRouter(tags=["memberships"])
     bearer_dep = Security(HTTPBearer(auto_error=False))
+
+    @router.post(
+        "/tenants/{tenant_id}/memberships/onboard",
+        operation_id="onboardMember",
+        status_code=201,
+    )
+    def post_onboard_member(
+        tenant_id: UUID,
+        body: MemberOnboardCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> MemberOnboardResponse:
+        ref = ResourceRef(
+            tenant_id=tenant_id, kind="institution", resource_id=tenant_id
+        )
+        try:
+            with access.transaction(_token(bearer), "membership.create", ref) as scope:
+                if (
+                    body.role in ADMIN_ROLES
+                    and InstitutionRole.institution_owner.value not in scope.context.roles
+                ):
+                    raise AccessError(
+                        403,
+                        "forbidden",
+                        "Only an institution owner can onboard an admin role",
+                    )
+                result = SqlMembershipRepository(scope.session).onboard_member(
+                    tenant_id,
+                    email=body.email,
+                    display_name=body.display_name,
+                    role=body.role,
+                    initial_password=body.initial_password,
+                )
+                scope.audit.change(
+                    scope.context,
+                    "membership.onboard",
+                    ResourceRef(
+                        tenant_id=tenant_id,
+                        kind="membership",
+                        resource_id=result.member.user_id,
+                    ),
+                )
+                return result
+        except IntegrityError as exc:
+            if getattr(exc.orig, "sqlstate", None) == "23505":
+                raise AccessError(
+                    409, "duplicate_record", "User already has a membership record"
+                ) from None
+            raise
 
     @router.post(
         "/tenants/{tenant_id}/memberships",

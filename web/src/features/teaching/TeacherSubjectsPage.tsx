@@ -1,10 +1,5 @@
-import { SourcesPage } from "../sources/SourcesPage";
+import { ClassroomPage } from "../classroom/ClassroomPage";
 
 export function TeacherSubjectsPage() {
-  return (
-    <SourcesPage
-      pageTitle="My Teaching Subjects"
-      pageSubtitle="Manage course materials, publish approved lessons, and answer subject questions."
-    />
-  );
+  return <ClassroomPage mode="teacher" />;
 }

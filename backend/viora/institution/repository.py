@@ -1,25 +1,37 @@
 from datetime import UTC, datetime
 from typing import Any, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..contracts import Page
-from ..identity.public import IdentityDirectory, InstitutionRole
+from ..identity.public import (
+    IdentityDirectory,
+    InstitutionRole,
+    MembershipStatus,
+    get_tenant_member,
+    list_tenant_members,
+    update_user_display_name,
+    user_display_names,
+    user_emails,
+)
 from ..security import AccessError
 from .models import (
     AcademicYear,
     Campus,
     ClassCoordinator,
+    ClassroomAnnouncement,
     Department,
     DepartmentHead,
+    FacultyProfile,
     GuardianLink,
     Institution,
     Programme,
     Section,
     Semester,
     StudentEnrolment,
+    StudentProfile,
     Subject,
     SubjectOffering,
     TeacherAssignment,
@@ -27,17 +39,28 @@ from .models import (
 from .schemas import (
     AcademicContext,
     AcademicYearSummary,
+    AssignedOfferingSummary,
+    AssignedSectionSummary,
     CampusSummary,
     ClassCoordinatorSummary,
+    ClassroomAnnouncementCreate,
+    ClassroomAnnouncementSummary,
+    ClassroomAnnouncementUpdate,
     DepartmentHeadSummary,
     DepartmentSummary,
+    FacultyProfileSummary,
+    FacultyProfileUpdate,
+    FacultyResponsibilitiesSummary,
     GuardianLinkSummary,
     InstitutionInfo,
+    MyClassroomsSummary,
     OfferingAssignment,
     OfferingAssignmentSummary,
     ProgrammeSummary,
     SectionSummary,
     SemesterSummary,
+    StudentProfileSummary,
+    StudentProfileUpdate,
     SubjectOfferingSummary,
     SubjectSummary,
 )
@@ -356,6 +379,83 @@ class SqlInstitutionDirectory:
             GuardianLink.student_id == student_id,
         )
         return self.session.scalar(query) is True
+
+    def coordinator_has_student(
+        self, tenant_id: UUID, coordinator_user_id: UUID, student_user_id: UUID
+    ) -> bool:
+        if not self._eligible(
+            tenant_id, coordinator_user_id, InstitutionRole.class_coordinator
+        ):
+            return False
+        if InstitutionRole.student not in self.identities.applicable_roles(
+            student_user_id, tenant_id
+        ):
+            return False
+        section_id = self.session.scalar(
+            select(StudentProfile.section_id).where(
+                StudentProfile.tenant_id == tenant_id,
+                StudentProfile.user_id == student_user_id,
+            )
+        )
+        if section_id is None:
+            return False
+        return self.coordinates_section(tenant_id, coordinator_user_id, section_id)
+
+    def teacher_has_student(
+        self, tenant_id: UUID, teacher_user_id: UUID, student_user_id: UUID
+    ) -> bool:
+        if not self._eligible(
+            tenant_id, teacher_user_id, InstitutionRole.subject_teacher
+        ):
+            return False
+        if InstitutionRole.student not in self.identities.applicable_roles(
+            student_user_id, tenant_id
+        ):
+            return False
+        found = self.session.scalar(
+            _active_section_chain(
+                select(TeacherAssignment.offering_id)
+                .join(
+                    StudentEnrolment,
+                    and_(
+                        StudentEnrolment.tenant_id == TeacherAssignment.tenant_id,
+                        StudentEnrolment.offering_id == TeacherAssignment.offering_id,
+                    ),
+                )
+                .join(
+                    SubjectOffering,
+                    and_(
+                        SubjectOffering.tenant_id == TeacherAssignment.tenant_id,
+                        SubjectOffering.id == TeacherAssignment.offering_id,
+                    ),
+                )
+                .join(
+                    Subject,
+                    and_(
+                        Subject.tenant_id == SubjectOffering.tenant_id,
+                        Subject.id == SubjectOffering.subject_id,
+                    ),
+                )
+                .join(
+                    Section,
+                    and_(
+                        Section.tenant_id == SubjectOffering.tenant_id,
+                        Section.id == SubjectOffering.section_id,
+                    ),
+                )
+            )
+            .where(
+                TeacherAssignment.tenant_id == tenant_id,
+                TeacherAssignment.user_id == teacher_user_id,
+                TeacherAssignment.active.is_(True),
+                StudentEnrolment.user_id == student_user_id,
+                StudentEnrolment.active.is_(True),
+                SubjectOffering.active.is_(True),
+                Subject.active.is_(True),
+            )
+            .limit(1)
+        )
+        return found is not None
 
     def entity_active(
         self, tenant_id: UUID, kind: str, entity_id: UUID
@@ -1500,3 +1600,882 @@ class SqlAcademicRepository:
         row.consent_at = None
         self.session.flush()
         return self._guardian_dto(row)
+
+    # --- Student & Faculty Academic Profiles ---
+
+    def _name_map(self, model: type[Any], tenant_id: UUID, ids: set[UUID]) -> dict[UUID, str]:
+        if not ids:
+            return {}
+        rows = self.session.execute(
+            select(model.id, model.name).where(
+                model.tenant_id == tenant_id,
+                model.id.in_(ids),
+            )
+        ).all()
+        return {row.id: row.name for row in rows}
+
+    def _build_student_summaries(
+        self, tenant_id: UUID, members: list[Any]
+    ) -> list[StudentProfileSummary]:
+        if not members:
+            return []
+        user_ids = [m.user_id for m in members]
+        profiles = {
+            p.user_id: p
+            for p in self.session.scalars(
+                select(StudentProfile).where(
+                    StudentProfile.tenant_id == tenant_id,
+                    StudentProfile.user_id.in_(user_ids),
+                )
+            ).all()
+        }
+        emails = user_emails(self.session, user_ids)
+        dept_names = self._name_map(
+            Department,
+            tenant_id,
+            {p.department_id for p in profiles.values() if p.department_id is not None},
+        )
+        section_names = self._name_map(
+            Section,
+            tenant_id,
+            {p.section_id for p in profiles.values() if p.section_id is not None},
+        )
+        year_names = self._name_map(
+            AcademicYear,
+            tenant_id,
+            {p.academic_year_id for p in profiles.values() if p.academic_year_id is not None},
+        )
+        sem_names = self._name_map(
+            Semester,
+            tenant_id,
+            {p.semester_id for p in profiles.values() if p.semester_id is not None},
+        )
+        result: list[StudentProfileSummary] = []
+        for m in members:
+            p = profiles.get(m.user_id)
+            result.append(
+                StudentProfileSummary(
+                    tenant_id=tenant_id,
+                    user_id=m.user_id,
+                    display_name=m.display_name,
+                    email=emails.get(m.user_id),
+                    account_status=m.account_status.value,
+                    membership_status=m.status.value,
+                    roles=tuple(r.value for r in m.roles),
+                    roll_number=p.roll_number if p else None,
+                    department_id=p.department_id if p else None,
+                    department_name=dept_names.get(p.department_id) if p and p.department_id else None,
+                    section_id=p.section_id if p else None,
+                    section_name=section_names.get(p.section_id) if p and p.section_id else None,
+                    academic_year_id=p.academic_year_id if p else None,
+                    academic_year_name=year_names.get(p.academic_year_id) if p and p.academic_year_id else None,
+                    semester_id=p.semester_id if p else None,
+                    semester_name=sem_names.get(p.semester_id) if p and p.semester_id else None,
+                    phone=p.phone if p else None,
+                    contact_email=p.contact_email if p else None,
+                    guardian_contact=p.guardian_contact if p else None,
+                    updated_at=p.updated_at if p else None,
+                )
+            )
+        return result
+
+    def list_student_profiles(
+        self,
+        tenant_id: UUID,
+        *,
+        q: str | None = None,
+        department_id: UUID | None = None,
+        section_id: UUID | None = None,
+        academic_year_id: UUID | None = None,
+        semester_id: UUID | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = 50,
+    ) -> Page[StudentProfileSummary]:
+        members = [
+            m
+            for m in list_tenant_members(self.session, tenant_id, status=status)
+            if InstitutionRole.student in m.roles
+        ]
+        summaries = self._build_student_summaries(tenant_id, members)
+        needle = q.strip().lower() if q and q.strip() else None
+        filtered: list[StudentProfileSummary] = []
+        for item in summaries:
+            if department_id is not None and item.department_id != department_id:
+                continue
+            if section_id is not None and item.section_id != section_id:
+                continue
+            if academic_year_id is not None and item.academic_year_id != academic_year_id:
+                continue
+            if semester_id is not None and item.semester_id != semester_id:
+                continue
+            if needle is not None:
+                haystack = " ".join(
+                    v
+                    for v in (
+                        item.display_name,
+                        item.email,
+                        item.roll_number,
+                        item.phone,
+                        item.contact_email,
+                    )
+                    if v
+                ).lower()
+                if needle not in haystack:
+                    continue
+            if cursor is not None and item.user_id <= cursor:
+                continue
+            filtered.append(item)
+        page_items = filtered[:limit]
+        next_cursor = str(page_items[-1].user_id) if len(filtered) > limit and page_items else None
+        return Page[StudentProfileSummary](items=tuple(page_items), next_cursor=next_cursor)
+
+    def get_student_profile(
+        self, tenant_id: UUID, user_id: UUID
+    ) -> StudentProfileSummary | None:
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or InstitutionRole.student not in member.roles:
+            return None
+        return self._build_student_summaries(tenant_id, [member])[0]
+
+    def update_student_profile(
+        self, tenant_id: UUID, user_id: UUID, body: StudentProfileUpdate
+    ) -> StudentProfileSummary | None:
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or InstitutionRole.student not in member.roles:
+            return None
+        if "display_name" in body.model_fields_set and body.display_name is not None:
+            update_user_display_name(self.session, user_id, body.display_name)
+        profile = self.session.scalar(
+            select(StudentProfile)
+            .where(
+                StudentProfile.tenant_id == tenant_id,
+                StudentProfile.user_id == user_id,
+            )
+            .with_for_update()
+        )
+        now = datetime.now(UTC)
+        if profile is None:
+            profile = StudentProfile(tenant_id=tenant_id, user_id=user_id, updated_at=now)
+            self.session.add(profile)
+        for field in (
+            "roll_number",
+            "department_id",
+            "section_id",
+            "academic_year_id",
+            "semester_id",
+            "phone",
+            "contact_email",
+            "guardian_contact",
+        ):
+            if field in body.model_fields_set:
+                setattr(profile, field, getattr(body, field))
+        profile.updated_at = now
+        self.session.flush()
+        refreshed = get_tenant_member(self.session, tenant_id, user_id)
+        assert refreshed is not None
+        return self._build_student_summaries(tenant_id, [refreshed])[0]
+
+    def _build_faculty_summaries(
+        self, tenant_id: UUID, members: list[Any]
+    ) -> list[FacultyProfileSummary]:
+        if not members:
+            return []
+        user_ids = [m.user_id for m in members]
+        profiles = {
+            p.user_id: p
+            for p in self.session.scalars(
+                select(FacultyProfile).where(
+                    FacultyProfile.tenant_id == tenant_id,
+                    FacultyProfile.user_id.in_(user_ids),
+                )
+            ).all()
+        }
+        emails = user_emails(self.session, user_ids)
+        dept_names = self._name_map(
+            Department,
+            tenant_id,
+            {p.department_id for p in profiles.values() if p.department_id is not None},
+        )
+        result: list[FacultyProfileSummary] = []
+        for m in members:
+            p = profiles.get(m.user_id)
+            result.append(
+                FacultyProfileSummary(
+                    tenant_id=tenant_id,
+                    user_id=m.user_id,
+                    display_name=m.display_name,
+                    email=emails.get(m.user_id),
+                    account_status=m.account_status.value,
+                    membership_status=m.status.value,
+                    roles=tuple(r.value for r in m.roles),
+                    employee_code=p.employee_code if p else None,
+                    department_id=p.department_id if p else None,
+                    department_name=dept_names.get(p.department_id) if p and p.department_id else None,
+                    designation=p.designation if p else None,
+                    phone=p.phone if p else None,
+                    contact_email=p.contact_email if p else None,
+                    office_location=p.office_location if p else None,
+                    updated_at=p.updated_at if p else None,
+                )
+            )
+        return result
+
+    def list_faculty_profiles(
+        self,
+        tenant_id: UUID,
+        *,
+        q: str | None = None,
+        department_id: UUID | None = None,
+        role: InstitutionRole | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = 50,
+    ) -> Page[FacultyProfileSummary]:
+        faculty_roles = frozenset(
+            {
+                InstitutionRole.department_head,
+                InstitutionRole.class_coordinator,
+                InstitutionRole.subject_teacher,
+            }
+        )
+        members = [
+            m
+            for m in list_tenant_members(self.session, tenant_id, status=status)
+            if any(r in faculty_roles for r in m.roles)
+            and (role is None or role in m.roles)
+        ]
+        summaries = self._build_faculty_summaries(tenant_id, members)
+        needle = q.strip().lower() if q and q.strip() else None
+        filtered: list[FacultyProfileSummary] = []
+        for item in summaries:
+            if department_id is not None and item.department_id != department_id:
+                continue
+            if needle is not None:
+                haystack = " ".join(
+                    v
+                    for v in (
+                        item.display_name,
+                        item.email,
+                        item.employee_code,
+                        item.designation,
+                        item.phone,
+                        item.contact_email,
+                    )
+                    if v
+                ).lower()
+                if needle not in haystack:
+                    continue
+            if cursor is not None and item.user_id <= cursor:
+                continue
+            filtered.append(item)
+        page_items = filtered[:limit]
+        next_cursor = str(page_items[-1].user_id) if len(filtered) > limit and page_items else None
+        return Page[FacultyProfileSummary](items=tuple(page_items), next_cursor=next_cursor)
+
+    def get_faculty_profile(
+        self, tenant_id: UUID, user_id: UUID
+    ) -> FacultyProfileSummary | None:
+        faculty_roles = frozenset(
+            {
+                InstitutionRole.department_head,
+                InstitutionRole.class_coordinator,
+                InstitutionRole.subject_teacher,
+            }
+        )
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or not any(r in faculty_roles for r in member.roles):
+            return None
+        return self._build_faculty_summaries(tenant_id, [member])[0]
+
+    def update_faculty_profile(
+        self, tenant_id: UUID, user_id: UUID, body: FacultyProfileUpdate
+    ) -> FacultyProfileSummary | None:
+        faculty_roles = frozenset(
+            {
+                InstitutionRole.department_head,
+                InstitutionRole.class_coordinator,
+                InstitutionRole.subject_teacher,
+            }
+        )
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None or not any(r in faculty_roles for r in member.roles):
+            return None
+        if "display_name" in body.model_fields_set and body.display_name is not None:
+            update_user_display_name(self.session, user_id, body.display_name)
+        profile = self.session.scalar(
+            select(FacultyProfile)
+            .where(
+                FacultyProfile.tenant_id == tenant_id,
+                FacultyProfile.user_id == user_id,
+            )
+            .with_for_update()
+        )
+        now = datetime.now(UTC)
+        if profile is None:
+            profile = FacultyProfile(tenant_id=tenant_id, user_id=user_id, updated_at=now)
+            self.session.add(profile)
+        for field in (
+            "employee_code",
+            "department_id",
+            "designation",
+            "phone",
+            "contact_email",
+            "office_location",
+        ):
+            if field in body.model_fields_set:
+                setattr(profile, field, getattr(body, field))
+        profile.updated_at = now
+        self.session.flush()
+        refreshed = get_tenant_member(self.session, tenant_id, user_id)
+        assert refreshed is not None
+        return self._build_faculty_summaries(tenant_id, [refreshed])[0]
+
+    # --- R4.2 Rosters & Faculty Responsibilities ---
+
+    @staticmethod
+    def _roster_sort_key(item: StudentProfileSummary) -> tuple[bool, str, str]:
+        return (
+            item.roll_number is None,
+            (item.roll_number or "").lower(),
+            item.display_name.lower(),
+        )
+
+    def _filter_and_paginate_roster(
+        self,
+        items: list[StudentProfileSummary],
+        *,
+        q: str | None,
+        limit: int,
+    ) -> Page[StudentProfileSummary]:
+        needle = q.strip().lower() if q and q.strip() else None
+        filtered: list[StudentProfileSummary] = []
+        for item in items:
+            if needle is not None:
+                haystack = " ".join(
+                    v
+                    for v in (
+                        item.display_name,
+                        item.email,
+                        item.roll_number,
+                        item.phone,
+                        item.contact_email,
+                    )
+                    if v
+                ).lower()
+                if needle not in haystack:
+                    continue
+            filtered.append(item)
+        filtered.sort(key=self._roster_sort_key)
+        page_items = filtered[:limit]
+        next_cursor = (
+            str(page_items[-1].user_id)
+            if len(filtered) > limit and page_items
+            else None
+        )
+        return Page[StudentProfileSummary](
+            items=tuple(page_items), next_cursor=next_cursor
+        )
+
+    def list_section_roster(
+        self,
+        tenant_id: UUID,
+        section_id: UUID,
+        *,
+        q: str | None = None,
+        limit: int = 100,
+    ) -> Page[StudentProfileSummary]:
+        student_ids_in_section = set(
+            self.session.scalars(
+                select(StudentProfile.user_id).where(
+                    StudentProfile.tenant_id == tenant_id,
+                    StudentProfile.section_id == section_id,
+                )
+            ).all()
+        )
+        if not student_ids_in_section:
+            return Page[StudentProfileSummary](items=(), next_cursor=None)
+        members = [
+            m
+            for m in list_tenant_members(
+                self.session, tenant_id, status=MembershipStatus.active
+            )
+            if InstitutionRole.student in m.roles and m.user_id in student_ids_in_section
+        ]
+        summaries = self._build_student_summaries(tenant_id, members)
+        return self._filter_and_paginate_roster(summaries, q=q, limit=limit)
+
+    def list_offering_roster(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        q: str | None = None,
+        limit: int = 100,
+    ) -> Page[StudentProfileSummary]:
+        enrolled_ids = set(
+            self.session.scalars(
+                select(StudentEnrolment.user_id).where(
+                    StudentEnrolment.tenant_id == tenant_id,
+                    StudentEnrolment.offering_id == offering_id,
+                    StudentEnrolment.active.is_(True),
+                )
+            ).all()
+        )
+        if not enrolled_ids:
+            return Page[StudentProfileSummary](items=(), next_cursor=None)
+        members = [
+            m
+            for m in list_tenant_members(
+                self.session, tenant_id, status=MembershipStatus.active
+            )
+            if InstitutionRole.student in m.roles and m.user_id in enrolled_ids
+        ]
+        summaries = self._build_student_summaries(tenant_id, members)
+        return self._filter_and_paginate_roster(summaries, q=q, limit=limit)
+
+    def get_faculty_responsibilities(
+        self, tenant_id: UUID, user_id: UUID
+    ) -> FacultyResponsibilitiesSummary | None:
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None:
+            return None
+
+        homeroom_sections: list[AssignedSectionSummary] = []
+        if InstitutionRole.class_coordinator in member.roles:
+            sec_rows = self.session.execute(
+                _active_section_chain(
+                    select(
+                        Section.id.label("section_id"),
+                        Section.name.label("section_name"),
+                        Semester.id.label("semester_id"),
+                        Semester.name.label("semester_name"),
+                        AcademicYear.id.label("academic_year_id"),
+                        AcademicYear.name.label("academic_year_name"),
+                        Programme.id.label("programme_id"),
+                        Programme.name.label("programme_name"),
+                        Department.id.label("department_id"),
+                        Department.name.label("department_name"),
+                    )
+                    .select_from(ClassCoordinator)
+                    .join(
+                        Section,
+                        and_(
+                            Section.tenant_id == ClassCoordinator.tenant_id,
+                            Section.id == ClassCoordinator.section_id,
+                        ),
+                    )
+                )
+                .outerjoin(
+                    Department,
+                    and_(
+                        Department.tenant_id == Programme.tenant_id,
+                        Department.id == Programme.department_id,
+                    ),
+                )
+                .where(
+                    ClassCoordinator.tenant_id == tenant_id,
+                    ClassCoordinator.user_id == user_id,
+                    ClassCoordinator.active.is_(True),
+                )
+                .order_by(AcademicYear.name, Semester.name, Section.name)
+            ).all()
+            homeroom_sections = [
+                AssignedSectionSummary(
+                    section_id=r.section_id,
+                    section_name=r.section_name,
+                    semester_id=r.semester_id,
+                    semester_name=r.semester_name,
+                    academic_year_id=r.academic_year_id,
+                    academic_year_name=r.academic_year_name,
+                    programme_id=r.programme_id,
+                    programme_name=r.programme_name,
+                    department_id=r.department_id,
+                    department_name=r.department_name,
+                )
+                for r in sec_rows
+            ]
+
+        teaching_offerings: list[AssignedOfferingSummary] = []
+        if InstitutionRole.subject_teacher in member.roles:
+            off_rows = self.session.execute(
+                _active_section_chain(
+                    select(
+                        SubjectOffering.id.label("offering_id"),
+                        SubjectOffering.name.label("offering_name"),
+                        Subject.id.label("subject_id"),
+                        Subject.name.label("subject_name"),
+                        Section.id.label("section_id"),
+                        Section.name.label("section_name"),
+                        Semester.id.label("semester_id"),
+                        Semester.name.label("semester_name"),
+                        AcademicYear.id.label("academic_year_id"),
+                        AcademicYear.name.label("academic_year_name"),
+                        Department.id.label("department_id"),
+                        Department.name.label("department_name"),
+                    )
+                    .select_from(TeacherAssignment)
+                    .join(
+                        SubjectOffering,
+                        and_(
+                            SubjectOffering.tenant_id == TeacherAssignment.tenant_id,
+                            SubjectOffering.id == TeacherAssignment.offering_id,
+                        ),
+                    )
+                    .join(
+                        Subject,
+                        and_(
+                            Subject.tenant_id == SubjectOffering.tenant_id,
+                            Subject.id == SubjectOffering.subject_id,
+                        ),
+                    )
+                    .join(
+                        Section,
+                        and_(
+                            Section.tenant_id == SubjectOffering.tenant_id,
+                            Section.id == SubjectOffering.section_id,
+                        ),
+                    )
+                )
+                .outerjoin(
+                    Department,
+                    and_(
+                        Department.tenant_id == Subject.tenant_id,
+                        Department.id == Subject.department_id,
+                    ),
+                )
+                .where(
+                    TeacherAssignment.tenant_id == tenant_id,
+                    TeacherAssignment.user_id == user_id,
+                    TeacherAssignment.active.is_(True),
+                    SubjectOffering.active.is_(True),
+                    Subject.active.is_(True),
+                )
+                .order_by(SubjectOffering.name, Section.name)
+            ).all()
+            teaching_offerings = [
+                AssignedOfferingSummary(
+                    offering_id=r.offering_id,
+                    offering_name=r.offering_name,
+                    subject_id=r.subject_id,
+                    subject_name=r.subject_name,
+                    section_id=r.section_id,
+                    section_name=r.section_name,
+                    semester_id=r.semester_id,
+                    semester_name=r.semester_name,
+                    academic_year_id=r.academic_year_id,
+                    academic_year_name=r.academic_year_name,
+                    department_id=r.department_id,
+                    department_name=r.department_name,
+                )
+                for r in off_rows
+            ]
+
+        return FacultyResponsibilitiesSummary(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            homeroom_sections=tuple(homeroom_sections),
+            teaching_offerings=tuple(teaching_offerings),
+        )
+
+    # --- R4.3 Classrooms & Announcements ---
+
+    def _query_offering_summaries(
+        self, tenant_id: UUID, user_id: UUID, assignment_model: type[Any]
+    ) -> list[AssignedOfferingSummary]:
+        rows = self.session.execute(
+            _active_section_chain(
+                select(
+                    SubjectOffering.id.label("offering_id"),
+                    SubjectOffering.name.label("offering_name"),
+                    Subject.id.label("subject_id"),
+                    Subject.name.label("subject_name"),
+                    Section.id.label("section_id"),
+                    Section.name.label("section_name"),
+                    Semester.id.label("semester_id"),
+                    Semester.name.label("semester_name"),
+                    AcademicYear.id.label("academic_year_id"),
+                    AcademicYear.name.label("academic_year_name"),
+                    Department.id.label("department_id"),
+                    Department.name.label("department_name"),
+                )
+                .select_from(assignment_model)
+                .join(
+                    SubjectOffering,
+                    and_(
+                        SubjectOffering.tenant_id == assignment_model.tenant_id,
+                        SubjectOffering.id == assignment_model.offering_id,
+                    ),
+                )
+                .join(
+                    Subject,
+                    and_(
+                        Subject.tenant_id == SubjectOffering.tenant_id,
+                        Subject.id == SubjectOffering.subject_id,
+                    ),
+                )
+                .join(
+                    Section,
+                    and_(
+                        Section.tenant_id == SubjectOffering.tenant_id,
+                        Section.id == SubjectOffering.section_id,
+                    ),
+                )
+            )
+            .outerjoin(
+                Department,
+                and_(
+                    Department.tenant_id == Subject.tenant_id,
+                    Department.id == Subject.department_id,
+                ),
+            )
+            .where(
+                assignment_model.tenant_id == tenant_id,
+                assignment_model.user_id == user_id,
+                assignment_model.active.is_(True),
+                SubjectOffering.active.is_(True),
+                Subject.active.is_(True),
+            )
+            .order_by(SubjectOffering.name, Section.name)
+        ).all()
+        offering_ids = [r.offering_id for r in rows]
+        teachers_by_offering: dict[UUID, list[str]] = {oid: [] for oid in offering_ids}
+        if offering_ids:
+            t_rows = self.session.execute(
+                select(TeacherAssignment.offering_id, TeacherAssignment.user_id).where(
+                    TeacherAssignment.tenant_id == tenant_id,
+                    TeacherAssignment.offering_id.in_(offering_ids),
+                    TeacherAssignment.active.is_(True),
+                )
+            ).all()
+            t_names = user_display_names(
+                self.session, list({tr.user_id for tr in t_rows})
+            )
+            for oid, uid in t_rows:
+                name = t_names.get(uid)
+                if name and name not in teachers_by_offering[oid]:
+                    teachers_by_offering[oid].append(name)
+
+        return [
+            AssignedOfferingSummary(
+                offering_id=r.offering_id,
+                offering_name=r.offering_name,
+                subject_id=r.subject_id,
+                subject_name=r.subject_name,
+                section_id=r.section_id,
+                section_name=r.section_name,
+                semester_id=r.semester_id,
+                semester_name=r.semester_name,
+                academic_year_id=r.academic_year_id,
+                academic_year_name=r.academic_year_name,
+                department_id=r.department_id,
+                department_name=r.department_name,
+                teacher_names=tuple(sorted(teachers_by_offering[r.offering_id])),
+            )
+            for r in rows
+        ]
+
+    def get_my_classrooms(
+        self, tenant_id: UUID, user_id: UUID
+    ) -> MyClassroomsSummary | None:
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None:
+            return None
+        teaching = (
+            self._query_offering_summaries(tenant_id, user_id, TeacherAssignment)
+            if InstitutionRole.subject_teacher in member.roles
+            else []
+        )
+        enrolled = (
+            self._query_offering_summaries(tenant_id, user_id, StudentEnrolment)
+            if InstitutionRole.student in member.roles
+            else []
+        )
+        homeroom_section: AssignedSectionSummary | None = None
+        homeroom_teacher_names: tuple[str, ...] = ()
+        if InstitutionRole.student in member.roles:
+            sec_id = self.session.scalar(
+                select(StudentProfile.section_id).where(
+                    StudentProfile.tenant_id == tenant_id,
+                    StudentProfile.user_id == user_id,
+                )
+            )
+            if sec_id is not None:
+                sec_row = self.session.execute(
+                    _active_section_chain(
+                        select(
+                            Section.id.label("section_id"),
+                            Section.name.label("section_name"),
+                            Semester.id.label("semester_id"),
+                            Semester.name.label("semester_name"),
+                            AcademicYear.id.label("academic_year_id"),
+                            AcademicYear.name.label("academic_year_name"),
+                            Programme.id.label("programme_id"),
+                            Programme.name.label("programme_name"),
+                            Department.id.label("department_id"),
+                            Department.name.label("department_name"),
+                        )
+                    )
+                    .outerjoin(
+                        Department,
+                        and_(
+                            Department.tenant_id == Programme.tenant_id,
+                            Department.id == Programme.department_id,
+                        ),
+                    )
+                    .where(Section.tenant_id == tenant_id, Section.id == sec_id)
+                ).one_or_none()
+                if sec_row is not None:
+                    homeroom_section = AssignedSectionSummary(
+                        section_id=sec_row.section_id,
+                        section_name=sec_row.section_name,
+                        semester_id=sec_row.semester_id,
+                        semester_name=sec_row.semester_name,
+                        academic_year_id=sec_row.academic_year_id,
+                        academic_year_name=sec_row.academic_year_name,
+                        programme_id=sec_row.programme_id,
+                        programme_name=sec_row.programme_name,
+                        department_id=sec_row.department_id,
+                        department_name=sec_row.department_name,
+                    )
+                coord_ids = list(
+                    self.session.scalars(
+                        select(ClassCoordinator.user_id).where(
+                            ClassCoordinator.tenant_id == tenant_id,
+                            ClassCoordinator.section_id == sec_id,
+                            ClassCoordinator.active.is_(True),
+                        )
+                    ).all()
+                )
+                c_names = user_display_names(self.session, coord_ids)
+                homeroom_teacher_names = tuple(
+                    sorted(c_names[uid] for uid in coord_ids if uid in c_names)
+                )
+
+        return MyClassroomsSummary(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            teaching_offerings=tuple(teaching),
+            enrolled_offerings=tuple(enrolled),
+            homeroom_section=homeroom_section,
+            homeroom_teacher_names=homeroom_teacher_names,
+        )
+
+    def _announcement_dto(
+        self, row: ClassroomAnnouncement, names: dict[UUID, str]
+    ) -> ClassroomAnnouncementSummary:
+        return ClassroomAnnouncementSummary(
+            tenant_id=row.tenant_id,
+            id=row.id,
+            offering_id=row.offering_id,
+            author_user_id=row.author_user_id,
+            author_name=names.get(row.author_user_id, "Faculty"),
+            title=row.title,
+            body=row.body,
+            pinned=row.pinned,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def list_announcements(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        limit: int = 50,
+    ) -> Page[ClassroomAnnouncementSummary]:
+        rows = list(
+            self.session.scalars(
+                select(ClassroomAnnouncement)
+                .where(
+                    ClassroomAnnouncement.tenant_id == tenant_id,
+                    ClassroomAnnouncement.offering_id == offering_id,
+                )
+                .order_by(
+                    ClassroomAnnouncement.pinned.desc(),
+                    ClassroomAnnouncement.created_at.desc(),
+                )
+                .limit(limit)
+            ).all()
+        )
+        names = user_display_names(
+            self.session, list({r.author_user_id for r in rows})
+        )
+        return Page[ClassroomAnnouncementSummary](
+            items=tuple(self._announcement_dto(r, names) for r in rows),
+            next_cursor=None,
+        )
+
+    def create_announcement(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        author_user_id: UUID,
+        body: ClassroomAnnouncementCreate,
+    ) -> ClassroomAnnouncementSummary:
+        now = datetime.now(UTC)
+        row = ClassroomAnnouncement(
+            tenant_id=tenant_id,
+            id=uuid4(),
+            offering_id=offering_id,
+            author_user_id=author_user_id,
+            title=body.title,
+            body=body.body,
+            pinned=body.pinned,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(row)
+        self.session.flush()
+        names = user_display_names(self.session, [author_user_id])
+        return self._announcement_dto(row, names)
+
+    def update_announcement(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+        body: ClassroomAnnouncementUpdate,
+    ) -> ClassroomAnnouncementSummary | None:
+        row = self.session.scalar(
+            select(ClassroomAnnouncement)
+            .where(
+                ClassroomAnnouncement.tenant_id == tenant_id,
+                ClassroomAnnouncement.offering_id == offering_id,
+                ClassroomAnnouncement.id == announcement_id,
+            )
+            .with_for_update()
+        )
+        if row is None:
+            return None
+        if "title" in body.model_fields_set and body.title is not None:
+            row.title = body.title
+        if "body" in body.model_fields_set and body.body is not None:
+            row.body = body.body
+        if "pinned" in body.model_fields_set and body.pinned is not None:
+            row.pinned = body.pinned
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        names = user_display_names(self.session, [row.author_user_id])
+        return self._announcement_dto(row, names)
+
+    def delete_announcement(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+    ) -> bool:
+        row = self.session.scalar(
+            select(ClassroomAnnouncement)
+            .where(
+                ClassroomAnnouncement.tenant_id == tenant_id,
+                ClassroomAnnouncement.offering_id == offering_id,
+                ClassroomAnnouncement.id == announcement_id,
+            )
+            .with_for_update()
+        )
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True

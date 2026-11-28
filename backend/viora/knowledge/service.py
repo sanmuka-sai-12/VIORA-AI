@@ -799,6 +799,70 @@ class ConceptKnowledgeService:
                 )
             return attachment
 
+    def import_classroom_material(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        source_id: UUID,
+    ) -> PersonalLearningAttachment:
+        from ..sources.public import read_source_material_bytes
+
+        source_ref = ResourceRef(tenant_id=tenant_id, kind="source", resource_id=source_id)
+        with access.transaction(bearer, "source.read", source_ref) as scope:
+            scoped_context = scope.context
+            attachments_svc = self._personal_learning_attachments()
+            if scope.session is None:
+                raise AccessError(404, "source_missing", "Source material unavailable")
+            material = read_source_material_bytes(
+                scope.session,
+                scoped_context,
+                attachments_svc.artifact_store,
+                tenant_id,
+                source_id,
+            )
+            if material is None:
+                raise AccessError(404, "source_missing", "Source material unavailable")
+            title, input_format, original_filename, raw_bytes = material
+
+        if input_format in {"plain_text", "typed_notes", "topic_description"}:
+            attachment = attachments_svc.ingest_text(
+                context=scoped_context,
+                title=title,
+                content=raw_bytes.decode("utf-8", errors="replace"),
+            )
+        else:
+            media_type = {
+                "digital_pdf": "application/pdf",
+                "scanned_pdf": "application/pdf",
+                "png": "image/png",
+                "jpeg": "image/jpeg",
+            }.get(input_format, "application/octet-stream")
+            ext = {
+                "digital_pdf": ".pdf",
+                "scanned_pdf": ".pdf",
+                "png": ".png",
+                "jpeg": ".jpg",
+            }.get(input_format, ".bin")
+            attachment = attachments_svc.ingest_file(
+                context=scoped_context,
+                raw_bytes=raw_bytes,
+                original_filename=original_filename or f"{title}{ext}",
+                claimed_content_type=media_type,
+                title=title,
+            )
+
+        with access.transaction(bearer, "source.read", source_ref) as scope:
+            if scope.context != scoped_context:
+                raise AccessError(
+                    403, "access_changed", "Access changed during classroom import"
+                )
+            if scope.session is not None:
+                return SqlPersonalLearningRepository(scope.session).register_material(
+                    scoped_context, attachment, origin_source_id=source_id
+                )
+            return attachment
+
     def list_personal_learning_materials(
         self,
         access: TransactionalAccess,
@@ -956,6 +1020,7 @@ class ConceptKnowledgeService:
 
         if scope.session is not None:
             pl_repo = SqlPersonalLearningRepository(scope.session)
+            revocation_check_ids = list(dedup_active_ids)
             if session_id is not None:
                 detail = pl_repo.get_session(scope.context, session_id)
                 session_title = detail.title
@@ -967,6 +1032,29 @@ class ConceptKnowledgeService:
                     dedup_active_ids = [
                         att.attachment_id for att in detail.attachments[:5]
                     ]
+                if include_conversation and detail.attachments:
+                    revocation_check_ids.extend(
+                        att.attachment_id for att in detail.attachments
+                    )
+            if revocation_check_ids:
+                for origin_src_id in pl_repo.origin_source_ids_for_materials(
+                    scope.context, revocation_check_ids
+                ):
+                    try:
+                        scope.recheck(
+                            "source.read",
+                            ResourceRef(
+                                tenant_id=scope.context.tenant_id,
+                                kind="source",
+                                resource_id=origin_src_id,
+                            ),
+                        )
+                    except AccessError:
+                        raise AccessError(
+                            403,
+                            "material_access_revoked",
+                            "Imported classroom material is no longer accessible after withdrawal or unenrolment",
+                        ) from None
             if dedup_active_ids:
                 db_refs = pl_repo.resolve_material_refs(scope.context, dedup_active_ids)
                 seen_att_ids = {r.attachment_id for r in resolved_refs}

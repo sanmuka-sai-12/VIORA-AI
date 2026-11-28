@@ -47,6 +47,7 @@ import { useTenant } from "../../tenant/TenantContext";
 import { useActionFeedback } from "../common/useActionFeedback";
 import {
   clearLearningSession,
+  consumeClassroomMaterialHandoff,
   formatSourcePageLabel,
   loadLearningSession,
   mapSessionAttachments,
@@ -310,7 +311,22 @@ export function StudentLearningPage({
       (cached.sessionId === null &&
         cached.messages.length === 0 &&
         cached.resources.length === 0);
-    void refreshSidebarLists(coldWorkspace);
+
+    const handoff = consumeClassroomMaterialHandoff(userId, tenantId);
+    if (handoff) {
+      setSessionId(null);
+      setSessionTitle(handoff.classroomTitle ?? handoff.attachment.title);
+      setMode("question");
+      setMessages([]);
+      setAttachments([{ attachment: handoff.attachment, included: true }]);
+      setResources([]);
+      setFocusedResourceId(null);
+      setActiveSection("home");
+      setPrompt(`Explain the key concepts from "${handoff.attachment.title}".`);
+      void refreshSidebarLists(false);
+    } else {
+      void refreshSidebarLists(coldWorkspace);
+    }
   }, [refreshSidebarLists, tenantController, tenantId, userId]);
 
   // Keep instant route-switch cache updated scoped cleanly to (userId, tenantId).
@@ -1242,6 +1258,26 @@ export function StudentLearningPage({
         )}
 
         <div className="viora-nav-footer">
+          <button
+            type="button"
+            className="viora-inst-card"
+            onClick={() => onNavigate?.("student-classrooms")}
+            title="My Classrooms"
+            style={{ marginBottom: "0.4rem" }}
+          >
+            <LibraryIcon style={{ flexShrink: 0, color: "#2e42a3" }} />
+            {!navCollapsed && (
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#1e293b" }}>
+                  My Classrooms
+                </div>
+                <div style={{ fontSize: "0.74rem", color: "#64748b" }}>
+                  Materials & announcements
+                </div>
+              </div>
+            )}
+          </button>
+
           <button
             type="button"
             className="viora-inst-card"

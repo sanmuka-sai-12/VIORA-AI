@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Text,
     false,
     func,
     text,
@@ -269,3 +270,99 @@ class GuardianLink(MemberAssignment, Base):
     active: Mapped[bool] = mapped_column(Boolean, server_default=false())
     consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StudentProfile(MemberAssignment, Base):
+    __tablename__ = "student_profiles"
+    __table_args__ = (
+        tenant_reference("user_id", "memberships", "user_id"),
+        tenant_reference("department_id", "departments"),
+        tenant_reference("section_id", "sections"),
+        tenant_reference("academic_year_id", "academic_years"),
+        tenant_reference("semester_id", "semesters"),
+        Index("ix_student_profiles_department_id", "tenant_id", "department_id"),
+        Index("ix_student_profiles_section_id", "tenant_id", "section_id"),
+        Index(
+            "uq_student_profiles_roll_number",
+            "tenant_id",
+            func.lower(func.btrim(text("roll_number"))),
+            unique=True,
+            postgresql_where=text("roll_number IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "roll_number IS NULL OR btrim(roll_number) <> ''",
+            name="ck_student_profiles_roll_number",
+        ),
+    )
+
+    roll_number: Mapped[str | None] = mapped_column(Text)
+    department_id: Mapped[UUID | None]
+    section_id: Mapped[UUID | None]
+    academic_year_id: Mapped[UUID | None]
+    semester_id: Mapped[UUID | None]
+    phone: Mapped[str | None] = mapped_column(Text)
+    contact_email: Mapped[str | None] = mapped_column(Text)
+    guardian_contact: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class FacultyProfile(MemberAssignment, Base):
+    __tablename__ = "faculty_profiles"
+    __table_args__ = (
+        tenant_reference("user_id", "memberships", "user_id"),
+        tenant_reference("department_id", "departments"),
+        Index("ix_faculty_profiles_department_id", "tenant_id", "department_id"),
+        Index(
+            "uq_faculty_profiles_employee_code",
+            "tenant_id",
+            func.lower(func.btrim(text("employee_code"))),
+            unique=True,
+            postgresql_where=text("employee_code IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "employee_code IS NULL OR btrim(employee_code) <> ''",
+            name="ck_faculty_profiles_employee_code",
+        ),
+    )
+
+    employee_code: Mapped[str | None] = mapped_column(Text)
+    department_id: Mapped[UUID | None]
+    designation: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(Text)
+    contact_email: Mapped[str | None] = mapped_column(Text)
+    office_location: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ClassroomAnnouncement(Base):
+    __tablename__ = "classroom_announcements"
+    __table_args__ = (
+        tenant_reference("offering_id", "subject_offerings"),
+        tenant_reference("author_user_id", "memberships", "user_id"),
+        Index(
+            "ix_classroom_announcements_offering_created",
+            "tenant_id",
+            "offering_id",
+            "created_at",
+        ),
+        CheckConstraint("btrim(title) <> ''", name="ck_classroom_announcements_title"),
+        CheckConstraint("btrim(body) <> ''", name="ck_classroom_announcements_body"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(primary_key=True)
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    offering_id: Mapped[UUID]
+    author_user_id: Mapped[UUID]
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    pinned: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

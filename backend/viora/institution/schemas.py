@@ -249,3 +249,148 @@ class OfferingActorAccess(Contract):
     academic_active: bool
     is_assigned_teacher: bool
     is_enrolled_student: bool
+
+
+OptionalShortText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+]
+
+
+class StudentProfileUpdate(Contract):
+    display_name: NonEmptyName | None = None
+    roll_number: OptionalShortText | None = None
+    department_id: UUID | None = None
+    section_id: UUID | None = None
+    academic_year_id: UUID | None = None
+    semester_id: UUID | None = None
+    phone: OptionalShortText | None = None
+    contact_email: OptionalShortText | None = None
+    guardian_contact: OptionalShortText | None = None
+
+
+class StudentProfileSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    display_name: str
+    email: str | None
+    account_status: str
+    membership_status: str
+    roles: tuple[str, ...]
+    roll_number: str | None
+    department_id: UUID | None
+    department_name: str | None
+    section_id: UUID | None
+    section_name: str | None
+    academic_year_id: UUID | None
+    academic_year_name: str | None
+    semester_id: UUID | None
+    semester_name: str | None
+    phone: str | None
+    contact_email: str | None
+    guardian_contact: str | None
+    updated_at: datetime | None
+
+
+class FacultyProfileUpdate(Contract):
+    display_name: NonEmptyName | None = None
+    employee_code: OptionalShortText | None = None
+    department_id: UUID | None = None
+    designation: OptionalShortText | None = None
+    phone: OptionalShortText | None = None
+    contact_email: OptionalShortText | None = None
+    office_location: OptionalShortText | None = None
+
+
+class FacultyProfileSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    display_name: str
+    email: str | None
+    account_status: str
+    membership_status: str
+    roles: tuple[str, ...]
+    employee_code: str | None
+    department_id: UUID | None
+    department_name: str | None
+    designation: str | None
+    phone: str | None
+    contact_email: str | None
+    office_location: str | None
+    updated_at: datetime | None
+
+
+class AssignedSectionSummary(Contract):
+    section_id: UUID
+    section_name: str
+    semester_id: UUID
+    semester_name: str
+    academic_year_id: UUID
+    academic_year_name: str
+    programme_id: UUID | None
+    programme_name: str | None
+    department_id: UUID | None
+    department_name: str | None
+
+
+class AssignedOfferingSummary(Contract):
+    offering_id: UUID
+    offering_name: str
+    subject_id: UUID
+    subject_name: str
+    section_id: UUID
+    section_name: str
+    semester_id: UUID
+    semester_name: str
+    academic_year_id: UUID
+    academic_year_name: str
+    department_id: UUID | None
+    department_name: str | None
+    teacher_names: tuple[str, ...] = ()
+
+
+class FacultyResponsibilitiesSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    homeroom_sections: tuple[AssignedSectionSummary, ...]
+    teaching_offerings: tuple[AssignedOfferingSummary, ...]
+
+
+class MyClassroomsSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    teaching_offerings: tuple[AssignedOfferingSummary, ...]
+    enrolled_offerings: tuple[AssignedOfferingSummary, ...]
+    homeroom_section: AssignedSectionSummary | None = None
+    homeroom_teacher_names: tuple[str, ...] = ()
+
+
+AnnouncementBodyText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=10000),
+]
+
+
+class ClassroomAnnouncementCreate(Contract):
+    title: NonEmptyName
+    body: AnnouncementBodyText
+    pinned: bool = False
+
+
+class ClassroomAnnouncementUpdate(Contract):
+    title: NonEmptyName | None = None
+    body: AnnouncementBodyText | None = None
+    pinned: bool | None = None
+
+
+class ClassroomAnnouncementSummary(Contract):
+    tenant_id: UUID
+    id: UUID
+    offering_id: UUID
+    author_user_id: UUID
+    author_name: str
+    title: str
+    body: str
+    pinned: bool
+    created_at: datetime
+    updated_at: datetime

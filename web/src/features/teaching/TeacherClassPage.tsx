@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import type { SectionSummary, SubjectOfferingSummary } from "../../api/client";
+import {
+  normalizeApiError,
+  type AssignedSectionSummary,
+  type NormalizedApiError,
+  type StudentProfileSummary,
+  type SubjectOfferingSummary,
+} from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStates";
 import {
@@ -14,7 +20,6 @@ import { useTenant } from "../../tenant/TenantContext";
 import { validateRequiredName } from "../../tenant/validation";
 import { AssignmentModal } from "../common/AssignmentModal";
 import { useActionFeedback } from "../common/useActionFeedback";
-import { useCursorList } from "../common/useCursorList";
 import { useTenantOptions } from "../common/useTenantOptions";
 
 export function TeacherClassPage() {
@@ -24,37 +29,106 @@ export function TeacherClassPage() {
   const feedback = useActionFeedback();
   const options = useTenantOptions({ members: true });
 
-  const [selectedSection, setSelectedSection] = useState<SectionSummary | null>(null);
-  const [sectionOfferings, setSectionOfferings] = useState<SubjectOfferingSummary[]>([]);
+  const [homerooms, setHomerooms] = useState<AssignedSectionSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<NormalizedApiError | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
+
+  const [selectedSection, setSelectedSection] =
+    useState<AssignedSectionSummary | null>(null);
+
+  const [roster, setRoster] = useState<StudentProfileSummary[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterSearch, setRosterSearch] = useState("");
+  const [profileStudent, setProfileStudent] =
+    useState<StudentProfileSummary | null>(null);
+
+  const [sectionOfferings, setSectionOfferings] = useState<
+    SubjectOfferingSummary[]
+  >([]);
   const [offeringsLoading, setOfferingsLoading] = useState(false);
 
-  const [editingSection, setEditingSection] = useState<SectionSummary | null>(null);
+  const [editingSection, setEditingSection] =
+    useState<AssignedSectionSummary | null>(null);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const [coordsSection, setCoordsSection] = useState<SectionSummary | null>(null);
-  const [teachersOffering, setTeachersOffering] = useState<SubjectOfferingSummary | null>(null);
+  const [teachersOffering, setTeachersOffering] =
+    useState<SubjectOfferingSummary | null>(null);
 
-  const fetcher = useCallback(
-    ({ cursor, limit }: { cursor?: string; limit: number }) =>
-      apiClient.GET("/api/v1/tenants/{tenant_id}/sections", {
-        params: {
-          path: { tenant_id: tenantId! },
-          query: { cursor, limit },
-        },
-      }),
-    [apiClient, tenantId],
-  );
-
-  const list = useCursorList<SectionSummary>(tenantId, fetcher);
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
   useEffect(() => {
-    if (list.items.length > 0 && !selectedSection) {
-      setSelectedSection(list.items[0]);
-    } else if (list.items.length === 0) {
+    if (!tenantId) {
+      setHomerooms([]);
       setSelectedSection(null);
+      return;
     }
-  }, [list.items, selectedSection]);
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    void authController
+      .runWithFreshToken(() =>
+        apiClient.GET("/api/v1/tenants/{tenant_id}/my-responsibilities", {
+          params: { path: { tenant_id: tenantId } },
+        }),
+      )
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data) {
+          const list = res.data.homeroom_sections;
+          setHomerooms(list);
+          setSelectedSection((prev) =>
+            prev && list.some((s) => s.section_id === prev.section_id)
+              ? list.find((s) => s.section_id === prev.section_id) ?? null
+              : list[0] ?? null,
+          );
+        } else {
+          setLoadError(
+            normalizeApiError(
+              res.error,
+              res.response.status,
+              "Unable to load your assigned homeroom classes.",
+            ),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, authController, reloadTick, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || !selectedSection) {
+      setRoster([]);
+      return;
+    }
+    let cancelled = false;
+    setRosterLoading(true);
+    void authController
+      .runWithFreshToken(() =>
+        apiClient.GET("/api/v1/tenants/{tenant_id}/sections/{section_id}/roster", {
+          params: {
+            path: { tenant_id: tenantId, section_id: selectedSection.section_id },
+            query: { q: rosterSearch.trim() || undefined, limit: 200 },
+          },
+        }),
+      )
+      .then((res) => {
+        if (!cancelled && res.data) {
+          setRoster(res.data.items);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRosterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, authController, rosterSearch, selectedSection, tenantId]);
 
   useEffect(() => {
     if (!tenantId || !selectedSection) {
@@ -68,7 +142,7 @@ export function TeacherClassPage() {
         apiClient.GET("/api/v1/tenants/{tenant_id}/offerings", {
           params: {
             path: { tenant_id: tenantId },
-            query: { section_id: selectedSection.id, limit: 100 },
+            query: { section_id: selectedSection.section_id, limit: 100 },
           },
         }),
       )
@@ -78,14 +152,25 @@ export function TeacherClassPage() {
         }
       })
       .finally(() => {
-        if (!cancelled) {
-          setOfferingsLoading(false);
-        }
+        if (!cancelled) setOfferingsLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [apiClient, authController, selectedSection, tenantId]);
+
+  const handleOpenProfile = async (student: StudentProfileSummary) => {
+    if (!tenantId) return;
+    setProfileStudent(student);
+    const res = await authController.runWithFreshToken(() =>
+      apiClient.GET("/api/v1/tenants/{tenant_id}/students/{user_id}", {
+        params: { path: { tenant_id: tenantId, user_id: student.user_id } },
+      }),
+    );
+    if (res.data) {
+      setProfileStudent(res.data);
+    }
+  };
 
   const handleRename = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,17 +184,16 @@ export function TeacherClassPage() {
       setBusy: setSaving,
       call: () =>
         apiClient.PATCH("/api/v1/tenants/{tenant_id}/sections/{section_id}", {
-          params: { path: { tenant_id: tenantId, section_id: editingSection.id } },
+          params: {
+            path: { tenant_id: tenantId, section_id: editingSection.section_id },
+          },
           body: { name: editName.trim() },
         }),
       fallbackError: "Unable to rename class section.",
       onSuccess: (updated) => {
         feedback.setActionSuccess(`Updated section name to "${updated.name}".`);
-        if (selectedSection?.id === updated.id) {
-          setSelectedSection(updated);
-        }
         setEditingSection(null);
-        list.reload();
+        reload();
       },
     });
   };
@@ -120,36 +204,40 @@ export function TeacherClassPage() {
     <div className="viora-stack">
       <PageHeader
         title="My Class"
-        subtitle="Class sections assigned to your coordination responsibility and their subject offerings."
+        subtitle="Homeroom class roster ordered by roll number, student profiles, and section subject offerings."
       />
 
       {feedback.alerts}
 
-      <SectionCard title="Coordinated Class Sections">
-        {list.loading && <LoadingSpinner message="Loading your coordinated classes..." />}
-        {!list.loading && list.error && (
+      <SectionCard title="Assigned Homeroom Classes">
+        {loading && <LoadingSpinner message="Loading your assigned classes..." />}
+        {!loading && loadError && (
           <ErrorState
-            title="Could not load coordinated classes"
-            message={list.error.message}
-            onRetry={list.reload}
+            title="Could not load assigned classes"
+            message={loadError.message}
+            onRetry={reload}
           />
         )}
-        {!list.loading && !list.error && (
+        {!loading && !loadError && (
           <DataTable
-            rows={list.items}
-            rowKey={(s) => s.id}
-            emptyTitle="No coordinated classes"
-            emptyDescription="You are not currently assigned as coordinator for any active class section."
+            rows={homerooms}
+            rowKey={(s) => s.section_id}
+            emptyTitle="No homeroom classes assigned"
+            emptyDescription="You are not currently assigned as homeroom coordinator for any active class section."
             columns={[
               {
                 key: "name",
                 header: "Class Section",
-                render: (s) => <strong>{s.name}</strong>,
-              },
-              {
-                key: "status",
-                header: "Status",
-                render: (s) => <ActiveBadge active={s.active} />,
+                render: (s) => (
+                  <div>
+                    <strong>{s.section_name}</strong>
+                    <div className="viora-muted" style={{ fontSize: "0.8rem" }}>
+                      {[s.department_name, s.programme_name, s.academic_year_name, s.semester_name]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </div>
+                ),
               },
               {
                 key: "actions",
@@ -158,23 +246,22 @@ export function TeacherClassPage() {
                   <div className="viora-row">
                     <button
                       type="button"
-                      className={`viora-btn viora-btn-sm ${selectedSection?.id === s.id ? "viora-btn-primary" : ""}`}
+                      className={`viora-btn viora-btn-sm ${
+                        selectedSection?.section_id === s.section_id
+                          ? "viora-btn-primary"
+                          : ""
+                      }`}
                       onClick={() => setSelectedSection(s)}
                     >
-                      {selectedSection?.id === s.id ? "Selected" : "View Subjects"}
-                    </button>
-                    <button
-                      type="button"
-                      className="viora-btn viora-btn-sm"
-                      onClick={() => setCoordsSection(s)}
-                    >
-                      Coordinators
+                      {selectedSection?.section_id === s.section_id
+                        ? "Selected"
+                        : "Open Class"}
                     </button>
                     <button
                       type="button"
                       className="viora-btn viora-btn-sm"
                       onClick={() => {
-                        setEditName(s.name);
+                        setEditName(s.section_name);
                         setEditingSection(s);
                       }}
                     >
@@ -189,43 +276,187 @@ export function TeacherClassPage() {
       </SectionCard>
 
       {selectedSection && (
-        <SectionCard
-          title={`Subject Offerings — ${selectedSection.name}`}
-          subtitle="Subjects taught in this class section and their assigned teachers."
-        >
-          {offeringsLoading ? (
-            <LoadingSpinner message="Loading class subject offerings..." />
-          ) : (
-            <DataTable
-              rows={sectionOfferings}
-              rowKey={(o) => o.id}
-              emptyTitle="No offerings in this class"
-              emptyDescription="No subject offerings have been created for this class section yet."
-              columns={[
-                { key: "name", header: "Subject Offering", render: (o) => <strong>{o.name}</strong> },
-                {
-                  key: "status",
-                  header: "Status",
-                  render: (o) => <ActiveBadge active={o.active} />,
-                },
-                {
-                  key: "teachers",
-                  header: "Teachers",
-                  render: (o) => (
-                    <button
-                      type="button"
-                      className="viora-btn viora-btn-sm"
-                      onClick={() => setTeachersOffering(o)}
-                    >
-                      View Teachers
-                    </button>
-                  ),
-                },
-              ]}
-            />
-          )}
-        </SectionCard>
+        <>
+          <SectionCard
+            title={`Class Roster — ${selectedSection.section_name}`}
+            subtitle={`${selectedSection.academic_year_name} · ${selectedSection.semester_name} · Ordered by roll number`}
+            actions={
+              <input
+                type="search"
+                className="viora-input"
+                style={{ width: "220px" }}
+                placeholder="Search roll no. or name..."
+                aria-label="Search class roster"
+                value={rosterSearch}
+                onChange={(e) => setRosterSearch(e.target.value)}
+              />
+            }
+          >
+            {rosterLoading ? (
+              <LoadingSpinner message="Loading class roster..." />
+            ) : (
+              <DataTable
+                rows={roster}
+                rowKey={(s) => s.user_id}
+                emptyTitle="No students in this class"
+                emptyDescription="No active students are currently assigned to this class section."
+                columns={[
+                  {
+                    key: "roll",
+                    header: "Roll Number",
+                    render: (s) =>
+                      s.roll_number ? (
+                        <strong>{s.roll_number}</strong>
+                      ) : (
+                        <span className="viora-muted">—</span>
+                      ),
+                  },
+                  {
+                    key: "name",
+                    header: "Student Name",
+                    render: (s) => (
+                      <div>
+                        <strong>{s.display_name}</strong>
+                        {s.email && (
+                          <div className="viora-muted" style={{ fontSize: "0.8rem" }}>
+                            {s.email}
+                          </div>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "contact",
+                    header: "Contact",
+                    render: (s) => s.phone ?? s.contact_email ?? "—",
+                  },
+                  {
+                    key: "actions",
+                    header: "Profile",
+                    render: (s) => (
+                      <button
+                        type="button"
+                        className="viora-btn viora-btn-sm"
+                        onClick={() => void handleOpenProfile(s)}
+                      >
+                        View Profile
+                      </button>
+                    ),
+                  },
+                ]}
+              />
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title={`Subject Offerings — ${selectedSection.section_name}`}
+            subtitle="Subjects taught in this class section and their assigned teachers."
+          >
+            {offeringsLoading ? (
+              <LoadingSpinner message="Loading class subject offerings..." />
+            ) : (
+              <DataTable
+                rows={sectionOfferings}
+                rowKey={(o) => o.id}
+                emptyTitle="No offerings in this class"
+                emptyDescription="No subject offerings have been created for this class section yet."
+                columns={[
+                  {
+                    key: "name",
+                    header: "Subject Offering",
+                    render: (o) => <strong>{o.name}</strong>,
+                  },
+                  {
+                    key: "status",
+                    header: "Status",
+                    render: (o) => <ActiveBadge active={o.active} />,
+                  },
+                  {
+                    key: "teachers",
+                    header: "Teachers",
+                    render: (o) => (
+                      <button
+                        type="button"
+                        className="viora-btn viora-btn-sm"
+                        onClick={() => setTeachersOffering(o)}
+                      >
+                        View Teachers
+                      </button>
+                    ),
+                  },
+                ]}
+              />
+            )}
+          </SectionCard>
+        </>
       )}
+
+      <ModalDialog
+        open={profileStudent !== null}
+        title={
+          profileStudent
+            ? `Student Profile — ${profileStudent.display_name}`
+            : "Student Profile"
+        }
+        onClose={() => setProfileStudent(null)}
+      >
+        {profileStudent && (
+          <div className="viora-grid viora-grid-2">
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Roll Number
+              </div>
+              <div>{profileStudent.roll_number ?? "—"}</div>
+            </div>
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Login Email
+              </div>
+              <div>{profileStudent.email ?? "—"}</div>
+            </div>
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Department
+              </div>
+              <div>{profileStudent.department_name ?? "—"}</div>
+            </div>
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Academic Year & Semester
+              </div>
+              <div>
+                {[profileStudent.academic_year_name, profileStudent.semester_name]
+                  .filter(Boolean)
+                  .join(" · ") || "—"}
+              </div>
+            </div>
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Section
+              </div>
+              <div>{profileStudent.section_name ?? "—"}</div>
+            </div>
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Phone
+              </div>
+              <div>{profileStudent.phone ?? "—"}</div>
+            </div>
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Contact Email
+              </div>
+              <div>{profileStudent.contact_email ?? "—"}</div>
+            </div>
+            <div>
+              <div className="viora-muted" style={{ fontSize: "0.78rem" }}>
+                Guardian Contact
+              </div>
+              <div>{profileStudent.guardian_contact ?? "—"}</div>
+            </div>
+          </div>
+        )}
+      </ModalDialog>
 
       <ModalDialog
         open={editingSection !== null}
@@ -244,39 +475,23 @@ export function TeacherClassPage() {
             />
           </FormField>
           <div className="viora-row" style={{ justifyContent: "flex-end" }}>
-            <button type="button" className="viora-btn" onClick={() => setEditingSection(null)}>
+            <button
+              type="button"
+              className="viora-btn"
+              onClick={() => setEditingSection(null)}
+            >
               Cancel
             </button>
-            <button type="submit" className="viora-btn viora-btn-primary" disabled={saving}>
+            <button
+              type="submit"
+              className="viora-btn viora-btn-primary"
+              disabled={saving}
+            >
               {saving ? "Saving..." : "Save changes"}
             </button>
           </div>
         </form>
       </ModalDialog>
-
-      {tenantId && coordsSection && (
-        <AssignmentModal
-          open
-          title={`Class Coordinators — ${coordsSection.name}`}
-          subtitle="Assigned coordinators for this class section."
-          canManage={false}
-          eligibleRoleFilter="class_coordinator"
-          assignActionLabel="Assign"
-          revokeActionLabel="Revoke"
-          members={options.members}
-          onClose={() => setCoordsSection(null)}
-          listFn={() =>
-            apiClient.GET("/api/v1/tenants/{tenant_id}/sections/{section_id}/coordinators", {
-              params: {
-                path: { tenant_id: tenantId, section_id: coordsSection.id },
-                query: { limit: 100 },
-              },
-            })
-          }
-          assignFn={async () => ({ response: new Response(null, { status: 403 }) })}
-          revokeFn={async () => ({ response: new Response(null, { status: 403 }) })}
-        />
-      )}
 
       {tenantId && teachersOffering && (
         <AssignmentModal
@@ -290,12 +505,15 @@ export function TeacherClassPage() {
           members={options.members}
           onClose={() => setTeachersOffering(null)}
           listFn={() =>
-            apiClient.GET("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers", {
-              params: {
-                path: { tenant_id: tenantId, offering_id: teachersOffering.id },
-                query: { limit: 100 },
+            apiClient.GET(
+              "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers",
+              {
+                params: {
+                  path: { tenant_id: tenantId, offering_id: teachersOffering.id },
+                  query: { limit: 100 },
+                },
               },
-            })
+            )
           }
           assignFn={async () => ({ response: new Response(null, { status: 403 }) })}
           revokeFn={async () => ({ response: new Response(null, { status: 403 }) })}

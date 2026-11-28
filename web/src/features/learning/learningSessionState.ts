@@ -206,3 +206,44 @@ export function clearLearningSession(
     resources: [],
   } satisfies LearningSessionSnapshot);
 }
+
+export interface ClassroomMaterialHandoff {
+  attachment: PersonalLearningAttachment;
+  classroomTitle?: string;
+}
+
+function handoffStorageKey(userId: string, tenantId: string): string {
+  return `viora.pl.classroomHandoff:${userId}:${tenantId}`;
+}
+
+export function writeClassroomMaterialHandoff(
+  userId: string,
+  tenantId: string,
+  handoff: ClassroomMaterialHandoff,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      handoffStorageKey(userId, tenantId),
+      JSON.stringify(handoff),
+    );
+  } catch {
+    // Ignore storage unavailability.
+  }
+}
+
+export function consumeClassroomMaterialHandoff(
+  userId: string | undefined,
+  tenantId: string | null,
+): ClassroomMaterialHandoff | null {
+  if (!userId || !tenantId || typeof window === "undefined") return null;
+  try {
+    const key = handoffStorageKey(userId, tenantId);
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(key);
+    return JSON.parse(raw) as ClassroomMaterialHandoff;
+  } catch {
+    return null;
+  }
+}

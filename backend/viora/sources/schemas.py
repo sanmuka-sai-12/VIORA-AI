@@ -130,6 +130,7 @@ class SourceTextRegisterRequest(Contract):
     content: str = Field(min_length=1, max_length=HARD_MAX_TEXT_CHARS)
     origin_kind: SourceOriginKind = "teacher_resource"
     visibility: SourceVisibility | None = None
+    folder_label: str | None = Field(default=None, max_length=120)
     original_filename: str | None = Field(default=None, max_length=255)
     idempotency_key: IdempotencyKeyStr | None = None
 
@@ -145,6 +146,7 @@ class SourceMetadataUpdateRequest(Contract):
     title: SourceTitle | None = None
     visibility: SourceVisibility | None = None
     lifecycle_state: SourceLifecycleState | None = None
+    folder_label: str | None = Field(default=None, max_length=120)
 
 
 class SourceSummary(Contract):
@@ -159,6 +161,7 @@ class SourceSummary(Contract):
     origin_kind: str | None = None
     visibility: str | None = None
     lifecycle_state: str | None = None
+    folder_label: str | None = None
     latest_version_number: int = 0
     latest_version_id: UUID | None = None
     latest_input_format: str | None = None

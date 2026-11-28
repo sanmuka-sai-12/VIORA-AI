@@ -4,12 +4,17 @@ from collections.abc import Callable
 from typing import Annotated, TypeVar
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Security
+from fastapi import APIRouter, Query, Response, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import IntegrityError
 
 from ..contracts import Page, ResourceRef
-from ..identity.public import IdentityDirectory, identity_directory
+from ..identity.public import (
+    IdentityDirectory,
+    InstitutionRole,
+    MembershipStatus,
+    identity_directory,
+)
 from ..security import AccessError, AuthorizedScope, TransactionalAccess
 from . import service
 from .repository import SqlAcademicRepository, SqlInstitutionStatus
@@ -22,16 +27,23 @@ from .schemas import (
     CampusSummary,
     CampusUpdate,
     ClassCoordinatorSummary,
+    ClassroomAnnouncementCreate,
+    ClassroomAnnouncementSummary,
+    ClassroomAnnouncementUpdate,
     DepartmentCreate,
     DepartmentHeadSummary,
     DepartmentSummary,
     DepartmentUpdate,
+    FacultyProfileSummary,
+    FacultyProfileUpdate,
+    FacultyResponsibilitiesSummary,
     GuardianLinkCreate,
     GuardianLinkSummary,
     InstitutionDiscovery,
     InstitutionInfo,
     InstitutionUpdate,
     LifecycleUpdate,
+    MyClassroomsSummary,
     OfferingAssignmentSummary,
     ProgrammeCreate,
     ProgrammeSummary,
@@ -42,6 +54,8 @@ from .schemas import (
     SemesterCreate,
     SemesterSummary,
     SemesterUpdate,
+    StudentProfileSummary,
+    StudentProfileUpdate,
     StudentSummary,
     SubjectCreate,
     SubjectOfferingCreate,
@@ -375,5 +389,312 @@ def build_router(access: TransactionalAccess) -> APIRouter:
     @router.get("/tenants/{tenant_id}/students/{student_id}/summary", tags=["guardians"], operation_id="readStudentSummary")
     def get_student_summary(tenant_id: UUID, student_id: UUID, bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep]) -> StudentSummary:
         return _run_read(access, bearer, "student.summary.read", _ref(tenant_id, "student_summary", student_id), lambda s, _r: service.read_student_summary(_identities(s), tenant_id, student_id))
+
+    # --- Student & Faculty Directories and Academic Profiles ---
+    @router.get("/tenants/{tenant_id}/students", tags=["profiles"], operation_id="listStudentProfiles")
+    def get_student_profiles(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        q: str | None = None,
+        department_id: UUID | None = None,
+        section_id: UUID | None = None,
+        academic_year_id: UUID | None = None,
+        semester_id: UUID | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[StudentProfileSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "student.directory.list",
+            _inst_ref(tenant_id),
+            lambda _s, r: r.list_student_profiles(
+                tenant_id,
+                q=q,
+                department_id=department_id,
+                section_id=section_id,
+                academic_year_id=academic_year_id,
+                semester_id=semester_id,
+                status=status,
+                cursor=cursor,
+                limit=limit,
+            ),
+        )
+
+    @router.get("/tenants/{tenant_id}/students/{user_id}", tags=["profiles"], operation_id="readStudentProfile")
+    def get_student_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> StudentProfileSummary:
+        def _read(_s: AuthorizedScope, r: SqlAcademicRepository) -> StudentProfileSummary:
+            profile = r.get_student_profile(tenant_id, user_id)
+            if profile is None:
+                raise AccessError(404, "profile_missing", "Student profile unavailable")
+            return profile
+
+        return _run_read(access, bearer, "student.profile.read", _ref(tenant_id, "student_profile", user_id), _read)
+
+    @router.patch("/tenants/{tenant_id}/students/{user_id}/profile", tags=["profiles"], operation_id="updateStudentProfile")
+    def patch_student_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        body: StudentProfileUpdate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> StudentProfileSummary:
+        def _update(s: AuthorizedScope, r: SqlAcademicRepository) -> StudentProfileSummary:
+            updated = r.update_student_profile(tenant_id, user_id, body)
+            if updated is None:
+                raise AccessError(404, "profile_missing", "Student profile unavailable")
+            s.audit.change(s.context, "student.profile.update", _ref(tenant_id, "student_profile", user_id))
+            return updated
+
+        return _run_mutation(access, bearer, "student.profile.update", _ref(tenant_id, "student_profile", user_id), _update)
+
+    @router.get("/tenants/{tenant_id}/faculty", tags=["profiles"], operation_id="listFacultyProfiles")
+    def get_faculty_profiles(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        q: str | None = None,
+        department_id: UUID | None = None,
+        role: InstitutionRole | None = None,
+        status: MembershipStatus | None = None,
+        cursor: UUID | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[FacultyProfileSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "faculty.directory.list",
+            _inst_ref(tenant_id),
+            lambda _s, r: r.list_faculty_profiles(
+                tenant_id,
+                q=q,
+                department_id=department_id,
+                role=role,
+                status=status,
+                cursor=cursor,
+                limit=limit,
+            ),
+        )
+
+    @router.get("/tenants/{tenant_id}/faculty/{user_id}", tags=["profiles"], operation_id="readFacultyProfile")
+    def get_faculty_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> FacultyProfileSummary:
+        def _read(_s: AuthorizedScope, r: SqlAcademicRepository) -> FacultyProfileSummary:
+            profile = r.get_faculty_profile(tenant_id, user_id)
+            if profile is None:
+                raise AccessError(404, "profile_missing", "Faculty profile unavailable")
+            return profile
+
+        return _run_read(access, bearer, "faculty.profile.read", _ref(tenant_id, "faculty_profile", user_id), _read)
+
+    @router.patch("/tenants/{tenant_id}/faculty/{user_id}/profile", tags=["profiles"], operation_id="updateFacultyProfile")
+    def patch_faculty_profile(
+        tenant_id: UUID,
+        user_id: UUID,
+        body: FacultyProfileUpdate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> FacultyProfileSummary:
+        def _update(s: AuthorizedScope, r: SqlAcademicRepository) -> FacultyProfileSummary:
+            updated = r.update_faculty_profile(tenant_id, user_id, body)
+            if updated is None:
+                raise AccessError(404, "profile_missing", "Faculty profile unavailable")
+            s.audit.change(s.context, "faculty.profile.update", _ref(tenant_id, "faculty_profile", user_id))
+            return updated
+
+        return _run_mutation(access, bearer, "faculty.profile.update", _ref(tenant_id, "faculty_profile", user_id), _update)
+
+    @router.get("/tenants/{tenant_id}/sections/{section_id}/roster", tags=["profiles"], operation_id="listSectionRoster")
+    def get_section_roster(
+        tenant_id: UUID,
+        section_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        q: str | None = None,
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> Page[StudentProfileSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "section.roster.read",
+            _ref(tenant_id, "section", section_id),
+            lambda _s, r: r.list_section_roster(tenant_id, section_id, q=q, limit=limit),
+        )
+
+    @router.get("/tenants/{tenant_id}/offerings/{offering_id}/roster", tags=["profiles"], operation_id="listOfferingRoster")
+    def get_offering_roster(
+        tenant_id: UUID,
+        offering_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        q: str | None = None,
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> Page[StudentProfileSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "offering.enrolment.list",
+            _ref(tenant_id, "offering", offering_id),
+            lambda _s, r: r.list_offering_roster(tenant_id, offering_id, q=q, limit=limit),
+        )
+
+    @router.get("/tenants/{tenant_id}/faculty/{user_id}/responsibilities", tags=["profiles"], operation_id="readFacultyResponsibilities")
+    def get_faculty_responsibilities(
+        tenant_id: UUID,
+        user_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> FacultyResponsibilitiesSummary:
+        def _read(_s: AuthorizedScope, r: SqlAcademicRepository) -> FacultyResponsibilitiesSummary:
+            res = r.get_faculty_responsibilities(tenant_id, user_id)
+            if res is None:
+                raise AccessError(404, "profile_missing", "Faculty member unavailable")
+            return res
+
+        return _run_read(
+            access,
+            bearer,
+            "faculty.responsibilities.read",
+            _ref(tenant_id, "faculty_profile", user_id),
+            _read,
+        )
+
+    @router.get("/tenants/{tenant_id}/my-responsibilities", tags=["profiles"], operation_id="readMyResponsibilities")
+    def get_my_responsibilities(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> FacultyResponsibilitiesSummary:
+        def _read(s: AuthorizedScope, r: SqlAcademicRepository) -> FacultyResponsibilitiesSummary:
+            res = r.get_faculty_responsibilities(tenant_id, s.context.actor_id)
+            if res is None:
+                raise AccessError(404, "profile_missing", "Member unavailable")
+            return res
+
+        return _run_read(
+            access,
+            bearer,
+            "responsibilities.self.read",
+            _inst_ref(tenant_id),
+            _read,
+        )
+
+    @router.get("/tenants/{tenant_id}/my-classrooms", tags=["profiles"], operation_id="readMyClassrooms")
+    def get_my_classrooms(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> MyClassroomsSummary:
+        def _read(s: AuthorizedScope, r: SqlAcademicRepository) -> MyClassroomsSummary:
+            res = r.get_my_classrooms(tenant_id, s.context.actor_id)
+            if res is None:
+                raise AccessError(404, "profile_missing", "Member unavailable")
+            return res
+
+        return _run_read(
+            access,
+            bearer,
+            "responsibilities.self.read",
+            _inst_ref(tenant_id),
+            _read,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements",
+        tags=["classrooms"],
+        operation_id="listOfferingAnnouncements",
+    )
+    def get_offering_announcements(
+        tenant_id: UUID,
+        offering_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[ClassroomAnnouncementSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "announcement.list",
+            _ref(tenant_id, "offering", offering_id),
+            lambda _s, r: r.list_announcements(tenant_id, offering_id, limit=limit),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements",
+        tags=["classrooms"],
+        operation_id="createOfferingAnnouncement",
+        status_code=201,
+    )
+    def post_offering_announcement(
+        tenant_id: UUID,
+        offering_id: UUID,
+        body: ClassroomAnnouncementCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> ClassroomAnnouncementSummary:
+        def _create(s: AuthorizedScope, r: SqlAcademicRepository) -> ClassroomAnnouncementSummary:
+            created = r.create_announcement(tenant_id, offering_id, s.context.actor_id, body)
+            s.audit.change(s.context, "announcement.create", _ref(tenant_id, "offering", offering_id))
+            return created
+
+        return _run_mutation(
+            access,
+            bearer,
+            "announcement.create",
+            _ref(tenant_id, "offering", offering_id),
+            _create,
+        )
+
+    @router.patch(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements/{announcement_id}",
+        tags=["classrooms"],
+        operation_id="updateOfferingAnnouncement",
+    )
+    def patch_offering_announcement(
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+        body: ClassroomAnnouncementUpdate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> ClassroomAnnouncementSummary:
+        def _update(s: AuthorizedScope, r: SqlAcademicRepository) -> ClassroomAnnouncementSummary:
+            updated = r.update_announcement(tenant_id, offering_id, announcement_id, body)
+            if updated is None:
+                raise AccessError(404, "announcement_missing", "Announcement unavailable")
+            s.audit.change(s.context, "announcement.update", _ref(tenant_id, "offering", offering_id))
+            return updated
+
+        return _run_mutation(
+            access,
+            bearer,
+            "announcement.update",
+            _ref(tenant_id, "offering", offering_id),
+            _update,
+        )
+
+    @router.delete(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements/{announcement_id}",
+        tags=["classrooms"],
+        operation_id="deleteOfferingAnnouncement",
+        status_code=204,
+    )
+    def delete_offering_announcement(
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> Response:
+        def _delete(s: AuthorizedScope, r: SqlAcademicRepository) -> None:
+            deleted = r.delete_announcement(tenant_id, offering_id, announcement_id)
+            if not deleted:
+                raise AccessError(404, "announcement_missing", "Announcement unavailable")
+            s.audit.change(s.context, "announcement.delete", _ref(tenant_id, "offering", offering_id))
+
+        _run_mutation(
+            access,
+            bearer,
+            "announcement.delete",
+            _ref(tenant_id, "offering", offering_id),
+            _delete,
+        )
+        return Response(status_code=204)
 
     return router

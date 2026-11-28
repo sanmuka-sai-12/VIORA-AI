@@ -33,6 +33,9 @@ TENANT_TABLES = (
     "personal_learning_sessions",
     "personal_learning_messages",
     "personal_learning_study_resources",
+    "student_profiles",
+    "faculty_profiles",
+    "classroom_announcements",
 )
 
 APPEND_ONLY_TENANT_TABLES = (
@@ -67,15 +70,20 @@ def grant_application_privileges(
         text(f"GRANT UPDATE (display_name) ON TABLE {namespace}.users TO {grantee}")
     )
     grants = {
-        "SELECT": ("users", "verified_identity_attributes"),
-        "SELECT, UPDATE": ("password_credentials",),
+        "SELECT, INSERT": (
+            "users",
+            "verified_identity_attributes",
+            *APPEND_ONLY_TENANT_TABLES,
+            "security_events",
+        ),
+        "SELECT, INSERT, UPDATE": ("password_credentials",),
         "SELECT, INSERT, UPDATE, DELETE": (
             *TENANT_TABLES,
+            "account_invitations",
             "auth_sessions",
             "refresh_tokens",
             "auth_rate_limits",
         ),
-        "SELECT, INSERT": (*APPEND_ONLY_TENANT_TABLES, "security_events"),
     }
     for permissions, tables in grants.items():
         for table in tables:

@@ -1,6 +1,9 @@
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
+
+from pydantic import Field, SecretStr
 
 from ..contracts import Contract
 
@@ -76,3 +79,18 @@ class MemberSummary(Contract):
     account_status: AccountStatus
     status: MembershipStatus
     roles: tuple[InstitutionRole, ...]
+
+
+class MemberOnboardCreate(Contract):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(min_length=1, max_length=200)
+    role: InstitutionRole | None = None
+    initial_password: SecretStr | None = Field(default=None, min_length=12, max_length=1024)
+
+
+class MemberOnboardResponse(Contract):
+    member: MemberSummary
+    email: str
+    account_created: bool
+    invite_token: str | None = None
+    invite_expires_at: datetime | None = None

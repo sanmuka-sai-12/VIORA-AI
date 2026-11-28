@@ -793,7 +793,7 @@ class PersonalLearningStudyResourceModel(Base):
     __tablename__ = "personal_learning_study_resources"
     __table_args__ = (
         CheckConstraint(
-            "tool_kind IN ('study_notes', 'academic_insights')",
+            "tool_kind IN ('study_notes', 'academic_insights', 'mind_map')",
             name="ck_pl_resources_tool_kind",
         ),
         CheckConstraint(
@@ -832,6 +832,9 @@ class PersonalLearningStudyResourceModel(Base):
     title: Mapped[str] = mapped_column(Text)
     focus_topic: Mapped[str | None] = mapped_column(Text, default=None)
     content: Mapped[str] = mapped_column(Text)
+    structured_data: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, default=None
+    )
     sources: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb")
     )

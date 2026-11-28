@@ -18,6 +18,7 @@ import type {
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { RichAcademicContent } from "../../components/common/RichAcademicContent";
+import { MindMapViewer } from "../../components/learning/MindMapViewer";
 import {
   AlertBanner,
   PageHeader,
@@ -569,7 +570,9 @@ export function StudentLearningPage() {
       fallbackError:
         toolKind === "study_notes"
           ? "Could not generate Study Notes right now."
-          : "Could not generate Academic Insights right now.",
+          : toolKind === "academic_insights"
+            ? "Could not generate Academic Insights right now."
+            : "Could not generate a complete Mind Map right now. Try narrowing the focus topic.",
       onSuccess: (created) => {
         setSessionId(created.session_id);
         if (created.session_title) {
@@ -913,7 +916,7 @@ export function StudentLearningPage() {
               className={`viora-rail-tab${workspaceTab === "resources" ? " is-active" : ""}`}
               onClick={() => setWorkspaceTab("resources")}
             >
-              Study Notes &amp; Insights ({resources.length})
+              Study Notes, Insights &amp; Maps ({resources.length})
             </button>
           </div>
 
@@ -968,6 +971,24 @@ export function StudentLearningPage() {
                 ? "Analyzing..."
                 : "Academic Insights"}
             </button>
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm"
+              disabled={
+                !canGenerateResource ||
+                busy ||
+                Boolean(generatingTool) ||
+                Boolean(uploadingLabel)
+              }
+              title={
+                canGenerateResource
+                  ? "Generate an interactive concept Mind Map from your topic, conversation, or attached materials"
+                  : "Enter a topic, ask a question, or attach material first"
+              }
+              onClick={() => void handleGenerateResource("mind_map")}
+            >
+              {generatingTool === "mind_map" ? "Mapping..." : "Mind Map"}
+            </button>
           </div>
         </div>
 
@@ -980,7 +1001,9 @@ export function StudentLearningPage() {
               <span>
                 {generatingTool === "study_notes"
                   ? "Generating structured Study Notes (concepts, definitions, formulas, summary)..."
-                  : "Generating Academic Insights (key takeaways, pitfalls, exam points)..."}
+                  : generatingTool === "academic_insights"
+                    ? "Generating Academic Insights (key takeaways, pitfalls, exam points)..."
+                    : "Building interactive concept Mind Map..."}
               </span>
             </div>
           </div>
@@ -1014,11 +1037,13 @@ export function StudentLearningPage() {
                     </h3>
                     <div className="viora-row" style={{ marginTop: "0.3rem", flexWrap: "wrap" }}>
                       <StatusBadge
-                        tone={res.tool_kind === "study_notes" ? "brand" : "neutral"}
+                        tone={res.tool_kind === "study_notes" || res.tool_kind === "mind_map" ? "brand" : "neutral"}
                       >
                         {res.tool_kind === "study_notes"
                           ? "Study Notes"
-                          : "Academic Insights"}
+                          : res.tool_kind === "academic_insights"
+                            ? "Academic Insights"
+                            : "Mind Map"}
                       </StatusBadge>
                       <StatusBadge tone="neutral">
                         {formatResourceScope(res.source_scope)}
@@ -1075,7 +1100,11 @@ export function StudentLearningPage() {
                   />
                 )}
 
-                <RichAcademicContent content={res.content} />
+                {res.tool_kind === "mind_map" && res.mind_map ? (
+                  <MindMapViewer graph={res.mind_map} />
+                ) : (
+                  <RichAcademicContent content={res.content} />
+                )}
 
                 {res.sources && res.sources.length > 0 && (
                   <div className="viora-sources-box">

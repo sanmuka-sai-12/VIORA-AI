@@ -1191,7 +1191,7 @@ class LessonBlueprintApprovalState(Contract):
 
 
 LearningPromptMode = Literal["question", "explain"]
-LearningToolKind = Literal["study_notes", "academic_insights"]
+LearningToolKind = Literal["study_notes", "academic_insights", "mind_map"]
 LearningResourceSourceScope = Literal["topic", "conversation", "materials", "combined"]
 PersonalLearningAttachmentStatus = Literal["ready", "partial", "unreadable"]
 PersonalLearningAttachmentKind = Literal["pdf", "image", "text"]
@@ -1285,6 +1285,40 @@ class PersonalLearningMessageRecord(Contract):
     created_at: datetime
 
 
+class RawMindMapNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=32)
+    parent_id: str | None = Field(default=None, max_length=32)
+    label: str = Field(min_length=1, max_length=80)
+    relation: str | None = Field(default=None, max_length=40)
+    explanation: str = Field(min_length=1, max_length=280)
+    key_formula: str | None = Field(default=None, max_length=120)
+
+
+class RawMindMapPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=120)
+    nodes: list[RawMindMapNode] = Field(min_length=2, max_length=18)
+
+
+class MindMapNode(Contract):
+    node_id: str = Field(min_length=1, max_length=32)
+    parent_id: str | None = None
+    depth: int = Field(ge=0, le=4)
+    label: str = Field(min_length=1, max_length=80)
+    relation: str | None = None
+    explanation: str = Field(min_length=1, max_length=280)
+    key_formula: str | None = None
+
+
+class MindMapGraph(Contract):
+    title: str = Field(min_length=1, max_length=120)
+    root_id: str
+    nodes: tuple[MindMapNode, ...]
+
+
 class PersonalLearningStudyResource(Contract):
     resource_id: UUID
     session_id: UUID
@@ -1294,6 +1328,7 @@ class PersonalLearningStudyResource(Contract):
     title: str
     focus_topic: str | None = None
     content: str
+    mind_map: MindMapGraph | None = None
     sources: tuple[PersonalLearningSourceRef, ...] = ()
     model: str
     provider: str

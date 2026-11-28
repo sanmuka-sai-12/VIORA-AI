@@ -77,6 +77,8 @@ export type PersonalLearningDeleteResult =
   ApiSchema<"PersonalLearningDeleteResult">;
 export type PersonalLearningStudyResource =
   ApiSchema<"PersonalLearningStudyResource">;
+export type MindMapGraph = ApiSchema<"MindMapGraph">;
+export type MindMapNode = ApiSchema<"MindMapNode">;
 export type PersonalLearningResourceGenerateRequest =
   ApiSchema<"PersonalLearningResourceGenerateRequest">;
 export type LearningToolKind = PersonalLearningStudyResource["tool_kind"];

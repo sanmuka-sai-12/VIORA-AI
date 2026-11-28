@@ -21,6 +21,7 @@ from .schemas import (
     LearningPromptMode,
     LearningResourceSourceScope,
     LearningToolKind,
+    MindMapGraph,
     PersonalLearningAttachment,
     PersonalLearningAttachmentRef,
     PersonalLearningMessageRecord,
@@ -83,6 +84,9 @@ def _resource_dto(
     *,
     session_title: str | None = None,
 ) -> PersonalLearningStudyResource:
+    parsed_map: MindMapGraph | None = None
+    if row.structured_data and row.tool_kind == "mind_map":
+        parsed_map = MindMapGraph(**row.structured_data)
     return PersonalLearningStudyResource(
         resource_id=row.resource_id,
         session_id=row.session_id,
@@ -92,6 +96,7 @@ def _resource_dto(
         title=row.title,
         focus_topic=row.focus_topic,
         content=row.content,
+        mind_map=parsed_map,
         sources=tuple(
             PersonalLearningSourceRef(**src) for src in (row.sources or ())
         ),
@@ -550,6 +555,7 @@ class SqlPersonalLearningRepository:
         title: str,
         focus_topic: str | None,
         content: str,
+        structured_data: dict | None = None,
         sources: Sequence[PersonalLearningSourceRef],
         model: str,
         provider: str,
@@ -605,6 +611,7 @@ class SqlPersonalLearningRepository:
             existing.title = title[:200]
             existing.focus_topic = focus_topic[:500] if focus_topic else None
             existing.content = content
+            existing.structured_data = structured_data
             existing.sources = serialized_sources
             existing.model = model
             existing.provider = provider
@@ -623,6 +630,7 @@ class SqlPersonalLearningRepository:
                 title=title[:200],
                 focus_topic=focus_topic[:500] if focus_topic else None,
                 content=content,
+                structured_data=structured_data,
                 sources=serialized_sources,
                 model=model,
                 provider=provider,

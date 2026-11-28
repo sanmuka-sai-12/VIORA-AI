@@ -5307,6 +5307,105 @@
         "title": "MembershipStatus",
         "type": "string"
       },
+      "MindMapGraph": {
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/MindMapNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "root_id": {
+            "title": "Root Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "root_id",
+          "nodes"
+        ],
+        "title": "MindMapGraph",
+        "type": "object"
+      },
+      "MindMapNode": {
+        "additionalProperties": false,
+        "properties": {
+          "depth": {
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Depth",
+            "type": "integer"
+          },
+          "explanation": {
+            "maxLength": 280,
+            "minLength": 1,
+            "title": "Explanation",
+            "type": "string"
+          },
+          "key_formula": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Formula"
+          },
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "node_id": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Node Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation"
+          }
+        },
+        "required": [
+          "node_id",
+          "depth",
+          "label",
+          "explanation"
+        ],
+        "title": "MindMapNode",
+        "type": "object"
+      },
       "NarrationCueSpec": {
         "additionalProperties": false,
         "properties": {
@@ -6493,7 +6592,8 @@
           "tool_kind": {
             "enum": [
               "study_notes",
-              "academic_insights"
+              "academic_insights",
+              "mind_map"
             ],
             "title": "Tool Kind",
             "type": "string"
@@ -6892,6 +6992,16 @@
             ],
             "title": "Focus Topic"
           },
+          "mind_map": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MindMapGraph"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model": {
             "title": "Model",
             "type": "string"
@@ -6946,7 +7056,8 @@
           "tool_kind": {
             "enum": [
               "study_notes",
-              "academic_insights"
+              "academic_insights",
+              "mind_map"
             ],
             "title": "Tool Kind",
             "type": "string"

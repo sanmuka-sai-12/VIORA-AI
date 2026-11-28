@@ -9,7 +9,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
-from ..ai.public import AIGateway, AIRequestConfig, ChatMessage, CompletionResult, Role
+from ..ai.public import (
+    AIGateway,
+    AIRequestConfig,
+    AIResponseFormatError,
+    ChatMessage,
+    CompletionResult,
+    Role,
+)
 from ..contracts import ArtifactVersionRef, TenantContext
 from ..security import AccessError
 from ..sources.extraction import (
@@ -27,11 +34,17 @@ from ..sources.public import (
 )
 from ..storage.public import ArtifactStore, StorageError
 from .chunking import chunk_extracted_document
+from .mind_map import (
+    MIND_MAP_SYSTEM_PROMPT,
+    mind_map_to_markdown,
+    normalize_mind_map_payload,
+)
 from .prompts import sanitize_untrusted_text
 from .schemas import (
     ChunkingConfig,
     LearningResourceSourceScope,
     LearningToolKind,
+    MindMapGraph,
     PersonalLearningAttachment,
     PersonalLearningAttachmentKind,
     PersonalLearningAttachmentRef,
@@ -40,6 +53,7 @@ from .schemas import (
     PersonalLearningResourceGenerateRequest,
     PersonalLearningResponse,
     PersonalLearningSourceRef,
+    RawMindMapPayload,
 )
 
 _MAX_HISTORY_CHARS = 7_500
@@ -649,7 +663,12 @@ def _study_resource_title(
     session_title: str | None,
     sources: Sequence[PersonalLearningSourceRef],
 ) -> str:
-    prefix = "Study Notes" if tool_kind == "study_notes" else "Academic Insights"
+    if tool_kind == "study_notes":
+        prefix = "Study Notes"
+    elif tool_kind == "academic_insights":
+        prefix = "Academic Insights"
+    else:
+        prefix = "Mind Map"
     label = (topic or "").strip() or (
         session_title.strip()
         if session_title and session_title.strip() != "New Study Session"
@@ -685,11 +704,15 @@ def build_study_resource_messages(
     attachment_context: str = "",
 ) -> list[ChatMessage]:
     """Build bounded chat messages for explicit Study Notes or Academic Insights generation."""
-    sys_prompt = (
-        _STUDY_NOTES_SYSTEM_PROMPT
-        if req.tool_kind == "study_notes"
-        else _ACADEMIC_INSIGHTS_SYSTEM_PROMPT
-    )
+    if req.tool_kind == "study_notes":
+        sys_prompt = _STUDY_NOTES_SYSTEM_PROMPT
+        action_line = "Generate concise, exam-ready Study Notes covering key concepts, definitions, formulas, important points, and an exam summary."
+    elif req.tool_kind == "academic_insights":
+        sys_prompt = _ACADEMIC_INSIGHTS_SYSTEM_PROMPT
+        action_line = "Generate concise, high-yield Academic Insights covering core connections, key definitions, formulas, common pitfalls, and exam takeaways."
+    else:
+        sys_prompt = MIND_MAP_SYSTEM_PROMPT
+        action_line = "Generate a structured hierarchical concept mind map in JSON with clear parent-child relationships and concise node explanations."
     clean_topic, _ = sanitize_untrusted_text((req.topic or "").strip())
     kept_turns: list[str] = []
     if req.include_conversation and req.history:
@@ -722,11 +745,6 @@ def build_study_resource_messages(
     if attachment_context:
         parts.append(f"Student uploaded study materials:\n{attachment_context}")
 
-    action_line = (
-        "Generate concise, exam-ready Study Notes covering key concepts, definitions, formulas, important points, and an exam summary."
-        if req.tool_kind == "study_notes"
-        else "Generate concise, high-yield Academic Insights covering core connections, key definitions, formulas, common pitfalls, and exam takeaways."
-    )
     parts.append(action_line)
     user_payload = "\n\n".join(parts)
 
@@ -837,13 +855,6 @@ class DirectAcademicLearning:
             request,
             attachment_context=attachment_context,
         )
-        result = self.gateway.complete(
-            context,
-            messages,
-            config=self.request_config,
-        )
-        max_tok = self.request_config.max_tokens or _MAX_OUTPUT_TOKENS
-        truncated = is_response_truncated(result, max_tokens=max_tok)
         scope = _resolve_study_scope(
             has_topic=bool((request.topic or "").strip()),
             has_conversation=bool(request.include_conversation and request.history),
@@ -855,12 +866,54 @@ class DirectAcademicLearning:
             session_title=session_title,
             sources=sources,
         )
+        if request.tool_kind == "mind_map":
+            try:
+                structured = self.gateway.complete_structured(
+                    context,
+                    messages,
+                    RawMindMapPayload,
+                    config=self.request_config,
+                )
+            except AIResponseFormatError:
+                raise AccessError(
+                    422,
+                    "mind_map_incomplete",
+                    "The mind map output was incomplete or malformed. Try narrowing the focus topic or clicking Regenerate.",
+                ) from None
+            graph: MindMapGraph = normalize_mind_map_payload(structured.parsed)
+            max_tok = self.request_config.max_tokens or _MAX_OUTPUT_TOKENS
+            return {
+                "tool_kind": request.tool_kind,
+                "source_scope": scope,
+                "title": (
+                    graph.title
+                    if not (request.topic or "").strip() and graph.title
+                    else title
+                ),
+                "focus_topic": (request.topic or "").strip() or None,
+                "content": mind_map_to_markdown(graph),
+                "structured_data": graph.model_dump(mode="json"),
+                "sources": sources,
+                "model": structured.model,
+                "provider": structured.metadata.provider,
+                "usage_tokens": structured.usage.total_tokens,
+                "truncated": structured.usage.output_tokens >= max(1, max_tok - 12),
+            }
+
+        result = self.gateway.complete(
+            context,
+            messages,
+            config=self.request_config,
+        )
+        max_tok = self.request_config.max_tokens or _MAX_OUTPUT_TOKENS
+        truncated = is_response_truncated(result, max_tokens=max_tok)
         return {
             "tool_kind": request.tool_kind,
             "source_scope": scope,
             "title": title,
             "focus_topic": (request.topic or "").strip() or None,
             "content": result.content.strip(),
+            "structured_data": None,
             "sources": sources,
             "model": result.model,
             "provider": result.metadata.provider,

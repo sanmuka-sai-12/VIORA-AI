@@ -1144,6 +1144,7 @@ class ConceptKnowledgeService:
                 title=draft["title"],
                 focus_topic=draft["focus_topic"],
                 content=draft["content"],
+                structured_data=draft.get("structured_data"),
                 sources=draft["sources"],
                 model=draft["model"],
                 provider=draft["provider"],

@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from viora.ai.public import (
     AIError,
+    AIResponseFormatError,
     ChatMessage,
     CompletionResult,
     FakeAIGateway,
@@ -23,8 +24,11 @@ from viora.knowledge.public import (
     PersonalLearningRequest,
     PersonalLearningResourceGenerateRequest,
     PersonalLearningTurn,
+    RawMindMapNode,
+    RawMindMapPayload,
     build_personal_learning_messages,
     build_study_resource_messages,
+    normalize_mind_map_payload,
 )
 from viora.main import create_app
 from viora.security import AccessError
@@ -403,3 +407,54 @@ def test_study_notes_and_academic_insights_generation_bounds_and_validation() ->
     assert draft["title"] == "Academic Insights: Eigenvalues"
     assert draft["truncated"] is False
     assert "\\det(A - \\lambda I)" in draft["content"]
+
+
+def test_mind_map_normalization_repairs_cycles_and_handles_malformed_ai_output() -> None:
+    import pytest
+
+    raw = RawMindMapPayload(
+        title="Binary Search",
+        nodes=[
+            RawMindMapNode(
+                id="n1",
+                parent_id=None,
+                label="Binary Search",
+                explanation="Finds a target in a sorted array in O(log n) time.",
+            ),
+            RawMindMapNode(
+                id="n2",
+                parent_id="n3",  # cyclic link between n2 and n3
+                label="Sorted Input",
+                relation="requires",
+                explanation="Array must be ordered before halving.",
+            ),
+            RawMindMapNode(
+                id="n3",
+                parent_id="n2",
+                label="Midpoint Split",
+                relation="performs",
+                explanation="Compares target against mid = (lo + hi) // 2.",
+            ),
+        ],
+    )
+    graph = normalize_mind_map_payload(raw)
+    assert graph.root_id == "n1"
+    assert len(graph.nodes) == 3
+    assert all(0 <= n.depth <= 4 for n in graph.nodes)
+
+    class _MalformedMapGateway(FakeAIGateway):
+        def complete_structured(self, context, messages, response_model, config=None):  # type: ignore[override]
+            raise AIResponseFormatError("Truncated JSON")
+
+    learner = DirectAcademicLearning(_MalformedMapGateway())
+    ctx = TenantContext(actor_id=uuid4(), tenant_id=uuid4(), roles=frozenset({"student"}))
+    with pytest.raises(AccessError) as exc_info:
+        learner.generate_study_resource(
+            context=ctx,
+            request=PersonalLearningResourceGenerateRequest(
+                tool_kind="mind_map",
+                topic="Binary Search",
+            ),
+        )
+    assert exc_info.value.status == 422
+    assert exc_info.value.code == "mind_map_incomplete"

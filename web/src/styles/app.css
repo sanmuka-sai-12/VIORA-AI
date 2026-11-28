@@ -1073,6 +1073,68 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--color-border);
 }
 
+.viora-mindmap-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.viora-mindmap-shell.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--color-bg-surface);
+  padding: 1rem;
+}
+
+.viora-mindmap-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.viora-mindmap-canvas-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  overflow: hidden;
+  min-height: 300px;
+}
+
+.viora-mindmap-shell.is-fullscreen .viora-mindmap-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.viora-mindmap-svg {
+  display: block;
+  width: 100%;
+  height: 360px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.viora-mindmap-shell.is-fullscreen .viora-mindmap-svg {
+  height: 100%;
+}
+
+.viora-mindmap-svg:active {
+  cursor: grabbing;
+}
+
+.viora-mindmap-detail {
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .viora-mobile-menu-btn {
   display: none;
 }

@@ -23,6 +23,7 @@ from viora.config import AuthSettings, Settings
 from viora.database_roles import grant_application_privileges
 from viora.db import Database
 from viora.identity.public import AuthService, IdentityAttributeKind
+from viora.knowledge.public import RawMindMapNode, RawMindMapPayload
 from viora.main import create_app
 
 pytestmark = pytest.mark.postgres
@@ -184,7 +185,35 @@ def test_personal_learning_persistence_library_resume_rename_delete_and_privacy(
     pg_env: _PgEnv,
 ) -> None:
     fake_gw = FakeAIGateway(
-        default_completion="The chain rule differentiates outer then inner functions (Calculus Sheet, p. 1)."
+        default_completion="The chain rule differentiates outer then inner functions (Calculus Sheet, p. 1).",
+        structured_payloads={
+            RawMindMapPayload: RawMindMapPayload(
+                title="Chain Rule Map",
+                nodes=[
+                    RawMindMapNode(
+                        id="n1",
+                        parent_id=None,
+                        label="Chain Rule",
+                        explanation="Differentiates composite functions f(g(x)).",
+                        key_formula="\\frac{d}{dx}f(g(x)) = f'(g(x))g'(x)",
+                    ),
+                    RawMindMapNode(
+                        id="n2",
+                        parent_id="n1",
+                        label="Outer Derivative",
+                        relation="step 1",
+                        explanation="Differentiate outer function f keeping g(x) intact.",
+                    ),
+                    RawMindMapNode(
+                        id="n3",
+                        parent_id="n1",
+                        label="Inner Derivative",
+                        relation="step 2",
+                        explanation="Multiply by g'(x).",
+                    ),
+                ],
+            )
+        },
     )
     app = create_app(settings=pg_env.settings, database=pg_env.app_db, ai_gateway=fake_gw)
     actors = _seed_actors(
@@ -389,6 +418,39 @@ def test_personal_learning_persistence_library_resume_rename_delete_and_privacy(
                         headers=_hdr(relogin_tok),
                     ).json()["items"]
                     == []
+                )
+
+                # 6c) R3.2 Mind Map explicit generation, structured graph persistence, source refs, reopen & delete
+                mm_res = fresh_client.post(
+                    f"/api/v1/tenants/{actors.tenant}/learning/resources/generate",
+                    headers=_hdr(relogin_tok),
+                    json={
+                        "tool_kind": "mind_map",
+                        "session_id": sid,
+                        "topic": "Chain Rule",
+                        "attachment_ids": [att["attachment_id"]],
+                    },
+                )
+                assert mm_res.status_code == 200
+                mm_item = mm_res.json()
+                assert mm_item["tool_kind"] == "mind_map"
+                assert mm_item["mind_map"]["root_id"] == "n1"
+                assert len(mm_item["mind_map"]["nodes"]) == 3
+                assert len(mm_item["sources"]) >= 1
+
+                reopened_mm = fresh_client.get(
+                    f"/api/v1/tenants/{actors.tenant}/learning/sessions/{sid}",
+                    headers=_hdr(relogin_tok),
+                ).json()
+                assert len(reopened_mm["resources"]) == 1
+                assert reopened_mm["resources"][0]["mind_map"]["root_id"] == "n1"
+
+                assert (
+                    fresh_client.delete(
+                        f"/api/v1/tenants/{actors.tenant}/learning/resources/{mm_item['resource_id']}",
+                        headers=_hdr(relogin_tok),
+                    ).status_code
+                    == 200
                 )
 
                 # 7) Delete material detaches it from session; delete session removes it from history

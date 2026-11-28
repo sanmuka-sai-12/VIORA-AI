@@ -3997,6 +3997,32 @@ export interface components {
          * @enum {string}
          */
         MembershipStatus: "invited" | "active" | "disabled" | "revoked";
+        /** MindMapGraph */
+        MindMapGraph: {
+            /** Nodes */
+            nodes: components["schemas"]["MindMapNode"][];
+            /** Root Id */
+            root_id: string;
+            /** Title */
+            title: string;
+        };
+        /** MindMapNode */
+        MindMapNode: {
+            /** Depth */
+            depth: number;
+            /** Explanation */
+            explanation: string;
+            /** Key Formula */
+            key_formula?: string | null;
+            /** Label */
+            label: string;
+            /** Node Id */
+            node_id: string;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Relation */
+            relation?: string | null;
+        };
         /** NarrationCueSpec */
         NarrationCueSpec: {
             /** Anchor */
@@ -4406,7 +4432,7 @@ export interface components {
              * Tool Kind
              * @enum {string}
              */
-            tool_kind: "study_notes" | "academic_insights";
+            tool_kind: "study_notes" | "academic_insights" | "mind_map";
             /** Topic */
             topic?: string | null;
         };
@@ -4576,6 +4602,7 @@ export interface components {
             created_at: string;
             /** Focus Topic */
             focus_topic?: string | null;
+            mind_map?: components["schemas"]["MindMapGraph"] | null;
             /** Model */
             model: string;
             /** Provider */
@@ -4608,7 +4635,7 @@ export interface components {
              * Tool Kind
              * @enum {string}
              */
-            tool_kind: "study_notes" | "academic_insights";
+            tool_kind: "study_notes" | "academic_insights" | "mind_map";
             /**
              * Truncated
              * @default false

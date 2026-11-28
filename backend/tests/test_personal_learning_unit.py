@@ -363,7 +363,7 @@ def test_personal_learning_private_attachments_upload_ocr_grounding_and_isolatio
 
     # 5) Another user in same institution CANNOT read user_a's private attachment
     access_b = _MockAccess(allowed=True, context=ctx_b)
-    app_b = create_app(access=access_b, ai_gateway=fake_gw, artifact_store=store)  # type: ignore[arg-type]
+    app_b = create_app(access=access_b, ai_gateway=fake_gw, artifact_store=store, settings=_unit_test_settings())  # type: ignore[arg-type]
     client_b = TestClient(app_b)
     forbid_resp = client_b.post(
         f"/api/v1/tenants/{tenant_id}/learning/ask",

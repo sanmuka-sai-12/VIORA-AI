@@ -149,6 +149,21 @@ def test_direct_academic_learning_uses_ai_gateway_and_follow_ups() -> None:
     assert fake.recorded_calls[0]["config"].max_tokens <= 500
 
 
+def _unit_test_settings():
+    from pydantic import SecretStr
+    from viora.config import AuthSettings, Settings
+
+    return Settings(
+        database_url=SecretStr(
+            "postgresql+psycopg://viora_app:unit-test-placeholder@127.0.0.1:5432/viora"
+        ),
+        auth=AuthSettings(
+            signing_key=SecretStr("unit-test-signing-key-32-bytes-minimum!")
+        ),
+        environment="test",
+    )
+
+
 def test_personal_learning_http_endpoint_enforces_institution_access_and_reports_truncation() -> None:
     tenant_id = uuid4()
     other_tenant = uuid4()
@@ -160,7 +175,7 @@ def test_personal_learning_http_endpoint_enforces_institution_access_and_reports
     fake_gw = FakeAIGateway(default_completion="Binary search runs in $O(\\log n)$ time.")
     access = _MockAccess(allowed=True, context=student_ctx)
 
-    app = create_app(access=access, ai_gateway=fake_gw)  # type: ignore[arg-type]
+    app = create_app(access=access, ai_gateway=fake_gw, settings=_unit_test_settings())  # type: ignore[arg-type]
     client = TestClient(app)
 
     unauth = client.post(
@@ -203,7 +218,7 @@ def test_personal_learning_http_endpoint_enforces_institution_access_and_reports
                 finish_reason="length",
             )
 
-    trunc_app = create_app(access=access, ai_gateway=_TruncatedGateway())  # type: ignore[arg-type]
+    trunc_app = create_app(access=access, ai_gateway=_TruncatedGateway(), settings=_unit_test_settings())  # type: ignore[arg-type]
     trunc_client = TestClient(trunc_app)
     trunc_resp = trunc_client.post(
         f"/api/v1/tenants/{tenant_id}/learning/ask",
@@ -219,7 +234,7 @@ def test_personal_learning_http_endpoint_enforces_institution_access_and_reports
         def complete(self, context, messages, config=None):  # type: ignore[override]
             raise AIError("ai_quota_exhausted", "Daily quota exhausted")
 
-    failing_app = create_app(access=access, ai_gateway=_FailingGateway())  # type: ignore[arg-type]
+    failing_app = create_app(access=access, ai_gateway=_FailingGateway(), settings=_unit_test_settings())  # type: ignore[arg-type]
     failing_client = TestClient(failing_app)
     err_resp = failing_client.post(
         f"/api/v1/tenants/{tenant_id}/learning/ask",
@@ -250,7 +265,7 @@ def test_personal_learning_private_attachments_upload_ocr_grounding_and_isolatio
     access_a = _MockAccess(allowed=True, context=ctx_a)
     store = local_artifact_store(tmp_path)
 
-    app = create_app(access=access_a, ai_gateway=fake_gw, artifact_store=store)  # type: ignore[arg-type]
+    app = create_app(access=access_a, ai_gateway=fake_gw, artifact_store=store, settings=_unit_test_settings())  # type: ignore[arg-type]
     client = TestClient(app)
 
     # 1) Paste text note

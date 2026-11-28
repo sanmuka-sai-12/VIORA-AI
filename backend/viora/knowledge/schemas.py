@@ -1238,10 +1238,12 @@ class PersonalLearningTurn(Contract):
 class PersonalLearningRequest(Contract):
     prompt: str = Field(min_length=1, max_length=2000)
     mode: LearningPromptMode = "question"
+    session_id: UUID | None = None
     history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
     attachments: tuple[PersonalLearningAttachmentRef, ...] = Field(
         default=(), max_length=5
     )
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5)
 
 
 class PersonalLearningResponse(Contract):
@@ -1249,9 +1251,61 @@ class PersonalLearningResponse(Contract):
     mode: LearningPromptMode
     model: str
     provider: str
+    session_id: UUID | None = None
+    session_title: str | None = None
     follow_up_prompts: tuple[str, ...] = ()
     sources: tuple[PersonalLearningSourceRef, ...] = ()
     usage_tokens: int = Field(default=0, ge=0)
     truncated: bool = False
+
+
+class PersonalLearningSessionSummary(Contract):
+    session_id: UUID
+    title: str
+    mode: LearningPromptMode
+    message_count: int = Field(ge=0)
+    last_message_preview: str | None = None
+    attachment_ids: tuple[UUID, ...] = ()
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalLearningMessageRecord(Contract):
+    message_id: UUID
+    sequence_no: int = Field(ge=1)
+    role: Literal["user", "assistant"]
+    content: str
+    mode: LearningPromptMode
+    attached_titles: tuple[str, ...] = ()
+    sources: tuple[PersonalLearningSourceRef, ...] = ()
+    follow_up_prompts: tuple[str, ...] = ()
+    truncated: bool = False
+    created_at: datetime
+
+
+class PersonalLearningSessionDetail(Contract):
+    session_id: UUID
+    title: str
+    mode: LearningPromptMode
+    attachments: tuple[PersonalLearningAttachment, ...] = ()
+    messages: tuple[PersonalLearningMessageRecord, ...] = ()
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalLearningSessionCreateRequest(Contract):
+    title: str | None = Field(default=None, max_length=200)
+    mode: LearningPromptMode = "question"
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5)
+
+
+class PersonalLearningSessionUpdateRequest(Contract):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    mode: LearningPromptMode | None = None
+    attachment_ids: tuple[UUID, ...] | None = Field(default=None, max_length=5)
+
+
+class PersonalLearningDeleteResult(Contract):
+    deleted: bool = True
 
 

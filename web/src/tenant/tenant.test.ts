@@ -191,7 +191,9 @@ import {
   clearLearningSession,
   formatSourcePageLabel,
   loadLearningSession,
+  mapSessionDetailToChatEntries,
   saveLearningSession,
+  toActiveAttachmentIds,
   toActiveAttachmentRefs,
 } from "../features/learning/learningSessionState.ts";
 import {
@@ -241,6 +243,8 @@ test("Personal learning conversation state preserves across route transitions, s
   saveLearningSession(ctrl, {
     userId: "user-1",
     tenantId: TENANT_A,
+    sessionId: "sess-1",
+    sessionTitle: "Chain Rule",
     mode: "explain",
     prompt: "Follow up draft",
     messages: [{ id: "m1", role: "user", content: "Explain chain rule" }],
@@ -286,12 +290,51 @@ test("Personal learning conversation state preserves across route transitions, s
 
   // Same user & tenant restores preserved conversation and active attachments
   const restored = loadLearningSession(ctrl, "user-1", TENANT_A);
+  assert.equal(restored?.sessionId, "sess-1");
+  assert.equal(restored?.sessionTitle, "Chain Rule");
   assert.equal(restored?.messages.length, 1);
   assert.equal(restored?.prompt, "Follow up draft");
   assert.equal(restored?.attachments.length, 2);
   assert.deepEqual(toActiveAttachmentRefs(restored!.attachments), [
     { attachment_id: "att-1", doc_sha256: "a".repeat(64) },
   ]);
+  assert.deepEqual(toActiveAttachmentIds(restored!.attachments), ["att-1"]);
+  assert.deepEqual(
+    mapSessionDetailToChatEntries({
+      session_id: "sess-1",
+      title: "Chain Rule",
+      mode: "explain",
+      attachments: [],
+      messages: [
+        {
+          message_id: "m1",
+          sequence_no: 1,
+          role: "user",
+          content: "Explain chain rule",
+          mode: "explain",
+          attached_titles: ["calculus.pdf"],
+          sources: [],
+          follow_up_prompts: [],
+          truncated: false,
+          created_at: "2026-11-28T00:00:00Z",
+        },
+      ],
+      created_at: "2026-11-28T00:00:00Z",
+      updated_at: "2026-11-28T00:00:00Z",
+    }),
+    [
+      {
+        id: "m1",
+        role: "user",
+        content: "Explain chain rule",
+        mode: "explain",
+        attachedTitles: ["calculus.pdf"],
+        followUps: undefined,
+        sources: undefined,
+        truncated: false,
+      },
+    ],
+  );
   assert.equal(
     formatSourcePageLabel({
       attachment_id: "att-1",
@@ -312,11 +355,14 @@ test("Personal learning conversation state preserves across route transitions, s
   clearLearningSession(ctrl, "user-1", TENANT_A);
   assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.messages.length, 0);
   assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.attachments.length, 0);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.sessionId, null);
 
   // Sign-out (ctrl.clear()) wipes cached conversation and attachments completely
   saveLearningSession(ctrl, {
     userId: "user-1",
     tenantId: TENANT_A,
+    sessionId: "sess-1",
+    sessionTitle: "Active",
     mode: "question",
     prompt: "",
     messages: [{ id: "m2", role: "user", content: "Active chat" }],

@@ -632,3 +632,156 @@ class LessonBlueprintPublicationModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class PersonalLearningMaterialModel(Base):
+    """Student-owned private study materials (PDF, image OCR, notes) scoped by tenant and user."""
+
+    __tablename__ = "personal_learning_materials"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('pdf', 'image', 'text')",
+            name="ck_pl_materials_kind",
+        ),
+        CheckConstraint(
+            "status IN ('ready', 'partial', 'unreadable')",
+            name="ck_pl_materials_status",
+        ),
+        CheckConstraint(
+            "doc_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_pl_materials_doc_sha",
+        ),
+        CheckConstraint(
+            "page_count >= 0 AND chunk_count >= 0 AND char_count >= 0",
+            name="ck_pl_materials_counts",
+        ),
+        Index(
+            "ix_pl_materials_owner_recent",
+            "tenant_id",
+            "owner_user_id",
+            "created_at",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    attachment_id: Mapped[UUID] = mapped_column(primary_key=True)
+    owner_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="RESTRICT")
+    )
+    title: Mapped[str] = mapped_column(Text)
+    original_filename: Mapped[str | None] = mapped_column(Text, default=None)
+    kind: Mapped[str] = mapped_column(Text)
+    input_format: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    status_message: Mapped[str] = mapped_column(Text)
+    page_count: Mapped[int] = mapped_column(Integer)
+    chunk_count: Mapped[int] = mapped_column(Integer)
+    char_count: Mapped[int] = mapped_column(Integer)
+    preview_excerpt: Mapped[str | None] = mapped_column(Text, default=None)
+    doc_sha256: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+
+class PersonalLearningSessionModel(Base):
+    """Durable student-owned Personal Learning conversation session."""
+
+    __tablename__ = "personal_learning_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('question', 'explain')",
+            name="ck_pl_sessions_mode",
+        ),
+        Index(
+            "ix_pl_sessions_owner_recent",
+            "tenant_id",
+            "owner_user_id",
+            "updated_at",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    session_id: Mapped[UUID] = mapped_column(primary_key=True)
+    owner_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="RESTRICT")
+    )
+    title: Mapped[str] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(Text, server_default="question")
+    active_attachment_ids: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+
+class PersonalLearningMessageModel(Base):
+    """Ordered conversation message belonging to a Personal Learning session."""
+
+    __tablename__ = "personal_learning_messages"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('user', 'assistant')",
+            name="ck_pl_messages_role",
+        ),
+        CheckConstraint(
+            "mode IN ('question', 'explain')",
+            name="ck_pl_messages_mode",
+        ),
+        CheckConstraint(
+            "sequence_no >= 1",
+            name="ck_pl_messages_seq",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "session_id"],
+            ["personal_learning_sessions.tenant_id", "personal_learning_sessions.session_id"],
+            name="fk_pl_messages_session",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "session_id",
+            "sequence_no",
+            name="uq_pl_messages_session_seq",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.tenant_id", ondelete="RESTRICT"), primary_key=True
+    )
+    message_id: Mapped[UUID] = mapped_column(primary_key=True)
+    session_id: Mapped[UUID]
+    owner_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="RESTRICT")
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(Text, server_default="question")
+    attached_titles: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    follow_up_prompts: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    truncated: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

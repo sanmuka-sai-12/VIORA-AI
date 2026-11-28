@@ -63,6 +63,18 @@ export type PersonalLearningSourceRef = ApiSchema<"PersonalLearningSourceRef">;
 export type PersonalLearningTurn = ApiSchema<"PersonalLearningTurn">;
 export type PersonalLearningRequest = ApiSchema<"PersonalLearningRequest">;
 export type PersonalLearningResponse = ApiSchema<"PersonalLearningResponse">;
+export type PersonalLearningSessionSummary =
+  ApiSchema<"PersonalLearningSessionSummary">;
+export type PersonalLearningMessageRecord =
+  ApiSchema<"PersonalLearningMessageRecord">;
+export type PersonalLearningSessionDetail =
+  ApiSchema<"PersonalLearningSessionDetail">;
+export type PersonalLearningSessionCreateRequest =
+  ApiSchema<"PersonalLearningSessionCreateRequest">;
+export type PersonalLearningSessionUpdateRequest =
+  ApiSchema<"PersonalLearningSessionUpdateRequest">;
+export type PersonalLearningDeleteResult =
+  ApiSchema<"PersonalLearningDeleteResult">;
 export type LearningPromptMode = PersonalLearningRequest["mode"];
 
 export interface NormalizedApiError {

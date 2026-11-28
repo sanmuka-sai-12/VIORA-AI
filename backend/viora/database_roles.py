@@ -29,6 +29,9 @@ TENANT_TABLES = (
     "knowledge_publications",
     "knowledge_index_chunks",
     "lesson_blueprint_publications",
+    "personal_learning_materials",
+    "personal_learning_sessions",
+    "personal_learning_messages",
 )
 
 APPEND_ONLY_TENANT_TABLES = (

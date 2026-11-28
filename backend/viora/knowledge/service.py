@@ -29,6 +29,7 @@ from .personal_learning import (
     DirectAcademicLearning,
     PersonalLearningAttachmentService,
 )
+from .personal_learning_store import SqlPersonalLearningRepository
 from .ports import ConceptExtractionRepository
 from .publication import publication_complete, reviewed_graph
 from .qa import GroundedKnowledgeQA
@@ -53,8 +54,13 @@ from .schemas import (
     LessonBlueprintTriggerResult,
     PersonalLearningAttachment,
     PersonalLearningAttachmentTextRequest,
+    PersonalLearningDeleteResult,
     PersonalLearningRequest,
     PersonalLearningResponse,
+    PersonalLearningSessionCreateRequest,
+    PersonalLearningSessionDetail,
+    PersonalLearningSessionSummary,
+    PersonalLearningSessionUpdateRequest,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -739,13 +745,23 @@ class ConceptKnowledgeService:
             scoped_context = scope.context
             attachments_svc = self._personal_learning_attachments()
         raw_bytes = read_bounded_bytes(self.source_limits.max_bytes)
-        return attachments_svc.ingest_file(
+        attachment = attachments_svc.ingest_file(
             context=scoped_context,
             raw_bytes=raw_bytes,
             original_filename=original_filename,
             claimed_content_type=claimed_content_type,
             title=title,
         )
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.context != scoped_context:
+                raise AccessError(
+                    403, "access_changed", "Institution access changed during upload"
+                )
+            if scope.session is not None:
+                return SqlPersonalLearningRepository(scope.session).register_material(
+                    scoped_context, attachment
+                )
+            return attachment
 
     def upload_personal_learning_text(
         self,
@@ -758,11 +774,156 @@ class ConceptKnowledgeService:
         with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
             scoped_context = scope.context
             attachments_svc = self._personal_learning_attachments()
-        return attachments_svc.ingest_text(
+        attachment = attachments_svc.ingest_text(
             context=scoped_context,
             title=req.title,
             content=req.content,
         )
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.context != scoped_context:
+                raise AccessError(
+                    403, "access_changed", "Institution access changed during upload"
+                )
+            if scope.session is not None:
+                return SqlPersonalLearningRepository(scope.session).register_material(
+                    scoped_context, attachment
+                )
+            return attachment
+
+    def list_personal_learning_materials(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        *,
+        limit: int = 50,
+    ) -> Page[PersonalLearningAttachment]:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                return Page(items=())
+            items = SqlPersonalLearningRepository(scope.session).list_materials(
+                scope.context, limit=limit
+            )
+            return Page(items=items)
+
+    def delete_personal_learning_material(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        attachment_id: UUID,
+    ) -> PersonalLearningDeleteResult:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning library requires database persistence",
+                )
+            SqlPersonalLearningRepository(scope.session).delete_material(
+                scope.context, attachment_id
+            )
+            return PersonalLearningDeleteResult(deleted=True)
+
+    def list_personal_learning_sessions(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        *,
+        limit: int = 40,
+    ) -> Page[PersonalLearningSessionSummary]:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                return Page(items=())
+            items = SqlPersonalLearningRepository(scope.session).list_sessions(
+                scope.context, limit=limit
+            )
+            return Page(items=items)
+
+    def create_personal_learning_session(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        req: PersonalLearningSessionCreateRequest,
+    ) -> PersonalLearningSessionDetail:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning sessions require database persistence",
+                )
+            return SqlPersonalLearningRepository(scope.session).create_session(
+                scope.context,
+                title=req.title,
+                mode=req.mode,
+                attachment_ids=req.attachment_ids,
+            )
+
+    def get_personal_learning_session(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        session_id: UUID,
+    ) -> PersonalLearningSessionDetail:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    404,
+                    "learning_session_not_found",
+                    "Learning conversation was not found",
+                )
+            return SqlPersonalLearningRepository(scope.session).get_session(
+                scope.context, session_id
+            )
+
+    def update_personal_learning_session(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        session_id: UUID,
+        req: PersonalLearningSessionUpdateRequest,
+    ) -> PersonalLearningSessionDetail:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning sessions require database persistence",
+                )
+            return SqlPersonalLearningRepository(scope.session).update_session(
+                scope.context, session_id, req
+            )
+
+    def delete_personal_learning_session(
+        self,
+        access: TransactionalAccess,
+        bearer: str | None,
+        tenant_id: UUID,
+        session_id: UUID,
+    ) -> PersonalLearningDeleteResult:
+        ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
+            if scope.session is None:
+                raise AccessError(
+                    503,
+                    "persistence_unavailable",
+                    "Personal learning sessions require database persistence",
+                )
+            SqlPersonalLearningRepository(scope.session).delete_session(
+                scope.context, session_id
+            )
+            return PersonalLearningDeleteResult(deleted=True)
 
     def ask_personal_learning(
         self,
@@ -772,6 +933,15 @@ class ConceptKnowledgeService:
         req: PersonalLearningRequest,
     ) -> PersonalLearningResponse:
         ref = ResourceRef(tenant_id=tenant_id, kind="institution", resource_id=tenant_id)
+        resolved_refs = list(req.attachments)
+        effective_history = req.history
+        active_ids: list[UUID] = [
+            *req.attachment_ids,
+            *(att.attachment_id for att in req.attachments),
+        ]
+        dedup_active_ids = list(dict.fromkeys(active_ids))[:5]
+        active_titles: list[str] = []
+
         with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
             if self.ai_gateway is None:
                 raise AccessError(
@@ -780,25 +950,79 @@ class ConceptKnowledgeService:
                     "Personal learning AI service is not configured",
                 )
             scoped_context = scope.context
+            if scope.session is not None:
+                pl_repo = SqlPersonalLearningRepository(scope.session)
+                if req.session_id is not None:
+                    loaded_turns = pl_repo.load_recent_turns(
+                        scoped_context, req.session_id
+                    )
+                    if not effective_history and loaded_turns:
+                        effective_history = loaded_turns
+                if req.attachment_ids:
+                    db_refs = pl_repo.resolve_material_refs(
+                        scoped_context, req.attachment_ids
+                    )
+                    seen_att_ids = {r.attachment_id for r in resolved_refs}
+                    for dref in db_refs:
+                        if dref.attachment_id not in seen_att_ids:
+                            resolved_refs.append(dref)
+                            seen_att_ids.add(dref.attachment_id)
+                if dedup_active_ids:
+                    mat_rows = pl_repo._load_materials_map(
+                        scoped_context, dedup_active_ids
+                    )
+                    active_titles = [m.title for m in mat_rows]
             attachments_svc = (
-                self._personal_learning_attachments() if req.attachments else None
+                self._personal_learning_attachments() if resolved_refs else None
             )
+
+        effective_req = req.model_copy(
+            update={
+                "history": effective_history,
+                "attachments": tuple(resolved_refs[:5]),
+            }
+        )
         try:
             response = DirectAcademicLearning(
                 self.ai_gateway,
                 attachment_service=attachments_svc,
             ).ask(
                 context=scoped_context,
-                request=req,
+                request=effective_req,
             )
         except AIResourceLimitError as exc:
             raise AccessError(422, exc.code, exc.message) from None
         except AIError as exc:
             raise AccessError(503, exc.code, exc.message) from None
+
         with access.transaction(bearer, "knowledge.retrieve", ref) as scope:
             if scope.context != scoped_context:
                 raise AccessError(
                     403, "access_changed", "Institution access changed during inference"
+                )
+            if scope.session is not None:
+                titles_for_msg = active_titles or list(
+                    dict.fromkeys(src.title for src in response.sources)
+                )
+                saved_session_id, saved_title = SqlPersonalLearningRepository(
+                    scope.session
+                ).append_exchange(
+                    scoped_context,
+                    session_id=req.session_id,
+                    prompt_text=req.prompt.strip(),
+                    mode=req.mode,
+                    attached_titles=titles_for_msg,
+                    assistant_content=response.answer,
+                    sources=response.sources,
+                    follow_up_prompts=response.follow_up_prompts,
+                    truncated=response.truncated,
+                    active_attachment_ids=dedup_active_ids,
+                )
+                return response.model_copy(
+                    update={
+                        "session_id": saved_session_id,
+                        "session_title": saved_title,
+                    }
                 )
             return response
 

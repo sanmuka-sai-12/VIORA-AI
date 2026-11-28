@@ -257,9 +257,31 @@ def test_personal_learning_private_attachments_upload_ocr_grounding_and_isolatio
     assert text_att["kind"] == "text"
     assert text_att["chunk_count"] >= 1
 
-    # 2) Valid digital PDF upload via ReportLab-free minimal blank PDF or pypdf + stream text check:
-    # Write a minimal synthetic valid PDF with embedded text using pypdf? pypdf Writer creates valid PDFs;
-    # let's test an empty 1-page PDF triggers clear "unreadable" status, and valid .png goes through OCR path!
+    # 2) Valid digital PDF with embedded text extracts cleanly & cites page 1; blank PDF reports unreadable
+    minimal_pdf = (
+        b"%PDF-1.4\n"
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n"
+        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n"
+        b"5 0 obj << /Length 62 >> stream\n"
+        b"BT /F1 12 Tf 24 120 Td (Chain Rule derivative f'(g(x))g'(x)) Tj ET\n"
+        b"endstream\nendobj\n"
+        b"xref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000241 00000 n \n0000000311 00000 n \n"
+        b"trailer << /Size 6 /Root 1 0 R >>\nstartxref\n425\n%%EOF\n"
+    )
+    readable_pdf_resp = client.post(
+        f"/api/v1/tenants/{tenant_id}/learning/attachments/file",
+        headers={"Authorization": "Bearer test-token"},
+        files={"file": ("calculus.pdf", minimal_pdf, "application/pdf")},
+        data={"title": "Calculus PDF"},
+    )
+    assert readable_pdf_resp.status_code == 201
+    readable_pdf = readable_pdf_resp.json()
+    assert readable_pdf["kind"] == "pdf"
+    assert readable_pdf["page_count"] == 1
+    assert readable_pdf["status"] in {"ready", "partial"}
+
     writer = pypdf.PdfWriter()
     writer.add_blank_page(width=200, height=200)
     pdf_buf = io.BytesIO()

@@ -39,8 +39,13 @@ from .schemas import (
     LessonBlueprintTriggerResult,
     PersonalLearningAttachment,
     PersonalLearningAttachmentTextRequest,
+    PersonalLearningDeleteResult,
     PersonalLearningRequest,
     PersonalLearningResponse,
+    PersonalLearningSessionCreateRequest,
+    PersonalLearningSessionDetail,
+    PersonalLearningSessionSummary,
+    PersonalLearningSessionUpdateRequest,
     PublishedLessonBlueprint,
     PublishedLessonPackage,
 )
@@ -419,6 +424,142 @@ def build_router(
             _token(creds),
             tenant_id,
             body,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/learning/materials",
+        response_model=Page[PersonalLearningAttachment],
+        operation_id="listPersonalLearningMaterials",
+    )
+    def list_personal_learning_materials(
+        tenant_id: UUID,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> Page[PersonalLearningAttachment]:
+        return service.list_personal_learning_materials(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            limit=limit,
+        )
+
+    @router.delete(
+        "/tenants/{tenant_id}/learning/materials/{attachment_id}",
+        response_model=PersonalLearningDeleteResult,
+        operation_id="deletePersonalLearningMaterial",
+    )
+    def delete_personal_learning_material(
+        tenant_id: UUID,
+        attachment_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningDeleteResult:
+        return service.delete_personal_learning_material(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            attachment_id,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/learning/sessions",
+        response_model=Page[PersonalLearningSessionSummary],
+        operation_id="listPersonalLearningSessions",
+    )
+    def list_personal_learning_sessions(
+        tenant_id: UUID,
+        limit: Annotated[int, Query(ge=1, le=100)] = 40,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> Page[PersonalLearningSessionSummary]:
+        return service.list_personal_learning_sessions(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            limit=limit,
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/learning/sessions",
+        status_code=201,
+        response_model=PersonalLearningSessionDetail,
+        operation_id="createPersonalLearningSession",
+    )
+    def create_personal_learning_session(
+        tenant_id: UUID,
+        body: PersonalLearningSessionCreateRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningSessionDetail:
+        return service.create_personal_learning_session(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            body,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/learning/sessions/{session_id}",
+        response_model=PersonalLearningSessionDetail,
+        operation_id="getPersonalLearningSession",
+    )
+    def get_personal_learning_session(
+        tenant_id: UUID,
+        session_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningSessionDetail:
+        return service.get_personal_learning_session(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            session_id,
+        )
+
+    @router.patch(
+        "/tenants/{tenant_id}/learning/sessions/{session_id}",
+        response_model=PersonalLearningSessionDetail,
+        operation_id="updatePersonalLearningSession",
+    )
+    def update_personal_learning_session(
+        tenant_id: UUID,
+        session_id: UUID,
+        body: PersonalLearningSessionUpdateRequest,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningSessionDetail:
+        return service.update_personal_learning_session(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            session_id,
+            body,
+        )
+
+    @router.delete(
+        "/tenants/{tenant_id}/learning/sessions/{session_id}",
+        response_model=PersonalLearningDeleteResult,
+        operation_id="deletePersonalLearningSession",
+    )
+    def delete_personal_learning_session(
+        tenant_id: UUID,
+        session_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningDeleteResult:
+        return service.delete_personal_learning_session(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            session_id,
         )
 
     @router.post(

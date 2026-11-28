@@ -2,6 +2,7 @@ import type {
   LearningPromptMode,
   PersonalLearningAttachment,
   PersonalLearningAttachmentRef,
+  PersonalLearningSessionDetail,
   PersonalLearningSourceRef,
 } from "../../api/client";
 import type { TenantController } from "../../tenant/tenantState";
@@ -25,10 +26,96 @@ export interface LearningChatEntry {
 export interface LearningSessionSnapshot {
   userId: string;
   tenantId: string;
+  sessionId: string | null;
+  sessionTitle: string;
   mode: LearningPromptMode;
   prompt: string;
   messages: LearningChatEntry[];
   attachments: LearningAttachmentEntry[];
+}
+
+export const NEW_CHAT_SENTINEL = "__new__";
+
+export function activeSessionStorageKey(userId: string, tenantId: string): string {
+  return `viora.pl.activeSession:${userId}:${tenantId}`;
+}
+
+export function readActiveSessionHint(
+  userId: string | undefined,
+  tenantId: string | null,
+): string | null {
+  if (!userId || !tenantId || typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.sessionStorage.getItem(activeSessionStorageKey(userId, tenantId));
+  } catch {
+    return null;
+  }
+}
+
+export function writeActiveSessionHint(
+  userId: string | undefined,
+  tenantId: string | null,
+  value: string | null,
+): void {
+  if (!userId || !tenantId || typeof window === "undefined") {
+    return;
+  }
+  try {
+    const key = activeSessionStorageKey(userId, tenantId);
+    if (value === null) {
+      window.sessionStorage.removeItem(key);
+    } else {
+      window.sessionStorage.setItem(key, value);
+    }
+  } catch {
+    // Ignore storage unavailability in restricted browser modes.
+  }
+}
+
+export function clearAllLearningSessionHints(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const k = window.sessionStorage.key(i);
+      if (k && k.startsWith("viora.pl.activeSession:")) {
+        keys.push(k);
+      }
+    }
+    for (const k of keys) {
+      window.sessionStorage.removeItem(k);
+    }
+  } catch {
+    // Ignore storage unavailability.
+  }
+}
+
+export function mapSessionDetailToChatEntries(
+  detail: PersonalLearningSessionDetail,
+): LearningChatEntry[] {
+  return detail.messages.map((m) => ({
+    id: m.message_id,
+    role: m.role,
+    content: m.content,
+    mode: m.mode,
+    attachedTitles: m.attached_titles?.length ? m.attached_titles : undefined,
+    followUps: m.follow_up_prompts?.length ? m.follow_up_prompts : undefined,
+    sources: m.sources?.length ? m.sources : undefined,
+    truncated: m.truncated,
+  }));
+}
+
+export function mapSessionAttachments(
+  attachments: readonly PersonalLearningAttachment[],
+): LearningAttachmentEntry[] {
+  return attachments.map((attachment) => ({
+    attachment,
+    included: attachment.status !== "unreadable",
+  }));
 }
 
 export function toActiveAttachmentRefs(
@@ -41,6 +128,15 @@ export function toActiveAttachmentRefs(
       attachment_id: item.attachment.attachment_id,
       doc_sha256: item.attachment.doc_sha256,
     }));
+}
+
+export function toActiveAttachmentIds(
+  entries: readonly LearningAttachmentEntry[],
+): string[] {
+  return entries
+    .filter((item) => item.included && item.attachment.status !== "unreadable")
+    .slice(0, 5)
+    .map((item) => item.attachment.attachment_id);
 }
 
 export function formatSourcePageLabel(source: PersonalLearningSourceRef): string {
@@ -89,6 +185,8 @@ export function clearLearningSession(
   tenantController.setCached(key, {
     userId,
     tenantId,
+    sessionId: null,
+    sessionTitle: "New Study Session",
     mode: "question",
     prompt: "",
     messages: [],

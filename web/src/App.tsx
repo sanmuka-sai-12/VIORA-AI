@@ -24,6 +24,7 @@ import { GuardiansPage } from "./features/guardians/GuardiansPage";
 import { SystemHealthDashboard } from "./features/health/SystemHealthDashboard";
 import { InstitutionOverviewPage } from "./features/institution/InstitutionOverviewPage";
 import { StudentLearningPage } from "./features/learning/StudentLearningPage";
+import { clearAllLearningSessionHints } from "./features/learning/learningSessionState";
 import { TeacherClassPage } from "./features/teaching/TeacherClassPage";
 import { TeacherDepartmentPage } from "./features/teaching/TeacherDepartmentPage";
 import { TeacherSubjectsPage } from "./features/teaching/TeacherSubjectsPage";
@@ -91,6 +92,7 @@ function PortalRouter() {
 
   const handleLogout = async () => {
     setAuthBusy(true);
+    clearAllLearningSessionHints();
     tenantController.clear();
     await authController.logout();
     setAuthBusy(false);

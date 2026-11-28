@@ -169,6 +169,28 @@ def build_protected_router(
             original_filename=body.original_filename,
             idempotency_key=idemp_key,
         )
+        if body.folder_label and body.folder_label.strip():
+            with access.transaction(
+                _token(bearer),
+                "source.update",
+                ResourceRef(
+                    tenant_id=tenant_id,
+                    kind="source",
+                    resource_id=result.source.source_id,
+                ),
+            ) as scope:
+                updated = SqlSourceRepository(scope.session).update_source_metadata(
+                    tenant_id=tenant_id,
+                    source_id=result.source.source_id,
+                    title=None,
+                    visibility=None,
+                    lifecycle_state=None,
+                    now=datetime.now(UTC),
+                    update_folder_label=True,
+                    folder_label=body.folder_label,
+                )
+                if updated is not None:
+                    result = result.model_copy(update={"source": updated})
         response.status_code = 200 if result.idempotent_replay else 201
         return result
 
@@ -187,6 +209,7 @@ def build_protected_router(
         origin_kind: Annotated[SourceOriginKind, Form()] = "teacher_resource",
         visibility: Annotated[SourceVisibility | None, Form()] = None,
         input_format: Annotated[SourceInputFormat | None, Form()] = None,
+        folder_label: Annotated[str | None, Form(max_length=120)] = None,
         idempotency_key: Annotated[str | None, Form(max_length=128)] = None,
         idempotency_header: Annotated[
             str | None, Header(alias="Idempotency-Key")
@@ -211,6 +234,28 @@ def build_protected_router(
             claimed_content_type=file.content_type,
             idempotency_key=idemp_key,
         )
+        if folder_label and folder_label.strip():
+            with access.transaction(
+                _token(bearer),
+                "source.update",
+                ResourceRef(
+                    tenant_id=tenant_id,
+                    kind="source",
+                    resource_id=result.source.source_id,
+                ),
+            ) as scope:
+                updated = SqlSourceRepository(scope.session).update_source_metadata(
+                    tenant_id=tenant_id,
+                    source_id=result.source.source_id,
+                    title=None,
+                    visibility=None,
+                    lifecycle_state=None,
+                    now=datetime.now(UTC),
+                    update_folder_label=True,
+                    folder_label=folder_label,
+                )
+                if updated is not None:
+                    result = result.model_copy(update={"source": updated})
         response.status_code = 200 if result.idempotent_replay else 201
         return result
 
@@ -272,7 +317,13 @@ def build_protected_router(
         body: SourceMetadataUpdateRequest,
         bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
     ) -> SourceSummary:
-        if body.title is None and body.visibility is None and body.lifecycle_state is None:
+        has_folder = "folder_label" in body.model_fields_set
+        if (
+            body.title is None
+            and body.visibility is None
+            and body.lifecycle_state is None
+            and not has_folder
+        ):
             raise AccessError(
                 422, "empty_update", "At least one metadata field must be provided"
             )
@@ -282,6 +333,7 @@ def build_protected_router(
                 body.lifecycle_state is not None
                 and body.title is None
                 and body.visibility is None
+                and not has_folder
             )
             else "source.update"
         )
@@ -297,6 +349,8 @@ def build_protected_router(
                 visibility=body.visibility,
                 lifecycle_state=body.lifecycle_state,
                 now=datetime.now(UTC),
+                update_folder_label=has_folder,
+                folder_label=body.folder_label,
             )
             if updated is None:
                 raise AccessError(404, "source_missing", "Source unavailable")
@@ -340,6 +394,43 @@ def build_protected_router(
                     404, "version_missing", "Source version unavailable"
                 )
             return detail
+
+    @router.get(
+        "/tenants/{tenant_id}/sources/{source_id}/download",
+        operation_id="downloadSourceMaterial",
+    )
+    def download_source_material(
+        tenant_id: UUID,
+        source_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> Response:
+        resource = ResourceRef(tenant_id=tenant_id, kind="source", resource_id=source_id)
+        with access.transaction(_token(bearer), "source.version.read", resource) as scope:
+            info = SqlSourceRepository(scope.session).get_latest_download_info(
+                tenant_id, source_id
+            )
+            if info is None:
+                raise AccessError(404, "source_missing", "Source material unavailable")
+            title, input_format, original_filename, storage_ref = info
+            raw_bytes = store.read(scope.context, storage_ref)
+            media_type = {
+                "digital_pdf": "application/pdf",
+                "scanned_pdf": "application/pdf",
+                "png": "image/png",
+                "jpeg": "image/jpeg",
+            }.get(input_format, "text/plain; charset=utf-8")
+            ext = {
+                "digital_pdf": ".pdf",
+                "scanned_pdf": ".pdf",
+                "png": ".png",
+                "jpeg": ".jpg",
+            }.get(input_format, ".txt")
+            safe_name = (original_filename or f"{title}{ext}").replace('"', "")
+            return Response(
+                content=raw_bytes,
+                media_type=media_type,
+                headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+            )
 
     @router.post(
         "/tenants/{tenant_id}/sources/{source_id}/versions",

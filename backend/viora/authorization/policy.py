@@ -42,6 +42,7 @@ ENTITY_ADMIN_ACTIONS: dict[str, frozenset[str]] = {
         "offering.catalog.read", "offering.update", "offering.lifecycle", "offering.teacher.assign",
         "offering.teacher.list", "offering.teacher.revoke", "offering.enrolment.create",
         "offering.enrolment.list", "offering.enrolment.withdraw",
+        "announcement.list", "announcement.create", "announcement.update", "announcement.delete",
     }),
 }
 ACTIVE_PARENT_REQUIRED_ACTIONS = frozenset({
@@ -274,6 +275,18 @@ class Policy:
                 assert self.sources is not None
                 return s_ok and self.sources.offering_source_policy(tenant, target).student_submissions_enabled
             return t_ok or s_ok
+
+        if action == "announcement.list":
+            if not (has_teacher or has_student):
+                return False
+            active, t_ok, s_ok = self._offering_access_state(tenant, actor, target, need_teacher=has_teacher, need_student=has_student)
+            return active and (t_ok or s_ok)
+
+        if action in {"announcement.create", "announcement.update", "announcement.delete"}:
+            if not has_teacher:
+                return False
+            active, t_ok, _ = self._offering_access_state(tenant, actor, target, need_teacher=True, need_student=False)
+            return active and t_ok
         return False
 
     def _permits_source(

@@ -23,6 +23,7 @@ import { PasswordChangePage } from "./features/auth/PasswordChangePage";
 import { GuardiansPage } from "./features/guardians/GuardiansPage";
 import { SystemHealthDashboard } from "./features/health/SystemHealthDashboard";
 import { InstitutionOverviewPage } from "./features/institution/InstitutionOverviewPage";
+import { ClassroomPage } from "./features/classroom/ClassroomPage";
 import { StudentLearningPage } from "./features/learning/StudentLearningPage";
 import { clearAllLearningSessionHints } from "./features/learning/learningSessionState";
 import { TeacherClassPage } from "./features/teaching/TeacherClassPage";
@@ -182,6 +183,9 @@ function PortalRouter() {
           authBusy={authBusy}
         />
       );
+    }
+    if (activeRoute === "student-classrooms") {
+      return <ClassroomPage mode="student" onNavigate={navigate} />;
     }
     if (activeRoute === "teacher-class") {
       return <TeacherClassPage />;

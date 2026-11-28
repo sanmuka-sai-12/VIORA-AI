@@ -336,3 +336,33 @@ class FacultyProfile(MemberAssignment, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class ClassroomAnnouncement(Base):
+    __tablename__ = "classroom_announcements"
+    __table_args__ = (
+        tenant_reference("offering_id", "subject_offerings"),
+        tenant_reference("author_user_id", "memberships", "user_id"),
+        Index(
+            "ix_classroom_announcements_offering_created",
+            "tenant_id",
+            "offering_id",
+            "created_at",
+        ),
+        CheckConstraint("btrim(title) <> ''", name="ck_classroom_announcements_title"),
+        CheckConstraint("btrim(body) <> ''", name="ck_classroom_announcements_body"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(primary_key=True)
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    offering_id: Mapped[UUID]
+    author_user_id: Mapped[UUID]
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    pinned: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

@@ -57,6 +57,7 @@ __all__ = [
     "provision_account",
     "register_models",
     "update_user_display_name",
+    "user_display_names",
     "user_emails",
 ]
 
@@ -118,6 +119,16 @@ def user_emails(session: Session, user_ids: Sequence[UUID]) -> dict[UUID, str]:
         )
     ).all()
     return {row.user_id: row.normalized_value for row in rows}
+
+
+def user_display_names(session: Session, user_ids: Sequence[UUID]) -> dict[UUID, str]:
+    """Return display names keyed by user_id."""
+    if not user_ids:
+        return {}
+    rows = session.execute(
+        select(User.user_id, User.display_name).where(User.user_id.in_(user_ids))
+    ).all()
+    return {row.user_id: row.display_name for row in rows}
 
 
 def update_user_display_name(

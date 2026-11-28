@@ -110,6 +110,7 @@ class Source(Base):
     origin_kind: Mapped[str] = mapped_column(Text, server_default="unscoped")
     visibility: Mapped[str] = mapped_column(Text, server_default="restricted")
     lifecycle_state: Mapped[str] = mapped_column(Text, server_default="active")
+    folder_label: Mapped[str | None] = mapped_column(Text, default=None)
     latest_version_number: Mapped[int] = mapped_column(Integer, server_default="0")
     latest_version_id: Mapped[UUID | None] = mapped_column(default=None)
     active_dedupe_key: Mapped[str | None] = mapped_column(Text, default=None)

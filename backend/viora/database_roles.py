@@ -35,6 +35,7 @@ TENANT_TABLES = (
     "personal_learning_study_resources",
     "student_profiles",
     "faculty_profiles",
+    "classroom_announcements",
 )
 
 APPEND_ONLY_TENANT_TABLES = (

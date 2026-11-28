@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Annotated, TypeVar
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Security
+from fastapi import APIRouter, Query, Response, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import IntegrityError
 
@@ -27,6 +27,9 @@ from .schemas import (
     CampusSummary,
     CampusUpdate,
     ClassCoordinatorSummary,
+    ClassroomAnnouncementCreate,
+    ClassroomAnnouncementSummary,
+    ClassroomAnnouncementUpdate,
     DepartmentCreate,
     DepartmentHeadSummary,
     DepartmentSummary,
@@ -40,6 +43,7 @@ from .schemas import (
     InstitutionInfo,
     InstitutionUpdate,
     LifecycleUpdate,
+    MyClassroomsSummary,
     OfferingAssignmentSummary,
     ProgrammeCreate,
     ProgrammeSummary,
@@ -575,5 +579,122 @@ def build_router(access: TransactionalAccess) -> APIRouter:
             _inst_ref(tenant_id),
             _read,
         )
+
+    @router.get("/tenants/{tenant_id}/my-classrooms", tags=["profiles"], operation_id="readMyClassrooms")
+    def get_my_classrooms(
+        tenant_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> MyClassroomsSummary:
+        def _read(s: AuthorizedScope, r: SqlAcademicRepository) -> MyClassroomsSummary:
+            res = r.get_my_classrooms(tenant_id, s.context.actor_id)
+            if res is None:
+                raise AccessError(404, "profile_missing", "Member unavailable")
+            return res
+
+        return _run_read(
+            access,
+            bearer,
+            "responsibilities.self.read",
+            _inst_ref(tenant_id),
+            _read,
+        )
+
+    @router.get(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements",
+        tags=["classrooms"],
+        operation_id="listOfferingAnnouncements",
+    )
+    def get_offering_announcements(
+        tenant_id: UUID,
+        offering_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Page[ClassroomAnnouncementSummary]:
+        return _run_read(
+            access,
+            bearer,
+            "announcement.list",
+            _ref(tenant_id, "offering", offering_id),
+            lambda _s, r: r.list_announcements(tenant_id, offering_id, limit=limit),
+        )
+
+    @router.post(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements",
+        tags=["classrooms"],
+        operation_id="createOfferingAnnouncement",
+        status_code=201,
+    )
+    def post_offering_announcement(
+        tenant_id: UUID,
+        offering_id: UUID,
+        body: ClassroomAnnouncementCreate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> ClassroomAnnouncementSummary:
+        def _create(s: AuthorizedScope, r: SqlAcademicRepository) -> ClassroomAnnouncementSummary:
+            created = r.create_announcement(tenant_id, offering_id, s.context.actor_id, body)
+            s.audit.change(s.context, "announcement.create", _ref(tenant_id, "offering", offering_id))
+            return created
+
+        return _run_mutation(
+            access,
+            bearer,
+            "announcement.create",
+            _ref(tenant_id, "offering", offering_id),
+            _create,
+        )
+
+    @router.patch(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements/{announcement_id}",
+        tags=["classrooms"],
+        operation_id="updateOfferingAnnouncement",
+    )
+    def patch_offering_announcement(
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+        body: ClassroomAnnouncementUpdate,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> ClassroomAnnouncementSummary:
+        def _update(s: AuthorizedScope, r: SqlAcademicRepository) -> ClassroomAnnouncementSummary:
+            updated = r.update_announcement(tenant_id, offering_id, announcement_id, body)
+            if updated is None:
+                raise AccessError(404, "announcement_missing", "Announcement unavailable")
+            s.audit.change(s.context, "announcement.update", _ref(tenant_id, "offering", offering_id))
+            return updated
+
+        return _run_mutation(
+            access,
+            bearer,
+            "announcement.update",
+            _ref(tenant_id, "offering", offering_id),
+            _update,
+        )
+
+    @router.delete(
+        "/tenants/{tenant_id}/offerings/{offering_id}/announcements/{announcement_id}",
+        tags=["classrooms"],
+        operation_id="deleteOfferingAnnouncement",
+        status_code=204,
+    )
+    def delete_offering_announcement(
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+        bearer: Annotated[HTTPAuthorizationCredentials | None, bearer_dep],
+    ) -> Response:
+        def _delete(s: AuthorizedScope, r: SqlAcademicRepository) -> None:
+            deleted = r.delete_announcement(tenant_id, offering_id, announcement_id)
+            if not deleted:
+                raise AccessError(404, "announcement_missing", "Announcement unavailable")
+            s.audit.change(s.context, "announcement.delete", _ref(tenant_id, "offering", offering_id))
+
+        _run_mutation(
+            access,
+            bearer,
+            "announcement.delete",
+            _ref(tenant_id, "offering", offering_id),
+            _delete,
+        )
+        return Response(status_code=204)
 
     return router

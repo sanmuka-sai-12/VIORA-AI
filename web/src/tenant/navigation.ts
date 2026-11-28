@@ -199,6 +199,12 @@ export function buildNavigationItems(
       route: "student-learning",
     });
     items.push({
+      id: "student-classrooms",
+      label: "My Classrooms",
+      section: "learning",
+      route: "student-classrooms",
+    });
+    items.push({
       id: "institution",
       label: "My Institution",
       section: "institution",

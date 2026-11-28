@@ -353,3 +353,41 @@ class FacultyResponsibilitiesSummary(Contract):
     user_id: UUID
     homeroom_sections: tuple[AssignedSectionSummary, ...]
     teaching_offerings: tuple[AssignedOfferingSummary, ...]
+
+
+class MyClassroomsSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    teaching_offerings: tuple[AssignedOfferingSummary, ...]
+    enrolled_offerings: tuple[AssignedOfferingSummary, ...]
+
+
+AnnouncementBodyText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=10000),
+]
+
+
+class ClassroomAnnouncementCreate(Contract):
+    title: NonEmptyName
+    body: AnnouncementBodyText
+    pinned: bool = False
+
+
+class ClassroomAnnouncementUpdate(Contract):
+    title: NonEmptyName | None = None
+    body: AnnouncementBodyText | None = None
+    pinned: bool | None = None
+
+
+class ClassroomAnnouncementSummary(Contract):
+    tenant_id: UUID
+    id: UUID
+    offering_id: UUID
+    author_user_id: UUID
+    author_name: str
+    title: str
+    body: str
+    pinned: bool
+    created_at: datetime
+    updated_at: datetime

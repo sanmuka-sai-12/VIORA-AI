@@ -435,6 +435,26 @@ def build_router(
             body,
         )
 
+    @router.post(
+        "/tenants/{tenant_id}/learning/sources/{source_id}/import",
+        status_code=201,
+        response_model=PersonalLearningAttachment,
+        operation_id="importClassroomMaterialToPersonalLearning",
+    )
+    def import_classroom_material_to_personal_learning(
+        tenant_id: UUID,
+        source_id: UUID,
+        creds: Annotated[
+            HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+        ] = None,
+    ) -> PersonalLearningAttachment:
+        return service.import_classroom_material(
+            access,  # type: ignore[arg-type]
+            _token(creds),
+            tenant_id,
+            source_id,
+        )
+
     @router.get(
         "/tenants/{tenant_id}/learning/materials",
         response_model=Page[PersonalLearningAttachment],

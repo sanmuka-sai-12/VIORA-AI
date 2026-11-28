@@ -135,7 +135,7 @@ test("buildNavigationItems and defaultRouteForRoles provide clean role-specific 
   const studentNav = buildNavigationItems(["student"], true);
   assert.deepEqual(
     studentNav.map((i) => i.route),
-    ["student-learning", "institution", "account-password"],
+    ["student-learning", "student-classrooms", "institution", "account-password"],
   );
   assert.equal(defaultRouteForRoles(["student"], true), "student-learning");
   assert.equal(studentNav.some((i) => i.route === "guardians"), false);

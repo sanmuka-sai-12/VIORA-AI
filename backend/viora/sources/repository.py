@@ -59,6 +59,7 @@ def _source_dto(row: Source, latest: SourceVersion | None = None) -> SourceSumma
         origin_kind=row.origin_kind,
         visibility=row.visibility,
         lifecycle_state=row.lifecycle_state,
+        folder_label=row.folder_label,
         latest_version_number=row.latest_version_number,
         latest_version_id=row.latest_version_id,
         latest_input_format=latest.input_format if latest else None,
@@ -1077,6 +1078,8 @@ class SqlSourceRepository:
         visibility: str | None,
         lifecycle_state: str | None,
         now: datetime,
+        update_folder_label: bool = False,
+        folder_label: str | None = None,
     ) -> SourceSummary | None:
         source = self.session.scalar(
             select(Source)
@@ -1087,6 +1090,9 @@ class SqlSourceRepository:
             return None
         if title is not None:
             source.title = title
+        if update_folder_label:
+            cleaned = folder_label.strip() if folder_label else None
+            source.folder_label = cleaned or None
         if visibility is not None:
             if source.origin_kind == "teacher_resource" and visibility not in {
                 "teacher_only",
@@ -1162,3 +1168,29 @@ class SqlSourceRepository:
             )
         ).all()
         return {(row[0], row[1]) for row in rows}
+
+    def get_latest_download_info(
+        self, tenant_id: UUID, source_id: UUID
+    ) -> tuple[str, str, str | None, ArtifactVersionRef] | None:
+        """Return (title, input_format, original_filename, storage_ref) for the latest version."""
+        row = self.session.execute(
+            select(Source.title, SourceVersion)
+            .join(
+                SourceVersion,
+                and_(
+                    SourceVersion.tenant_id == Source.tenant_id,
+                    SourceVersion.source_id == Source.source_id,
+                    SourceVersion.version_id == Source.latest_version_id,
+                ),
+            )
+            .where(Source.tenant_id == tenant_id, Source.source_id == source_id)
+        ).one_or_none()
+        if row is None:
+            return None
+        title, version = row
+        return (
+            title,
+            version.input_format,
+            version.original_filename,
+            _version_summary_dto(version).storage_ref,
+        )

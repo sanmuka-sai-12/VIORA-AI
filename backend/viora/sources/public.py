@@ -1,11 +1,13 @@
 """Public source domain interface, unified document contracts, and router composition."""
 
 from collections.abc import Iterator
+from uuid import UUID
 
 from fastapi import APIRouter
 from sqlalchemy.orm import Session
 
 from ..config import Settings
+from ..contracts import TenantContext
 from ..db import Database
 from ..security import Access, TransactionalAccess
 from ..storage.public import ArtifactStore
@@ -134,6 +136,22 @@ def register_models() -> None:
 
 def source_directory(session: Session) -> SourceDirectory:
     return SqlSourceDirectory(session)
+
+
+def read_source_material_bytes(
+    session: Session,
+    context: TenantContext,
+    artifact_store: ArtifactStore,
+    tenant_id: UUID,
+    source_id: UUID,
+) -> tuple[str, str, str | None, bytes] | None:
+    """Return (title, input_format, original_filename, raw_bytes) for an authorized source."""
+    info = SqlSourceRepository(session).get_latest_download_info(tenant_id, source_id)
+    if info is None:
+        return None
+    title, input_format, original_filename, storage_ref = info
+    raw_bytes = artifact_store.read(context, storage_ref)
+    return (title, input_format, original_filename, raw_bytes)
 
 
 def router(

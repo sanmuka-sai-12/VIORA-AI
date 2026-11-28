@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from ..identity.public import (
     get_tenant_member,
     list_tenant_members,
     update_user_display_name,
+    user_display_names,
     user_emails,
 )
 from ..security import AccessError
@@ -20,6 +21,7 @@ from .models import (
     AcademicYear,
     Campus,
     ClassCoordinator,
+    ClassroomAnnouncement,
     Department,
     DepartmentHead,
     FacultyProfile,
@@ -41,6 +43,9 @@ from .schemas import (
     AssignedSectionSummary,
     CampusSummary,
     ClassCoordinatorSummary,
+    ClassroomAnnouncementCreate,
+    ClassroomAnnouncementSummary,
+    ClassroomAnnouncementUpdate,
     DepartmentHeadSummary,
     DepartmentSummary,
     FacultyProfileSummary,
@@ -48,6 +53,7 @@ from .schemas import (
     FacultyResponsibilitiesSummary,
     GuardianLinkSummary,
     InstitutionInfo,
+    MyClassroomsSummary,
     OfferingAssignment,
     OfferingAssignmentSummary,
     ProgrammeSummary,
@@ -2171,3 +2177,223 @@ class SqlAcademicRepository:
             homeroom_sections=tuple(homeroom_sections),
             teaching_offerings=tuple(teaching_offerings),
         )
+
+    # --- R4.3 Classrooms & Announcements ---
+
+    def _query_offering_summaries(
+        self, tenant_id: UUID, user_id: UUID, assignment_model: type[Any]
+    ) -> list[AssignedOfferingSummary]:
+        rows = self.session.execute(
+            _active_section_chain(
+                select(
+                    SubjectOffering.id.label("offering_id"),
+                    SubjectOffering.name.label("offering_name"),
+                    Subject.id.label("subject_id"),
+                    Subject.name.label("subject_name"),
+                    Section.id.label("section_id"),
+                    Section.name.label("section_name"),
+                    Semester.id.label("semester_id"),
+                    Semester.name.label("semester_name"),
+                    AcademicYear.id.label("academic_year_id"),
+                    AcademicYear.name.label("academic_year_name"),
+                    Department.id.label("department_id"),
+                    Department.name.label("department_name"),
+                )
+                .select_from(assignment_model)
+                .join(
+                    SubjectOffering,
+                    and_(
+                        SubjectOffering.tenant_id == assignment_model.tenant_id,
+                        SubjectOffering.id == assignment_model.offering_id,
+                    ),
+                )
+                .join(
+                    Subject,
+                    and_(
+                        Subject.tenant_id == SubjectOffering.tenant_id,
+                        Subject.id == SubjectOffering.subject_id,
+                    ),
+                )
+                .join(
+                    Section,
+                    and_(
+                        Section.tenant_id == SubjectOffering.tenant_id,
+                        Section.id == SubjectOffering.section_id,
+                    ),
+                )
+            )
+            .outerjoin(
+                Department,
+                and_(
+                    Department.tenant_id == Subject.tenant_id,
+                    Department.id == Subject.department_id,
+                ),
+            )
+            .where(
+                assignment_model.tenant_id == tenant_id,
+                assignment_model.user_id == user_id,
+                assignment_model.active.is_(True),
+                SubjectOffering.active.is_(True),
+                Subject.active.is_(True),
+            )
+            .order_by(SubjectOffering.name, Section.name)
+        ).all()
+        return [
+            AssignedOfferingSummary(
+                offering_id=r.offering_id,
+                offering_name=r.offering_name,
+                subject_id=r.subject_id,
+                subject_name=r.subject_name,
+                section_id=r.section_id,
+                section_name=r.section_name,
+                semester_id=r.semester_id,
+                semester_name=r.semester_name,
+                academic_year_id=r.academic_year_id,
+                academic_year_name=r.academic_year_name,
+                department_id=r.department_id,
+                department_name=r.department_name,
+            )
+            for r in rows
+        ]
+
+    def get_my_classrooms(
+        self, tenant_id: UUID, user_id: UUID
+    ) -> MyClassroomsSummary | None:
+        member = get_tenant_member(self.session, tenant_id, user_id)
+        if member is None:
+            return None
+        teaching = (
+            self._query_offering_summaries(tenant_id, user_id, TeacherAssignment)
+            if InstitutionRole.subject_teacher in member.roles
+            else []
+        )
+        enrolled = (
+            self._query_offering_summaries(tenant_id, user_id, StudentEnrolment)
+            if InstitutionRole.student in member.roles
+            else []
+        )
+        return MyClassroomsSummary(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            teaching_offerings=tuple(teaching),
+            enrolled_offerings=tuple(enrolled),
+        )
+
+    def _announcement_dto(
+        self, row: ClassroomAnnouncement, names: dict[UUID, str]
+    ) -> ClassroomAnnouncementSummary:
+        return ClassroomAnnouncementSummary(
+            tenant_id=row.tenant_id,
+            id=row.id,
+            offering_id=row.offering_id,
+            author_user_id=row.author_user_id,
+            author_name=names.get(row.author_user_id, "Faculty"),
+            title=row.title,
+            body=row.body,
+            pinned=row.pinned,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def list_announcements(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        *,
+        limit: int = 50,
+    ) -> Page[ClassroomAnnouncementSummary]:
+        rows = list(
+            self.session.scalars(
+                select(ClassroomAnnouncement)
+                .where(
+                    ClassroomAnnouncement.tenant_id == tenant_id,
+                    ClassroomAnnouncement.offering_id == offering_id,
+                )
+                .order_by(
+                    ClassroomAnnouncement.pinned.desc(),
+                    ClassroomAnnouncement.created_at.desc(),
+                )
+                .limit(limit)
+            ).all()
+        )
+        names = user_display_names(
+            self.session, list({r.author_user_id for r in rows})
+        )
+        return Page[ClassroomAnnouncementSummary](
+            items=tuple(self._announcement_dto(r, names) for r in rows),
+            next_cursor=None,
+        )
+
+    def create_announcement(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        author_user_id: UUID,
+        body: ClassroomAnnouncementCreate,
+    ) -> ClassroomAnnouncementSummary:
+        now = datetime.now(UTC)
+        row = ClassroomAnnouncement(
+            tenant_id=tenant_id,
+            id=uuid4(),
+            offering_id=offering_id,
+            author_user_id=author_user_id,
+            title=body.title,
+            body=body.body,
+            pinned=body.pinned,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(row)
+        self.session.flush()
+        names = user_display_names(self.session, [author_user_id])
+        return self._announcement_dto(row, names)
+
+    def update_announcement(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+        body: ClassroomAnnouncementUpdate,
+    ) -> ClassroomAnnouncementSummary | None:
+        row = self.session.scalar(
+            select(ClassroomAnnouncement)
+            .where(
+                ClassroomAnnouncement.tenant_id == tenant_id,
+                ClassroomAnnouncement.offering_id == offering_id,
+                ClassroomAnnouncement.id == announcement_id,
+            )
+            .with_for_update()
+        )
+        if row is None:
+            return None
+        if "title" in body.model_fields_set and body.title is not None:
+            row.title = body.title
+        if "body" in body.model_fields_set and body.body is not None:
+            row.body = body.body
+        if "pinned" in body.model_fields_set and body.pinned is not None:
+            row.pinned = body.pinned
+        row.updated_at = datetime.now(UTC)
+        self.session.flush()
+        names = user_display_names(self.session, [row.author_user_id])
+        return self._announcement_dto(row, names)
+
+    def delete_announcement(
+        self,
+        tenant_id: UUID,
+        offering_id: UUID,
+        announcement_id: UUID,
+    ) -> bool:
+        row = self.session.scalar(
+            select(ClassroomAnnouncement)
+            .where(
+                ClassroomAnnouncement.tenant_id == tenant_id,
+                ClassroomAnnouncement.offering_id == offering_id,
+                ClassroomAnnouncement.id == announcement_id,
+            )
+            .with_for_update()
+        )
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True

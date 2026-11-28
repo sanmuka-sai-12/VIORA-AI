@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type {
+  AssignedOfferingSummary,
   OfferingSourcePolicyInfo,
   SourceSummary,
+  StudentProfileSummary,
   SubjectOfferingSummary,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
@@ -9,6 +11,7 @@ import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStat
 import {
   DataTable,
   FormField,
+  ModalDialog,
   PageHeader,
   PaginationBar,
   SectionCard,
@@ -49,10 +52,15 @@ export function SourcesPage({
   const options = useTenantOptions({ members: true });
 
   const [offerings, setOfferings] = useState<SubjectOfferingSummary[]>([]);
+  const [assignedMeta, setAssignedMeta] = useState<
+    Record<string, AssignedOfferingSummary>
+  >({});
   const [offeringId, setOfferingId] = useState("");
   const [policy, setPolicy] = useState<OfferingSourcePolicyInfo | null>(null);
   const [selectedSource, setSelectedSource] = useState<SourceSummary | null>(null);
   const [rosterMode, setRosterMode] = useState<"enrolments" | "teachers" | null>(null);
+  const [enrolledRoster, setEnrolledRoster] = useState<StudentProfileSummary[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
 
   const [mode, setMode] = useState<"text" | "file">("text");
   const [title, setTitle] = useState("");
@@ -89,10 +97,52 @@ export function SourcesPage({
           }
         }
       });
+    if (flags.isSubjectTeacher) {
+      void authController
+        .runWithFreshToken(() =>
+          apiClient.GET("/api/v1/tenants/{tenant_id}/my-responsibilities", {
+            params: { path: { tenant_id: tenantId } },
+          }),
+        )
+        .then((res) => {
+          if (!cancelled && res.data) {
+            const map: Record<string, AssignedOfferingSummary> = {};
+            for (const item of res.data.teaching_offerings) {
+              map[item.offering_id] = item;
+            }
+            setAssignedMeta(map);
+          }
+        });
+    }
     return () => {
       cancelled = true;
     };
-  }, [apiClient, authController, tenantId]);
+  }, [apiClient, authController, flags.isSubjectTeacher, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || !offeringId || rosterMode !== "enrolments") {
+      return;
+    }
+    let cancelled = false;
+    setRosterLoading(true);
+    void authController
+      .runWithFreshToken(() =>
+        apiClient.GET("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/roster", {
+          params: { path: { tenant_id: tenantId, offering_id: offeringId }, query: { limit: 200 } },
+        }),
+      )
+      .then((res) => {
+        if (!cancelled && res.data) {
+          setEnrolledRoster(res.data.items);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRosterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, authController, offeringId, rosterMode, tenantId]);
 
   const loadPolicy = useCallback(async () => {
     if (!tenantId || !offeringId || !(flags.isSubjectTeacher || flags.isAdmin)) {
@@ -251,6 +301,7 @@ export function SourcesPage({
             <div className="viora-subject-grid">
               {offerings.map((o) => {
                 const selected = o.id === offeringId;
+                const meta = assignedMeta[o.id];
                 return (
                   <button
                     key={o.id}
@@ -260,7 +311,11 @@ export function SourcesPage({
                   >
                     <strong style={{ color: "var(--color-brand-primary)" }}>{o.name}</strong>
                     <span className="viora-field-hint">
-                      {selected ? "Selected subject" : "Select subject"}
+                      {meta
+                        ? `${meta.section_name} · ${meta.semester_name} (${meta.academic_year_name})`
+                        : selected
+                          ? "Selected subject"
+                          : "Select subject"}
                     </span>
                   </button>
                 );
@@ -478,79 +533,90 @@ export function SourcesPage({
         </>
       )}
 
-      {tenantId && activeOffering && rosterMode && (
-        <AssignmentModal
+      {tenantId && activeOffering && rosterMode === "enrolments" && (
+        <ModalDialog
           open
-          title={`${rosterMode === "teachers" ? "Co-Teachers" : "Class Roster"} — ${activeOffering.name}`}
-          subtitle={
-            rosterMode === "teachers"
-              ? "Teachers assigned to this subject offering."
+          title={`Class Roster — ${activeOffering.name}`}
+          description={
+            assignedMeta[activeOffering.id]
+              ? `${assignedMeta[activeOffering.id].section_name} · ${assignedMeta[activeOffering.id].semester_name} · Ordered by roll number`
               : "Students enrolled in this subject offering."
           }
+          onClose={() => setRosterMode(null)}
+        >
+          {rosterLoading ? (
+            <LoadingSpinner message="Loading enrolled student roster..." />
+          ) : (
+            <DataTable
+              rows={enrolledRoster}
+              rowKey={(s) => s.user_id}
+              emptyTitle="No enrolled students"
+              emptyDescription="No active students are currently enrolled in this offering."
+              columns={[
+                {
+                  key: "roll",
+                  header: "Roll Number",
+                  render: (s) =>
+                    s.roll_number ? (
+                      <strong>{s.roll_number}</strong>
+                    ) : (
+                      <span className="viora-muted">—</span>
+                    ),
+                },
+                {
+                  key: "name",
+                  header: "Student Name",
+                  render: (s) => <strong>{s.display_name}</strong>,
+                },
+                {
+                  key: "email",
+                  header: "Email",
+                  render: (s) => s.email ?? "—",
+                },
+              ]}
+            />
+          )}
+        </ModalDialog>
+      )}
+
+      {tenantId && activeOffering && rosterMode === "teachers" && (
+        <AssignmentModal
+          open
+          title={`Co-Teachers — ${activeOffering.name}`}
+          subtitle="Teachers assigned to this subject offering."
           canManage={flags.isAdmin}
-          eligibleRoleFilter={rosterMode === "teachers" ? "subject_teacher" : "student"}
-          assignActionLabel={rosterMode === "teachers" ? "Assign teacher" : "Enrol student"}
-          revokeActionLabel={rosterMode === "teachers" ? "Revoke teacher" : "Withdraw"}
+          eligibleRoleFilter="subject_teacher"
+          assignActionLabel="Assign teacher"
+          revokeActionLabel="Revoke teacher"
           members={options.members}
           onClose={() => setRosterMode(null)}
           listFn={() =>
-            rosterMode === "teachers"
-              ? apiClient.GET("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers", {
-                  params: {
-                    path: { tenant_id: tenantId, offering_id: activeOffering.id },
-                    query: { limit: 100 },
-                  },
-                })
-              : apiClient.GET(
-                  "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/enrolments",
-                  {
-                    params: {
-                      path: { tenant_id: tenantId, offering_id: activeOffering.id },
-                      query: { limit: 100 },
-                    },
-                  },
-                )
+            apiClient.GET("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers", {
+              params: {
+                path: { tenant_id: tenantId, offering_id: activeOffering.id },
+                query: { limit: 100 },
+              },
+            })
           }
           assignFn={(userId) =>
-            rosterMode === "teachers"
-              ? apiClient.POST("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers", {
-                  params: { path: { tenant_id: tenantId, offering_id: activeOffering.id } },
-                  body: { user_id: userId },
-                })
-              : apiClient.POST(
-                  "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/enrolments",
-                  {
-                    params: { path: { tenant_id: tenantId, offering_id: activeOffering.id } },
-                    body: { user_id: userId },
-                  },
-                )
+            apiClient.POST("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers", {
+              params: { path: { tenant_id: tenantId, offering_id: activeOffering.id } },
+              body: { user_id: userId },
+            })
           }
           revokeFn={(userId) =>
-            rosterMode === "teachers"
-              ? apiClient.POST(
-                  "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers/{user_id}/revoke",
-                  {
-                    params: {
-                      path: {
-                        tenant_id: tenantId,
-                        offering_id: activeOffering.id,
-                        user_id: userId,
-                      },
-                    },
+            apiClient.POST(
+              "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers/{user_id}/revoke",
+              {
+                params: {
+                  path: {
+                    tenant_id: tenantId,
+                    offering_id: activeOffering.id,
+                    user_id: userId,
                   },
-                )
-              : apiClient.POST(
-                  "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/enrolments/{user_id}/withdraw",
-                  {
-                    params: {
-                      path: {
-                        tenant_id: tenantId,
-                        offering_id: activeOffering.id,
-                        user_id: userId,
-                      },
-                    },
-                  },
-                )
+                },
+              },
+            )
           }
         />
       )}

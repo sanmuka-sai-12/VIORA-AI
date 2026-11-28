@@ -66,6 +66,14 @@ class InstitutionDirectory(Protocol):
         self, tenant_id: UUID, guardian_user_id: UUID, student_user_id: UUID
     ) -> bool: ...
 
+    def coordinator_has_student(
+        self, tenant_id: UUID, coordinator_user_id: UUID, student_user_id: UUID
+    ) -> bool: ...
+
+    def teacher_has_student(
+        self, tenant_id: UUID, teacher_user_id: UUID, student_user_id: UUID
+    ) -> bool: ...
+
 
 class AcademicRepository(Protocol):
     def lock_resource(self, tenant_id: UUID, kind: str, resource_id: UUID) -> None: ...

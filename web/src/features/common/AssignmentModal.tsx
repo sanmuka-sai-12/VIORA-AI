@@ -14,7 +14,6 @@ import {
   DataTable,
   FormField,
   ModalDialog,
-  UuidChip,
 } from "../../components/common/UiPrimitives";
 import { LoadingSpinner } from "../../components/common/FeedbackStates";
 import { resolveMemberLabel } from "./useTenantOptions";
@@ -230,7 +229,7 @@ export function AssignmentModal({
                 border: "1px solid var(--color-border)",
               }}
             >
-              {eligibleMembers.length > 0 && (
+              {eligibleMembers.length > 0 ? (
                 <FormField
                   label={
                     eligibleRoleFilter
@@ -248,38 +247,27 @@ export function AssignmentModal({
                       if (e.target.value) setManualUserId("");
                     }}
                     disabled={submitting}
+                    required
                   >
                     <option value="">Select an eligible member...</option>
                     {eligibleMembers.map((m) => (
                       <option key={m.user_id} value={m.user_id}>
-                        {m.display_name} ({m.user_id.slice(0, 8)}...)
+                        {m.display_name}
                       </option>
                     ))}
                   </select>
                 </FormField>
+              ) : (
+                <p className="viora-muted" style={{ margin: 0, fontSize: "0.85rem" }}>
+                  No eligible active members found with the required role.
+                </p>
               )}
-
-              <FormField
-                label="Or enter Member User UUID directly"
-                htmlFor="assignment-user-uuid"
-                hint="Member must have an active membership and the required role for this assignment."
-              >
-                <input
-                  id="assignment-user-uuid"
-                  type="text"
-                  className="viora-input viora-mono"
-                  placeholder="00000000-0000-0000-0000-000000000000"
-                  value={manualUserId}
-                  onChange={(e) => setManualUserId(e.target.value)}
-                  disabled={submitting}
-                />
-              </FormField>
 
               <div>
                 <button
                   type="submit"
                   className="viora-btn viora-btn-primary viora-btn-sm"
-                  disabled={submitting}
+                  disabled={submitting || eligibleMembers.length === 0}
                 >
                   {submitting ? "Submitting..." : assignActionLabel}
                 </button>
@@ -301,12 +289,7 @@ export function AssignmentModal({
                   header: "User",
                   render: (row) => {
                     const label = resolveMemberLabel(members, row.user_id);
-                    return (
-                      <div className="viora-stack" style={{ gap: "0.2rem" }}>
-                        {label && <strong>{label}</strong>}
-                        <UuidChip value={row.user_id} />
-                      </div>
-                    );
+                    return <strong>{label ?? "Institutional Member"}</strong>;
                   },
                 },
                 {

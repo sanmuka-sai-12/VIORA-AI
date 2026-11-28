@@ -35,7 +35,7 @@ ENTITY_ADMIN_ACTIONS: dict[str, frozenset[str]] = {
     "section": frozenset({
         "section.read", "section.update_metadata", "section.update", "section.lifecycle",
         "section.offering.create", "section.coordinator.assign", "section.coordinator.list",
-        "section.coordinator.revoke",
+        "section.coordinator.revoke", "section.roster.read",
     }),
     "subject": frozenset({"subject.read", "subject.update", "subject.lifecycle"}),
     "offering": frozenset({
@@ -155,7 +155,7 @@ class Policy:
             dept_id = self.institutions.entity_department(tenant, resource.kind, target)
             return dept_id is not None and self.institutions.heads_department(tenant, actor, dept_id)
         if resource.kind == "section" and "class_coordinator" in roles and action in {
-            "section.read", "section.update_metadata", "section.coordinator.list",
+            "section.read", "section.update_metadata", "section.coordinator.list", "section.roster.read",
         }:
             return self.institutions.coordinates_section(tenant, actor, target)
         if resource.kind == "offering":
@@ -166,13 +166,24 @@ class Policy:
             )
         if resource.kind == "student_profile":
             if action == "student.profile.read":
-                return is_admin or bool(roles & {"department_head", "class_coordinator", "subject_teacher"}) or (actor == target and "student" in roles)
+                if is_admin or "department_head" in roles:
+                    return True
+                if "class_coordinator" in roles and self.institutions.coordinator_has_student(tenant, actor, target):
+                    return True
+                if "subject_teacher" in roles and self.institutions.teacher_has_student(tenant, actor, target):
+                    return True
+                return actor == target and "student" in roles
             if action == "student.profile.update":
                 return is_admin
             return False
         if resource.kind == "faculty_profile":
             if action == "faculty.profile.read":
                 return is_admin or bool(roles & {"department_head", "class_coordinator", "subject_teacher"})
+            if action == "faculty.responsibilities.read":
+                return is_admin or (
+                    actor == target
+                    and bool(roles & {"department_head", "class_coordinator", "subject_teacher"})
+                )
             if action == "faculty.profile.update":
                 return is_admin
             return False
@@ -195,6 +206,8 @@ class Policy:
             return "class_coordinator" in roles
         if action == "offering.list":
             return bool(roles & {"class_coordinator", "subject_teacher", "student"})
+        if action == "responsibilities.self.read":
+            return bool(roles)
         if action in {"student.directory.list", "faculty.directory.list"}:
             return bool(roles & {"department_head", "class_coordinator", "subject_teacher"})
         if action == "guardian_link.list":

@@ -386,3 +386,27 @@ test("Fresh login opens empty homepage (never auto-opens latest session), while 
   assert.equal(resolveInitialSessionIdToOpen("sess-missing", sessions), null);
   assert.equal(resolveInitialSessionIdToOpen("sess-older", sessions), "sess-older");
 });
+
+test("buildNavigationItems shows My Class and My Teaching Subjects only for assigned responsibilities", () => {
+  const dualRoles = ["class_coordinator", "subject_teacher"];
+  const noneAssigned = buildNavigationItems(dualRoles, true, {
+    hasHomeroom: false,
+    hasTeachingSubjects: false,
+  });
+  assert.equal(noneAssigned.some((i) => i.id === "teacher-class"), false);
+  assert.equal(noneAssigned.some((i) => i.id === "teacher-subjects"), false);
+
+  const homeroomOnly = buildNavigationItems(dualRoles, true, {
+    hasHomeroom: true,
+    hasTeachingSubjects: false,
+  });
+  assert.equal(homeroomOnly.some((i) => i.id === "teacher-class"), true);
+  assert.equal(homeroomOnly.some((i) => i.id === "teacher-subjects"), false);
+
+  const bothAssigned = buildNavigationItems(dualRoles, true, {
+    hasHomeroom: true,
+    hasTeachingSubjects: true,
+  });
+  assert.equal(bothAssigned.some((i) => i.id === "teacher-class"), true);
+  assert.equal(bothAssigned.some((i) => i.id === "teacher-subjects"), true);
+});

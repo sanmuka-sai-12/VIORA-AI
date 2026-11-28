@@ -440,6 +440,23 @@ export interface paths {
         patch: operations["updateFacultyProfile"];
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/faculty/{user_id}/responsibilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Faculty Responsibilities */
+        get: operations["readFacultyResponsibilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/guardian-links": {
         parameters: {
             query?: never;
@@ -972,6 +989,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants/{tenant_id}/my-responsibilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get My Responsibilities */
+        get: operations["readMyResponsibilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants/{tenant_id}/offerings": {
         parameters: {
             query?: never;
@@ -1054,6 +1088,23 @@ export interface paths {
         put?: never;
         /** Post Offering Lifecycle */
         post: operations["setOfferingLifecycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Offering Roster */
+        get: operations["listOfferingRoster"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1283,6 +1334,23 @@ export interface paths {
         put?: never;
         /** Post Section Lifecycle */
         post: operations["setSectionLifecycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/sections/{section_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Section Roster */
+        get: operations["listSectionRoster"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1914,6 +1982,80 @@ export interface components {
              * Format: uuid
              */
             version_id: string;
+        };
+        /** AssignedOfferingSummary */
+        AssignedOfferingSummary: {
+            /**
+             * Academic Year Id
+             * Format: uuid
+             */
+            academic_year_id: string;
+            /** Academic Year Name */
+            academic_year_name: string;
+            /** Department Id */
+            department_id: string | null;
+            /** Department Name */
+            department_name: string | null;
+            /**
+             * Offering Id
+             * Format: uuid
+             */
+            offering_id: string;
+            /** Offering Name */
+            offering_name: string;
+            /**
+             * Section Id
+             * Format: uuid
+             */
+            section_id: string;
+            /** Section Name */
+            section_name: string;
+            /**
+             * Semester Id
+             * Format: uuid
+             */
+            semester_id: string;
+            /** Semester Name */
+            semester_name: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /** Subject Name */
+            subject_name: string;
+        };
+        /** AssignedSectionSummary */
+        AssignedSectionSummary: {
+            /**
+             * Academic Year Id
+             * Format: uuid
+             */
+            academic_year_id: string;
+            /** Academic Year Name */
+            academic_year_name: string;
+            /** Department Id */
+            department_id: string | null;
+            /** Department Name */
+            department_name: string | null;
+            /** Programme Id */
+            programme_id: string | null;
+            /** Programme Name */
+            programme_name: string | null;
+            /**
+             * Section Id
+             * Format: uuid
+             */
+            section_id: string;
+            /** Section Name */
+            section_name: string;
+            /**
+             * Semester Id
+             * Format: uuid
+             */
+            semester_id: string;
+            /** Semester Name */
+            semester_name: string;
         };
         /** AssignmentCreate */
         AssignmentCreate: {
@@ -3087,6 +3229,23 @@ export interface components {
             office_location?: string | null;
             /** Phone */
             phone?: string | null;
+        };
+        /** FacultyResponsibilitiesSummary */
+        FacultyResponsibilitiesSummary: {
+            /** Homeroom Sections */
+            homeroom_sections: components["schemas"]["AssignedSectionSummary"][];
+            /** Teaching Offerings */
+            teaching_offerings: components["schemas"]["AssignedOfferingSummary"][];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
         };
         /**
          * FigureReference
@@ -9924,6 +10083,92 @@ export interface operations {
             };
         };
     };
+    readFacultyResponsibilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacultyResponsibilitiesSummary"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listGuardianLinks: {
         parameters: {
             query?: {
@@ -13091,6 +13336,91 @@ export interface operations {
             };
         };
     };
+    readMyResponsibilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacultyResponsibilitiesSummary"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listOfferings: {
         parameters: {
             query?: {
@@ -13737,6 +14067,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubjectOfferingSummary"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listOfferingRoster: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+                offering_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_StudentProfileSummary_"];
                 };
             };
             /** @description Unauthorized */
@@ -15613,6 +16032,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SectionSummary"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listSectionRoster: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+                section_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_StudentProfileSummary_"];
                 };
             };
             /** @description Unauthorized */

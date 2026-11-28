@@ -115,6 +115,187 @@
         "title": "ArtifactVersionRef",
         "type": "object"
       },
+      "AssignedOfferingSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "academic_year_id": {
+            "format": "uuid",
+            "title": "Academic Year Id",
+            "type": "string"
+          },
+          "academic_year_name": {
+            "title": "Academic Year Name",
+            "type": "string"
+          },
+          "department_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Id"
+          },
+          "department_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Name"
+          },
+          "offering_id": {
+            "format": "uuid",
+            "title": "Offering Id",
+            "type": "string"
+          },
+          "offering_name": {
+            "title": "Offering Name",
+            "type": "string"
+          },
+          "section_id": {
+            "format": "uuid",
+            "title": "Section Id",
+            "type": "string"
+          },
+          "section_name": {
+            "title": "Section Name",
+            "type": "string"
+          },
+          "semester_id": {
+            "format": "uuid",
+            "title": "Semester Id",
+            "type": "string"
+          },
+          "semester_name": {
+            "title": "Semester Name",
+            "type": "string"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "subject_name": {
+            "title": "Subject Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "offering_id",
+          "offering_name",
+          "subject_id",
+          "subject_name",
+          "section_id",
+          "section_name",
+          "semester_id",
+          "semester_name",
+          "academic_year_id",
+          "academic_year_name",
+          "department_id",
+          "department_name"
+        ],
+        "title": "AssignedOfferingSummary",
+        "type": "object"
+      },
+      "AssignedSectionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "academic_year_id": {
+            "format": "uuid",
+            "title": "Academic Year Id",
+            "type": "string"
+          },
+          "academic_year_name": {
+            "title": "Academic Year Name",
+            "type": "string"
+          },
+          "department_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Id"
+          },
+          "department_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Name"
+          },
+          "programme_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Programme Id"
+          },
+          "programme_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Programme Name"
+          },
+          "section_id": {
+            "format": "uuid",
+            "title": "Section Id",
+            "type": "string"
+          },
+          "section_name": {
+            "title": "Section Name",
+            "type": "string"
+          },
+          "semester_id": {
+            "format": "uuid",
+            "title": "Semester Id",
+            "type": "string"
+          },
+          "semester_name": {
+            "title": "Semester Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section_id",
+          "section_name",
+          "semester_id",
+          "semester_name",
+          "academic_year_id",
+          "academic_year_name",
+          "programme_id",
+          "programme_name",
+          "department_id",
+          "department_name"
+        ],
+        "title": "AssignedSectionSummary",
+        "type": "object"
+      },
       "AssignmentCreate": {
         "additionalProperties": false,
         "properties": {
@@ -2967,6 +3148,43 @@
           }
         },
         "title": "FacultyProfileUpdate",
+        "type": "object"
+      },
+      "FacultyResponsibilitiesSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "homeroom_sections": {
+            "items": {
+              "$ref": "#/components/schemas/AssignedSectionSummary"
+            },
+            "title": "Homeroom Sections",
+            "type": "array"
+          },
+          "teaching_offerings": {
+            "items": {
+              "$ref": "#/components/schemas/AssignedOfferingSummary"
+            },
+            "title": "Teaching Offerings",
+            "type": "array"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "user_id",
+          "homeroom_sections",
+          "teaching_offerings"
+        ],
+        "title": "FacultyResponsibilitiesSummary",
         "type": "object"
       },
       "FigureReference": {
@@ -16609,6 +16827,124 @@
         ]
       }
     },
+    "/api/v1/tenants/{tenant_id}/faculty/{user_id}/responsibilities": {
+      "get": {
+        "operationId": "readFacultyResponsibilities",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacultyResponsibilitiesSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Faculty Responsibilities",
+        "tags": [
+          "profiles"
+        ]
+      }
+    },
     "/api/v1/tenants/{tenant_id}/guardian-links": {
       "get": {
         "operationId": "listGuardianLinks",
@@ -21039,6 +21375,114 @@
         ]
       }
     },
+    "/api/v1/tenants/{tenant_id}/my-responsibilities": {
+      "get": {
+        "operationId": "readMyResponsibilities",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacultyResponsibilitiesSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Responsibilities",
+        "tags": [
+          "profiles"
+        ]
+      }
+    },
     "/api/v1/tenants/{tenant_id}/offerings": {
       "get": {
         "operationId": "listOfferings",
@@ -22128,6 +22572,152 @@
         "summary": "Post Offering Lifecycle",
         "tags": [
           "academics"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/roster": {
+      "get": {
+        "operationId": "listOfferingRoster",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "offering_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Offering Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StudentProfileSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Offering Roster",
+        "tags": [
+          "profiles"
         ]
       }
     },
@@ -25012,6 +25602,152 @@
         "summary": "Post Section Lifecycle",
         "tags": [
           "academics"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant_id}/sections/{section_id}/roster": {
+      "get": {
+        "operationId": "listSectionRoster",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "section_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Section Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StudentProfileSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Section Roster",
+        "tags": [
+          "profiles"
         ]
       }
     },

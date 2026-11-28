@@ -9,6 +9,7 @@ import {
   buildNavigationItems,
   defaultRouteForRoles,
   ROLE_LABELS,
+  type AssignedResponsibilitiesFlags,
   type NavItemDescriptor,
 } from "../../tenant/navigation";
 import { StatusBadge } from "../common/UiPrimitives";
@@ -19,6 +20,7 @@ export interface AppShellProps {
   user?: AuthenticatedUser | null;
   institutions?: InstitutionDiscovery[];
   selectedInstitution?: InstitutionDiscovery | null;
+  responsibilities?: AssignedResponsibilitiesFlags;
   currentRoute?: AppRouteId;
   onNavigate?: (route: AppRouteId) => void;
   onSelectInstitution?: (tenantId: string) => void;
@@ -48,6 +50,7 @@ export function AppShell({
   user = null,
   institutions = [],
   selectedInstitution = null,
+  responsibilities,
   currentRoute = "institution",
   onNavigate,
   onSelectInstitution,
@@ -60,6 +63,7 @@ export function AppShell({
     ? buildNavigationItems(
         selectedInstitution?.roles ?? [],
         selectedInstitution !== null,
+        responsibilities,
       )
     : [];
 

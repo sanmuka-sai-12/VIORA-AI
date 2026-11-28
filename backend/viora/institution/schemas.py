@@ -318,3 +318,38 @@ class FacultyProfileSummary(Contract):
     contact_email: str | None
     office_location: str | None
     updated_at: datetime | None
+
+
+class AssignedSectionSummary(Contract):
+    section_id: UUID
+    section_name: str
+    semester_id: UUID
+    semester_name: str
+    academic_year_id: UUID
+    academic_year_name: str
+    programme_id: UUID | None
+    programme_name: str | None
+    department_id: UUID | None
+    department_name: str | None
+
+
+class AssignedOfferingSummary(Contract):
+    offering_id: UUID
+    offering_name: str
+    subject_id: UUID
+    subject_name: str
+    section_id: UUID
+    section_name: str
+    semester_id: UUID
+    semester_name: str
+    academic_year_id: UUID
+    academic_year_name: str
+    department_id: UUID | None
+    department_name: str | None
+
+
+class FacultyResponsibilitiesSummary(Contract):
+    tenant_id: UUID
+    user_id: UUID
+    homeroom_sections: tuple[AssignedSectionSummary, ...]
+    teaching_offerings: tuple[AssignedOfferingSummary, ...]

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   normalizeApiError,
   type FacultyProfileSummary,
+  type FacultyResponsibilitiesSummary,
   type InstitutionRole,
   type MemberOnboardResponse,
   type MemberSummary,
   type MembershipStatus,
   type NormalizedApiError,
+  type SubjectOfferingSummary,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStates";
@@ -27,7 +29,7 @@ import {
 } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
 import { useActionFeedback } from "../common/useActionFeedback";
-import { useTenantOptions } from "../common/useTenantOptions";
+import { resolveLabelById, useTenantOptions } from "../common/useTenantOptions";
 
 function statusTone(
   status: string,
@@ -49,7 +51,12 @@ export function CollegeFacultyPage() {
   const tenantId = tenant.selectedTenantId;
   const flags = deriveRoleFlags(tenant.selectedInstitution?.roles ?? []);
   const feedback = useActionFeedback();
-  const options = useTenantOptions({ departments: true });
+  const options = useTenantOptions({
+    departments: true,
+    academicYears: true,
+    semesters: true,
+    sections: true,
+  });
 
   const [faculty, setFaculty] = useState<FacultyProfileSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -96,12 +103,186 @@ export function CollegeFacultyPage() {
   const [roleToGrant, setRoleToGrant] = useState<InstitutionRole>("subject_teacher");
   const [busy, setBusy] = useState(false);
 
+  // Responsibilities modal state
+  const [respModalFaculty, setRespModalFaculty] =
+    useState<FacultyProfileSummary | null>(null);
+  const [respData, setRespData] = useState<FacultyResponsibilitiesSummary | null>(null);
+  const [respLoading, setRespLoading] = useState(false);
+  const [allOfferings, setAllOfferings] = useState<SubjectOfferingSummary[]>([]);
+  const [assignSectionId, setAssignSectionId] = useState("");
+  const [assignOfferingId, setAssignOfferingId] = useState("");
+  const [respBusy, setRespBusy] = useState(false);
+
   const [confirmLifecycle, setConfirmLifecycle] = useState<{
     member: FacultyProfileSummary;
     nextStatus: "active" | "disabled" | "revoked";
   } | null>(null);
 
   const reload = useCallback(() => setReloadTick((t) => t + 1), []);
+
+  const loadFacultyResponsibilities = useCallback(
+    async (userId: string) => {
+      if (!tenantId) return;
+      setRespLoading(true);
+      try {
+        const [respRes, offRes] = await Promise.all([
+          authController.runWithFreshToken(() =>
+            apiClient.GET(
+              "/api/v1/tenants/{tenant_id}/faculty/{user_id}/responsibilities",
+              { params: { path: { tenant_id: tenantId, user_id: userId } } },
+            ),
+          ),
+          authController.runWithFreshToken(() =>
+            apiClient.GET("/api/v1/tenants/{tenant_id}/offerings", {
+              params: { path: { tenant_id: tenantId }, query: { active: true, limit: 100 } },
+            }),
+          ),
+        ]);
+        if (respRes.data) setRespData(respRes.data);
+        if (offRes.data) setAllOfferings(offRes.data.items);
+      } finally {
+        setRespLoading(false);
+      }
+    },
+    [apiClient, authController, tenantId],
+  );
+
+  const openResponsibilities = (member: FacultyProfileSummary) => {
+    setRespModalFaculty(member);
+    setRespData(null);
+    setAssignSectionId("");
+    setAssignOfferingId("");
+    void loadFacultyResponsibilities(member.user_id);
+  };
+
+  const ensureFacultyRole = async (
+    member: FacultyProfileSummary,
+    requiredRole: "class_coordinator" | "subject_teacher",
+  ): Promise<boolean> => {
+    if (!tenantId) return false;
+    if (member.roles.includes(requiredRole)) return true;
+    const ok = await feedback.runApiAction({
+      setBusy: setRespBusy,
+      call: () =>
+        apiClient.POST("/api/v1/tenants/{tenant_id}/memberships/{user_id}/roles", {
+          params: { path: { tenant_id: tenantId, user_id: member.user_id } },
+          body: { role: requiredRole },
+        }),
+      fallbackError: `Unable to grant ${ROLE_LABELS[requiredRole]} role.`,
+      onSuccess: () => undefined,
+    });
+    return ok;
+  };
+
+  const handleAssignHomeroom = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!tenantId || !respModalFaculty || !assignSectionId) return;
+    const roleOk = await ensureFacultyRole(respModalFaculty, "class_coordinator");
+    if (!roleOk) return;
+    await feedback.runApiAction({
+      setBusy: setRespBusy,
+      call: () =>
+        apiClient.POST(
+          "/api/v1/tenants/{tenant_id}/sections/{section_id}/coordinators",
+          {
+            params: { path: { tenant_id: tenantId, section_id: assignSectionId } },
+            body: { user_id: respModalFaculty.user_id },
+          },
+        ),
+      fallbackError: "Unable to assign homeroom class.",
+      onSuccess: () => {
+        setAssignSectionId("");
+        feedback.setActionSuccess(
+          `Assigned homeroom class to ${respModalFaculty.display_name}.`,
+        );
+        void loadFacultyResponsibilities(respModalFaculty.user_id);
+        reload();
+      },
+    });
+  };
+
+  const handleRevokeHomeroom = async (sectionId: string, sectionName: string) => {
+    if (!tenantId || !respModalFaculty) return;
+    await feedback.runApiAction({
+      setBusy: setRespBusy,
+      call: () =>
+        apiClient.POST(
+          "/api/v1/tenants/{tenant_id}/sections/{section_id}/coordinators/{user_id}/revoke",
+          {
+            params: {
+              path: {
+                tenant_id: tenantId,
+                section_id: sectionId,
+                user_id: respModalFaculty.user_id,
+              },
+            },
+          },
+        ),
+      fallbackError: "Unable to revoke homeroom class.",
+      onSuccess: () => {
+        feedback.setActionSuccess(
+          `Revoked homeroom class "${sectionName}" from ${respModalFaculty.display_name}.`,
+        );
+        void loadFacultyResponsibilities(respModalFaculty.user_id);
+        reload();
+      },
+    });
+  };
+
+  const handleAssignTeaching = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!tenantId || !respModalFaculty || !assignOfferingId) return;
+    const roleOk = await ensureFacultyRole(respModalFaculty, "subject_teacher");
+    if (!roleOk) return;
+    await feedback.runApiAction({
+      setBusy: setRespBusy,
+      call: () =>
+        apiClient.POST(
+          "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers",
+          {
+            params: { path: { tenant_id: tenantId, offering_id: assignOfferingId } },
+            body: { user_id: respModalFaculty.user_id },
+          },
+        ),
+      fallbackError: "Unable to assign teaching subject.",
+      onSuccess: () => {
+        setAssignOfferingId("");
+        feedback.setActionSuccess(
+          `Assigned teaching subject to ${respModalFaculty.display_name}.`,
+        );
+        void loadFacultyResponsibilities(respModalFaculty.user_id);
+        reload();
+      },
+    });
+  };
+
+  const handleRevokeTeaching = async (offeringId: string, offeringName: string) => {
+    if (!tenantId || !respModalFaculty) return;
+    await feedback.runApiAction({
+      setBusy: setRespBusy,
+      call: () =>
+        apiClient.POST(
+          "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/teachers/{user_id}/revoke",
+          {
+            params: {
+              path: {
+                tenant_id: tenantId,
+                offering_id: offeringId,
+                user_id: respModalFaculty.user_id,
+              },
+            },
+          },
+        ),
+      fallbackError: "Unable to revoke teaching subject.",
+      onSuccess: () => {
+        feedback.setActionSuccess(
+          `Revoked teaching subject "${offeringName}" from ${respModalFaculty.display_name}.`,
+        );
+        void loadFacultyResponsibilities(respModalFaculty.user_id);
+        reload();
+      },
+    });
+  };
 
   useEffect(() => {
     if (!tenantId) {
@@ -692,6 +873,15 @@ export function CollegeFacultyPage() {
                       <button
                         type="button"
                         className="viora-btn viora-btn-sm"
+                        onClick={() => openResponsibilities(m)}
+                      >
+                        Responsibilities
+                      </button>
+                    )}
+                    {flags.isAdmin && (
+                      <button
+                        type="button"
+                        className="viora-btn viora-btn-sm"
                         onClick={() =>
                           setRoleModalMember({
                             tenant_id: m.tenant_id,
@@ -985,6 +1175,174 @@ export function CollegeFacultyPage() {
                 </button>
               </form>
             )}
+          </div>
+        )}
+      </ModalDialog>
+
+      <ModalDialog
+        open={respModalFaculty !== null}
+        title={
+          respModalFaculty
+            ? `Responsibilities — ${respModalFaculty.display_name}`
+            : "Faculty Responsibilities"
+        }
+        description="Assign and revoke homeroom classes and subject-section offerings independently."
+        onClose={() => setRespModalFaculty(null)}
+      >
+        {respLoading && <LoadingSpinner message="Loading faculty responsibilities..." />}
+        {!respLoading && respModalFaculty && (
+          <div className="viora-stack">
+            <div>
+              <strong>Homeroom Classes (Class Coordinator)</strong>
+              <div className="viora-stack" style={{ marginTop: "0.5rem", gap: "0.4rem" }}>
+                {(!respData || respData.homeroom_sections.length === 0) ? (
+                  <span className="viora-muted">No homeroom classes assigned.</span>
+                ) : (
+                  respData.homeroom_sections.map((sec) => (
+                    <div
+                      key={sec.section_id}
+                      className="viora-row"
+                      style={{ justifyContent: "space-between", alignItems: "center" }}
+                    >
+                      <span>
+                        <strong>{sec.section_name}</strong>{" "}
+                        <span className="viora-muted">
+                          ({sec.semester_name} · {sec.academic_year_name})
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="viora-btn viora-btn-sm viora-btn-danger"
+                        disabled={respBusy}
+                        onClick={() =>
+                          void handleRevokeHomeroom(sec.section_id, sec.section_name)
+                        }
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+              {respModalFaculty.membership_status === "active" && (
+                <form
+                  onSubmit={handleAssignHomeroom}
+                  className="viora-row"
+                  style={{ marginTop: "0.75rem", alignItems: "flex-end" }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <FormField label="Assign homeroom class" htmlFor="resp-assign-sec">
+                      <select
+                        id="resp-assign-sec"
+                        className="viora-select"
+                        value={assignSectionId}
+                        onChange={(e) => setAssignSectionId(e.target.value)}
+                        disabled={respBusy}
+                        required
+                      >
+                        <option value="">Select class section...</option>
+                        {options.sections
+                          .filter((s) => s.active)
+                          .map((s) => {
+                            const sem = options.semesters.find((x) => x.id === s.semester_id);
+                            const yr = sem
+                              ? resolveLabelById(options.academicYears, sem.academic_year_id)
+                              : null;
+                            return (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                                {sem ? ` · ${sem.name}` : ""}
+                                {yr ? ` (${yr})` : ""}
+                              </option>
+                            );
+                          })}
+                      </select>
+                    </FormField>
+                  </div>
+                  <button
+                    type="submit"
+                    className="viora-btn viora-btn-primary"
+                    disabled={respBusy || !assignSectionId}
+                  >
+                    Assign Homeroom
+                  </button>
+                </form>
+              )}
+            </div>
+
+            <hr style={{ border: "none", borderTop: "1px solid var(--color-border)" }} />
+
+            <div>
+              <strong>Teaching Subjects (Subject-Section Offerings)</strong>
+              <div className="viora-stack" style={{ marginTop: "0.5rem", gap: "0.4rem" }}>
+                {(!respData || respData.teaching_offerings.length === 0) ? (
+                  <span className="viora-muted">No teaching subjects assigned.</span>
+                ) : (
+                  respData.teaching_offerings.map((off) => (
+                    <div
+                      key={off.offering_id}
+                      className="viora-row"
+                      style={{ justifyContent: "space-between", alignItems: "center" }}
+                    >
+                      <span>
+                        <strong>{off.offering_name}</strong>{" "}
+                        <span className="viora-muted">
+                          ({off.section_name} · {off.semester_name})
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="viora-btn viora-btn-sm viora-btn-danger"
+                        disabled={respBusy}
+                        onClick={() =>
+                          void handleRevokeTeaching(off.offering_id, off.offering_name)
+                        }
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+              {respModalFaculty.membership_status === "active" && (
+                <form
+                  onSubmit={handleAssignTeaching}
+                  className="viora-row"
+                  style={{ marginTop: "0.75rem", alignItems: "flex-end" }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <FormField label="Assign teaching subject" htmlFor="resp-assign-off">
+                      <select
+                        id="resp-assign-off"
+                        className="viora-select"
+                        value={assignOfferingId}
+                        onChange={(e) => setAssignOfferingId(e.target.value)}
+                        disabled={respBusy}
+                        required
+                      >
+                        <option value="">Select subject offering...</option>
+                        {allOfferings.map((o) => {
+                          const secName = resolveLabelById(options.sections, o.section_id);
+                          return (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                              {secName ? ` — ${secName}` : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </FormField>
+                  </div>
+                  <button
+                    type="submit"
+                    className="viora-btn viora-btn-primary"
+                    disabled={respBusy || !assignOfferingId}
+                  >
+                    Assign Subject
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         )}
       </ModalDialog>

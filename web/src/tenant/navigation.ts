@@ -59,25 +59,35 @@ export function deriveRoleFlags(roles: readonly string[]): RoleFlags {
   };
 }
 
+export interface AssignedResponsibilitiesFlags {
+  hasHomeroom: boolean;
+  hasTeachingSubjects: boolean;
+}
+
 /**
  * Resolves the default landing workspace for the user's active institution roles.
  */
 export function defaultRouteForRoles(
   roles: readonly string[],
   hasSelectedInstitution: boolean,
+  responsibilities?: AssignedResponsibilitiesFlags,
 ): AppRouteId {
   if (!hasSelectedInstitution) {
     return "institution";
   }
   const flags = deriveRoleFlags(roles);
+  const showTeaching =
+    flags.isSubjectTeacher && (responsibilities ? responsibilities.hasTeachingSubjects : true);
+  const showHomeroom =
+    flags.isClassCoordinator && (responsibilities ? responsibilities.hasHomeroom : true);
 
   if (flags.isAdmin) {
     return "head-students";
   }
-  if (flags.isSubjectTeacher) {
+  if (showTeaching) {
     return "teacher-subjects";
   }
-  if (flags.isClassCoordinator) {
+  if (showHomeroom) {
     return "teacher-class";
   }
   if (flags.isDepartmentHead) {
@@ -99,6 +109,7 @@ export function defaultRouteForRoles(
 export function buildNavigationItems(
   roles: readonly string[],
   hasSelectedInstitution: boolean,
+  responsibilities?: AssignedResponsibilitiesFlags,
 ): NavItemDescriptor[] {
   const flags = deriveRoleFlags(roles);
   const items: NavItemDescriptor[] = [];
@@ -148,7 +159,12 @@ export function buildNavigationItems(
     );
   }
 
-  if (flags.isClassCoordinator) {
+  const showHomeroom =
+    flags.isClassCoordinator && (responsibilities ? responsibilities.hasHomeroom : true);
+  const showTeaching =
+    flags.isSubjectTeacher && (responsibilities ? responsibilities.hasTeachingSubjects : true);
+
+  if (showHomeroom) {
     items.push({
       id: "teacher-class",
       label: "My Class",
@@ -157,7 +173,7 @@ export function buildNavigationItems(
     });
   }
 
-  if (flags.isSubjectTeacher) {
+  if (showTeaching) {
     items.push({
       id: "teacher-subjects",
       label: "My Teaching Subjects",

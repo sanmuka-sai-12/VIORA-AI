@@ -28,11 +28,14 @@ import { clearAllLearningSessionHints } from "./features/learning/learningSessio
 import { TeacherClassPage } from "./features/teaching/TeacherClassPage";
 import { TeacherDepartmentPage } from "./features/teaching/TeacherDepartmentPage";
 import { TeacherSubjectsPage } from "./features/teaching/TeacherSubjectsPage";
-import { defaultRouteForRoles } from "./tenant/navigation";
+import {
+  defaultRouteForRoles,
+  type AssignedResponsibilitiesFlags,
+} from "./tenant/navigation";
 import { TenantProvider, useTenant } from "./tenant/TenantContext";
 
 function PortalRouter() {
-  const { snapshot: auth, controller: authController } = useAuth();
+  const { apiClient, snapshot: auth, controller: authController } = useAuth();
   const { snapshot: tenant, controller: tenantController } = useTenant();
 
   const [requestedRoute, setRequestedRoute] = useState<AppRouteId>(() =>
@@ -42,6 +45,45 @@ function PortalRouter() {
     academicTabFromPathname(window.location.pathname),
   );
   const [authBusy, setAuthBusy] = useState(false);
+  const [responsibilities, setResponsibilities] = useState<
+    AssignedResponsibilitiesFlags | undefined
+  >(undefined);
+
+  const selectedTenantId = tenant.selectedTenantId;
+  const selectedRoles = tenant.selectedInstitution?.roles ?? [];
+  const mayHaveTeachingResponsibilities =
+    selectedRoles.includes("class_coordinator") ||
+    selectedRoles.includes("subject_teacher");
+
+  useEffect(() => {
+    if (
+      auth.status !== "authenticated" ||
+      !selectedTenantId ||
+      !mayHaveTeachingResponsibilities
+    ) {
+      setResponsibilities(undefined);
+      return;
+    }
+    let cancelled = false;
+    void authController
+      .runWithFreshToken(() =>
+        apiClient.GET(
+          "/api/v1/tenants/{tenant_id}/my-responsibilities",
+          { params: { path: { tenant_id: selectedTenantId } } },
+        ),
+      )
+      .then((res) => {
+        if (!cancelled && res.data) {
+          setResponsibilities({
+            hasHomeroom: res.data.homeroom_sections.length > 0,
+            hasTeachingSubjects: res.data.teaching_offerings.length > 0,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, authController, mayHaveTeachingResponsibilities, selectedTenantId]);
 
   const navigate = useCallback((nextRoute: AppRouteId) => {
     setRequestedRoute(nextRoute);
@@ -63,6 +105,7 @@ function PortalRouter() {
   const defaultRoute = defaultRouteForRoles(
     tenant.selectedInstitution?.roles ?? [],
     tenant.selectedInstitution !== null,
+    responsibilities,
   );
 
   const decision = evaluateRouteAccess({
@@ -191,6 +234,7 @@ function PortalRouter() {
       user={auth.user}
       institutions={tenant.institutions}
       selectedInstitution={tenant.selectedInstitution}
+      responsibilities={responsibilities}
       currentRoute={decision.effectiveRoute}
       onNavigate={navigate}
       onSelectInstitution={handleSelectInstitution}

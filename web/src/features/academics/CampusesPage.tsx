@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import type { CampusSummary } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
-import { FormField, PageHeader, UuidChip } from "../../components/common/UiPrimitives";
+import { FormField, PageHeader } from "../../components/common/UiPrimitives";
 import { deriveRoleFlags } from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
 import { validateRequiredName } from "../../tenant/validation";
@@ -9,7 +9,7 @@ import { AcademicCrudSection, type ActiveFilterValue } from "../common/AcademicC
 import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 
-export function CampusesPage() {
+export function CampusesPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
@@ -98,10 +98,12 @@ export function CampusesPage() {
 
   return (
     <div className="viora-stack">
-      <PageHeader
-        title="Campuses"
-        subtitle="Manage physical and organizational campuses for this institution."
-      />
+      {!embedded && (
+        <PageHeader
+          title="Campuses"
+          subtitle="Manage physical and organizational campuses for this institution."
+        />
+      )}
       {feedback.alerts}
       <AcademicCrudSection
         entityLabel="Campus"
@@ -135,7 +137,6 @@ export function CampusesPage() {
         emptyDescription="Create a campus above or switch the status filter."
         columns={[
           { key: "name", header: "Campus Name", render: (c) => <strong>{c.name}</strong> },
-          { key: "id", header: "Campus ID", render: (c) => <UuidChip value={c.id} /> },
         ]}
         canEditRow={() => flags.isAdmin}
         canToggleRow={() => flags.isAdmin}

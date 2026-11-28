@@ -10,20 +10,24 @@ import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { LoadingSpinner } from "./components/common/FeedbackStates";
 import { AlertBanner } from "./components/common/UiPrimitives";
 import { AppShell } from "./components/layout/AppShell";
-import { AcademicYearsSemestersPage } from "./features/academics/AcademicYearsSemestersPage";
-import { CampusesPage } from "./features/academics/CampusesPage";
-import { DepartmentsPage } from "./features/academics/DepartmentsPage";
-import { OfferingsPage } from "./features/academics/OfferingsPage";
-import { ProgrammesPage } from "./features/academics/ProgrammesPage";
-import { SectionsPage } from "./features/academics/SectionsPage";
-import { SubjectsPage } from "./features/academics/SubjectsPage";
+import {
+  AcademicStructurePage,
+  academicTabFromPathname,
+  type AcademicTabId,
+} from "./features/college/AcademicStructurePage";
+import { CollegeFacultyPage } from "./features/college/CollegeFacultyPage";
+import { CollegePermissionsPage } from "./features/college/CollegePermissionsPage";
+import { CollegeStudentsPage } from "./features/college/CollegeStudentsPage";
 import { LoginPage } from "./features/auth/LoginPage";
 import { PasswordChangePage } from "./features/auth/PasswordChangePage";
 import { GuardiansPage } from "./features/guardians/GuardiansPage";
 import { SystemHealthDashboard } from "./features/health/SystemHealthDashboard";
 import { InstitutionOverviewPage } from "./features/institution/InstitutionOverviewPage";
-import { MembershipsPage } from "./features/memberships/MembershipsPage";
-import { SourcesPage } from "./features/sources/SourcesPage";
+import { StudentLearningPage } from "./features/learning/StudentLearningPage";
+import { TeacherClassPage } from "./features/teaching/TeacherClassPage";
+import { TeacherDepartmentPage } from "./features/teaching/TeacherDepartmentPage";
+import { TeacherSubjectsPage } from "./features/teaching/TeacherSubjectsPage";
+import { defaultRouteForRoles } from "./tenant/navigation";
 import { TenantProvider, useTenant } from "./tenant/TenantContext";
 
 function PortalRouter() {
@@ -32,6 +36,9 @@ function PortalRouter() {
 
   const [requestedRoute, setRequestedRoute] = useState<AppRouteId>(() =>
     routeFromPathname(window.location.pathname),
+  );
+  const [academicTab, setAcademicTab] = useState<AcademicTabId>(() =>
+    academicTabFromPathname(window.location.pathname),
   );
   const [authBusy, setAuthBusy] = useState(false);
 
@@ -46,16 +53,23 @@ function PortalRouter() {
   useEffect(() => {
     const onPopState = () => {
       setRequestedRoute(routeFromPathname(window.location.pathname));
+      setAcademicTab(academicTabFromPathname(window.location.pathname));
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  const defaultRoute = defaultRouteForRoles(
+    tenant.selectedInstitution?.roles ?? [],
+    tenant.selectedInstitution !== null,
+  );
 
   const decision = evaluateRouteAccess({
     authStatus: auth.status,
     requestedRoute,
     hasSelectedInstitution: tenant.selectedInstitution !== null,
     tenantStatus: tenant.status,
+    defaultRoute,
   });
 
   useEffect(() => {
@@ -83,17 +97,10 @@ function PortalRouter() {
     navigate("login");
   };
 
-  const handleLogoutAll = async () => {
-    setAuthBusy(true);
-    tenantController.clear();
-    await authController.logoutAll();
-    setAuthBusy(false);
-    navigate("login");
-  };
-
   const handleSelectInstitution = (tenantId: string) => {
+    const inst = tenant.institutions.find((item) => item.tenant_id === tenantId);
     if (tenantController.selectInstitution(tenantId)) {
-      navigate("institution");
+      navigate(defaultRouteForRoles(inst?.roles ?? [], true));
     }
   };
 
@@ -101,7 +108,7 @@ function PortalRouter() {
 
   const renderMainContent = () => {
     if (decision.reason === "initializing") {
-      return <LoadingSpinner message="Restoring your session..." />;
+      return <LoadingSpinner message="Restoring your workspace..." />;
     }
 
     const activeRoute = decision.effectiveRoute;
@@ -118,32 +125,29 @@ function PortalRouter() {
     if (activeRoute === "institution") {
       return <InstitutionOverviewPage onNavigate={navigate} />;
     }
-    if (activeRoute === "academics-campuses") {
-      return <CampusesPage />;
+    if (activeRoute === "student-learning") {
+      return <StudentLearningPage />;
     }
-    if (activeRoute === "academics-departments") {
-      return <DepartmentsPage />;
+    if (activeRoute === "teacher-class") {
+      return <TeacherClassPage />;
     }
-    if (activeRoute === "academics-programmes") {
-      return <ProgrammesPage />;
+    if (activeRoute === "teacher-subjects") {
+      return <TeacherSubjectsPage />;
     }
-    if (activeRoute === "academics-calendar") {
-      return <AcademicYearsSemestersPage />;
+    if (activeRoute === "teacher-department") {
+      return <TeacherDepartmentPage />;
     }
-    if (activeRoute === "academics-sections") {
-      return <SectionsPage />;
+    if (activeRoute === "head-students") {
+      return <CollegeStudentsPage />;
     }
-    if (activeRoute === "academics-subjects") {
-      return <SubjectsPage />;
+    if (activeRoute === "head-faculty") {
+      return <CollegeFacultyPage />;
     }
-    if (activeRoute === "academics-offerings") {
-      return <OfferingsPage />;
+    if (activeRoute === "head-academics") {
+      return <AcademicStructurePage initialTab={academicTab} />;
     }
-    if (activeRoute === "sources") {
-      return <SourcesPage />;
-    }
-    if (activeRoute === "memberships") {
-      return <MembershipsPage />;
+    if (activeRoute === "head-permissions") {
+      return <CollegePermissionsPage />;
     }
     if (activeRoute === "guardians") {
       return <GuardiansPage />;
@@ -162,7 +166,6 @@ function PortalRouter() {
       onNavigate={navigate}
       onSelectInstitution={handleSelectInstitution}
       onLogout={() => void handleLogout()}
-      onLogoutAll={() => void handleLogoutAll()}
       authBusy={authBusy}
     >
       {auth.status === "authenticated" && auth.expiredReason && (

@@ -26,7 +26,7 @@ import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { resolveMemberLabel, useTenantOptions } from "../common/useTenantOptions";
 
-export function GuardiansPage() {
+export function GuardiansPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient, controller: authController, snapshot: auth } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
@@ -202,16 +202,12 @@ export function GuardiansPage() {
 
   return (
     <div className="viora-stack">
-      <PageHeader
-        title="Guardian Relationships & Minimal Student Summary"
-        subtitle="Inspect guardian links, record student consent, revoke access, or read explicitly permitted minimal student summaries."
-      />
-
-      <AlertBanner
-        tone="info"
-        title="Guardian verification and activation policy"
-        message="New guardian links start inactive. Student consent and link revocation are supported here; guardian identity verification and administrative activation remain intentionally deferred and fail closed on the backend until the verification workflow is implemented."
-      />
+      {!embedded && (
+        <PageHeader
+          title="Guardian Relationships"
+          subtitle="Manage guardian links, student consent, and permitted student summaries."
+        />
+      )}
 
       {feedback.alerts}
 

@@ -488,6 +488,86 @@ textarea:focus-visible {
   font-size: 0.78rem;
 }
 
+.viora-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.65rem;
+}
+
+.viora-tab {
+  padding: 0.42rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.viora-tab:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-main);
+}
+
+.viora-tab.is-active {
+  background: #eff6ff;
+  color: var(--color-brand-primary);
+  border-color: #bfdbfe;
+  font-weight: 600;
+}
+
+.viora-details {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  padding: 0.6rem 0.85rem;
+}
+
+.viora-details summary {
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--color-text-main);
+  user-select: none;
+}
+
+.viora-details[open] summary {
+  margin-bottom: 0.75rem;
+}
+
+.viora-subject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.viora-subject-card {
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.viora-subject-card:hover {
+  border-color: var(--color-brand-accent);
+  background: #f8fafc;
+}
+
+.viora-subject-card.is-selected {
+  border-color: var(--color-brand-primary);
+  background: #eff6ff;
+  box-shadow: var(--shadow-sm);
+}
+
 .viora-mobile-menu-btn {
   display: none;
 }

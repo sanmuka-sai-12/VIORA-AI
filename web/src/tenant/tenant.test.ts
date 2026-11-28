@@ -5,7 +5,11 @@ import {
   normalizeApiError,
   type InstitutionDiscovery,
 } from "../api/client.ts";
-import { buildNavigationItems, deriveRoleFlags } from "./navigation.ts";
+import {
+  buildNavigationItems,
+  defaultRouteForRoles,
+  deriveRoleFlags,
+} from "./navigation.ts";
 import { createTenantController } from "./tenantState.ts";
 import {
   advanceCursorPage,
@@ -96,32 +100,49 @@ test("TenantController supports switching across multiple institutions and clear
   assert.equal(ctrl.getSnapshot().selectedTenantId, null);
 });
 
-test("buildNavigationItems tailors navigation per role and keeps Phase 2 modules disabled", () => {
-  const adminNav = buildNavigationItems(["institution_admin"], true);
-  assert.ok(adminNav.some((i) => i.route === "memberships"));
-  assert.ok(adminNav.some((i) => i.route === "academics-campuses"));
+test("buildNavigationItems and defaultRouteForRoles provide clean role-specific navigation without placeholders or diagnostics", () => {
+  const headNav = buildNavigationItems(["institution_admin"], true);
+  assert.deepEqual(
+    headNav.map((i) => i.route),
+    ["head-students", "head-faculty", "head-academics", "head-permissions", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["institution_admin"], true), "head-students");
 
-  const teacherNav = buildNavigationItems(["subject_teacher"], true);
-  assert.ok(teacherNav.some((i) => i.route === "academics-offerings"));
-  assert.ok(teacherNav.some((i) => i.route === "sources"));
-  assert.equal(teacherNav.some((i) => i.route === "memberships"), false);
-  assert.equal(teacherNav.some((i) => i.route === "academics-campuses"), false);
+  const teacherSubjectNav = buildNavigationItems(["subject_teacher"], true);
+  assert.deepEqual(
+    teacherSubjectNav.map((i) => i.route),
+    ["teacher-subjects", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["subject_teacher"], true), "teacher-subjects");
+
+  const teacherCoordNav = buildNavigationItems(["class_coordinator"], true);
+  assert.deepEqual(
+    teacherCoordNav.map((i) => i.route),
+    ["teacher-class", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["class_coordinator"], true), "teacher-class");
+
+  const teacherBothNav = buildNavigationItems(["class_coordinator", "subject_teacher"], true);
+  assert.deepEqual(
+    teacherBothNav.map((i) => i.route),
+    ["teacher-class", "teacher-subjects", "account-password"],
+  );
 
   const studentNav = buildNavigationItems(["student"], true);
-  assert.ok(studentNav.some((i) => i.route === "academics-offerings"));
-  assert.ok(studentNav.some((i) => i.route === "sources"));
-  assert.ok(studentNav.some((i) => i.route === "guardians"));
+  assert.deepEqual(
+    studentNav.map((i) => i.route),
+    ["student-learning", "institution", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["student"], true), "student-learning");
+  assert.equal(studentNav.some((i) => i.route === "guardians"), false);
+  assert.equal(studentNav.some((i) => i.route === "health"), false);
 
-  const guardianNav = buildNavigationItems(["guardian"], true);
-  assert.ok(guardianNav.some((i) => i.route === "guardians"));
-  assert.equal(guardianNav.some((i) => i.route === "academics-offerings"), false);
-  assert.equal(guardianNav.some((i) => i.route === "sources"), false);
-
-  const futureModules = adminNav.filter((i) => i.section === "future");
-  assert.equal(futureModules.length, 4);
-  for (const mod of futureModules) {
-    assert.equal(mod.disabled, true);
-  }
+  const guardianOnlyNav = buildNavigationItems(["guardian"], true);
+  assert.deepEqual(
+    guardianOnlyNav.map((i) => i.route),
+    ["guardians", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["guardian"], true), "guardians");
 
   const flags = deriveRoleFlags(["institution_owner", "department_head"]);
   assert.equal(flags.isOwner, true);

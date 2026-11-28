@@ -11,7 +11,7 @@ import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { resolveLabelById, useTenantOptions } from "../common/useTenantOptions";
 
-export function OfferingsPage() {
+export function OfferingsPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
@@ -126,16 +126,18 @@ export function OfferingsPage() {
 
   return (
     <div className="viora-stack">
-      <PageHeader
-        title="Subject Offerings, Teachers & Enrolments"
-        subtitle={
-          flags.isAdmin
-            ? "Publish section-subject offerings, assign instructors, and enrol students."
-            : flags.isStudent
-              ? "Active subject offerings in which you are currently enrolled."
-              : "Subject offerings authorized within your teaching or coordination scope."
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          title="Subject Offerings, Teachers & Enrolments"
+          subtitle={
+            flags.isAdmin
+              ? "Publish section-subject offerings, assign instructors, and enrol students."
+              : flags.isStudent
+                ? "Active subject offerings in which you are currently enrolled."
+                : "Subject offerings authorized within your teaching or coordination scope."
+          }
+        />
+      )}
       {feedback.alerts}
 
       <AcademicCrudSection

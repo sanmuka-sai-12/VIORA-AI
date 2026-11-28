@@ -78,9 +78,9 @@ export function SourceKnowledgePanel({
 
   const isTeacherManageable = canTeacherManageSource(isSubjectTeacher, source);
   const isOwnerStudent = canOwnerStudentProcess(actorUserId, source, policy);
-  const canInspectDraft =
-    isSubjectTeacher ||
-    (source.origin_kind === "student_submission" && source.owner_user_id === actorUserId);
+  const isPersonalStudentNote =
+    source.origin_kind === "student_submission" && source.owner_user_id === actorUserId;
+  const canInspectDraft = isSubjectTeacher || isPersonalStudentNote;
 
   useEffect(() => {
     setSelectedVersionId(source.latest_version_id ?? "");
@@ -96,10 +96,13 @@ export function SourceKnowledgePanel({
     try {
       const [verRes, jobRes] = await Promise.all([
         freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/versions", { params: { path: sourcePath } })),
-        freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/jobs", { params: { path: sourcePath } })),
+        canInspectDraft
+          ? freshGet(() => apiClient.GET("/api/v1/tenants/{tenant_id}/sources/{source_id}/jobs", { params: { path: sourcePath } }))
+          : Promise.resolve({ data: undefined, response: new Response(null, { status: 200 }) } as ApiResultLike<{ items: WorkflowJobSummary[] }>),
       ]);
       if (verRes.data) setVersions(verRes.data.items);
       if (jobRes.data) setJobs(jobRes.data.items);
+      else setJobs([]);
 
       const verId = selectedVersionId;
       if (!verId) return;
@@ -120,7 +123,7 @@ export function SourceKnowledgePanel({
           (r) => r.data === undefined && r.response.status !== 404,
         );
         if (hardFail) {
-          setActionError(normalizeApiError(hardFail.error, hardFail.response.status, "Failed to load resource details."));
+          setActionError(normalizeApiError(hardFail.error, hardFail.response.status, "Failed to load material details."));
         }
         setDerived(extRes.data ?? null);
         setConcepts(conRes.data ?? null);
@@ -157,7 +160,7 @@ export function SourceKnowledgePanel({
         setBpApproval(null);
       }
     } catch {
-      setActionError({ status: 0, code: "network_error", message: "Failed to load resource details." });
+      setActionError({ status: 0, code: "network_error", message: "Failed to load material details." });
     } finally {
       setLoading(false);
     }
@@ -211,34 +214,39 @@ export function SourceKnowledgePanel({
             },
           },
         ),
-      `Saved versioned teacher review (${decision}).`,
+      `Saved lesson outline review (${decision}).`,
     );
   };
 
   const activeKnowledge = concepts?.knowledge ?? studentPkg?.knowledge ?? null;
   const activeOutline = pubState?.outline ?? studentPkg?.outline ?? null;
 
-  return (
-    <SectionCard
-      title={`Resource Inspector: ${source.title}`}
-      subtitle={`Origin: ${source.origin_kind} • Visibility: ${source.visibility} • Lifecycle: ${source.lifecycle_state}`}
-      actions={
+  const processingControlsBlock = (isTeacherManageable || isOwnerStudent || canInspectDraft) && (
+    <details className="viora-details">
+      <summary>Advanced Resource Processing &amp; Pipeline</summary>
+      <div className="viora-stack">
         <div className="viora-row">
-          <select
-            aria-label="Source version"
-            className="viora-select"
-            style={{ width: "auto" }}
-            value={selectedVersionId}
-            onChange={(e) => setSelectedVersionId(e.target.value)}
+          {versions.length > 0 && (
+            <select
+              aria-label="Source version"
+              className="viora-select"
+              style={{ width: "auto" }}
+              value={selectedVersionId}
+              onChange={(e) => setSelectedVersionId(e.target.value)}
+            >
+              {versions.map((v) => (
+                <option key={v.version_id} value={v.version_id}>
+                  v{v.version_number} ({v.processing_status})
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            className="viora-btn viora-btn-sm"
+            onClick={() => void loadWorkspace(true)}
           >
-            {versions.map((v) => (
-              <option key={v.version_id} value={v.version_id}>
-                v{v.version_number} ({v.processing_status})
-              </option>
-            ))}
-          </select>
-          <button type="button" className="viora-btn viora-btn-sm" onClick={() => void loadWorkspace()}>
-            Refresh
+            Refresh Status
           </button>
           {(isTeacherManageable || isOwnerStudent) && (
             <>
@@ -320,67 +328,36 @@ export function SourceKnowledgePanel({
               </button>
             </>
           )}
-          {isSubjectTeacher && source.origin_kind === "teacher_resource" && (
-            <>
-              <button
-                type="button"
-                className="viora-btn viora-btn-sm"
-                disabled={busy || source.lifecycle_state !== "active"}
-                onClick={() =>
-                  void runAction(
-                    "Update visibility",
-                    () =>
-                      apiClient.PATCH("/api/v1/tenants/{tenant_id}/sources/{source_id}", {
-                        params: { path: { tenant_id: tenantId, source_id: source.source_id } },
-                        body: {
-                          visibility:
-                            source.visibility === "offering_published"
-                              ? "teacher_only"
-                              : "offering_published",
-                        },
-                      }),
-                    "Updated resource visibility.",
-                    true,
-                  )
-                }
-              >
-                {source.visibility === "offering_published" ? "Make Teacher-Only" : "Share with Offering"}
-              </button>
-              <button
-                type="button"
-                className="viora-btn viora-btn-sm"
-                disabled={busy}
-                onClick={() =>
-                  void runAction(
-                    "Update lifecycle",
-                    () =>
-                      apiClient.PATCH("/api/v1/tenants/{tenant_id}/sources/{source_id}", {
-                        params: { path: { tenant_id: tenantId, source_id: source.source_id } },
-                        body: {
-                          lifecycle_state: source.lifecycle_state === "active" ? "archived" : "active",
-                        },
-                      }),
-                    "Updated resource lifecycle state.",
-                    true,
-                  )
-                }
-              >
-                {source.lifecycle_state === "active" ? "Archive" : "Reactivate"}
-              </button>
-            </>
-          )}
         </div>
-      }
-    >
-      <div className="viora-stack">
-        {alerts}
-        {loading && <LoadingSpinner message="Loading extraction, jobs, and knowledge state..." />}
+
+        {derived && (
+          <p style={{ fontSize: "0.84rem", color: "var(--color-text-muted)" }}>
+            Extracted Document: {derived.document.pages.length} page(s),{" "}
+            {derived.document.evidence_references.length} evidence spans, status:{" "}
+            {derived.document.quality.overall_status}
+          </p>
+        )}
+
+        {indexStatus && (
+          <div className="viora-row">
+            <StatusBadge tone={indexStatus.indexed ? "success" : "neutral"}>
+              {indexStatus.indexed
+                ? `Indexed v${indexStatus.index_version ?? 1} (${indexStatus.chunk_count} chunk(s))`
+                : "Not Indexed for Q&A"}
+            </StatusBadge>
+            {indexStatus.embedding_model && (
+              <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                Embedder: <code>{indexStatus.embedding_model}</code>
+              </span>
+            )}
+          </div>
+        )}
 
         <DataTable
           rows={jobs}
           rowKey={(j) => j.job_id}
           emptyTitle="No processing jobs yet"
-          emptyDescription="Trigger text or concept extraction when permitted."
+          emptyDescription="Run text extraction, concept extraction, indexing, or blueprint generation above."
           columns={[
             { key: "op", header: "Operation", render: (j) => <code>{j.operation_kind}</code> },
             {
@@ -439,116 +416,193 @@ export function SourceKnowledgePanel({
           ]}
         />
 
-        {derived && (
-          <p style={{ fontSize: "0.84rem", color: "var(--color-text-muted)" }}>
-            Extracted Document: {derived.document.pages.length} page(s), {derived.document.evidence_references.length} evidence spans, status: {derived.document.quality.overall_status}
-          </p>
-        )}
-
-        {canInspectDraft && indexStatus && (
-          <div className="viora-row">
-            <StatusBadge tone={indexStatus.indexed ? "success" : "neutral"}>
-              {indexStatus.indexed
-                ? `Indexed v${indexStatus.index_version ?? 1} (${indexStatus.chunk_count} chunk(s))`
-                : "Not Indexed for Q&A"}
-            </StatusBadge>
-            {indexStatus.embedding_model && (
-              <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-                Embedder: <code>{indexStatus.embedding_model}</code>
-              </span>
-            )}
-          </div>
-        )}
-
-        {activeKnowledge && activeOutline && (
+        {activeKnowledge && (
           <>
-            <div className="viora-row">
-              <StatusBadge tone={reviewTone(pubState?.review_status ?? "approved")}>
-                Teacher Approval: {pubState ? (pubState.teacher_approved ? "Approved" : pubState.review_status) : "Approved"}
-              </StatusBadge>
-              <StatusBadge tone={(pubState?.published_to_students ?? studentPkg?.published_to_students) ? "success" : "neutral"}>
-                {(pubState?.published_to_students ?? studentPkg?.published_to_students) ? "Published to Students" : "Draft / Unpublished"}
-              </StatusBadge>
-              <StatusBadge tone={activeOutline.all_evidence_verified ? "success" : "warning"}>
-                Evidence IDs Verified: {String(activeOutline.all_evidence_verified)}
-              </StatusBadge>
-              {activeOutline.learning_request_only && (
-                <StatusBadge tone="warning">Topic Learning Request Only (Not Factual Evidence)</StatusBadge>
-              )}
-              {activeOutline.has_prerequisite_cycles && (
-                <StatusBadge tone="warning">Prerequisite Cycles Resolved ({activeOutline.prerequisite_analysis.cycles.length})</StatusBadge>
-              )}
-            </div>
-
-            {activeOutline.prerequisite_analysis.cycles.map((cyc) => (
-              <AlertBanner key={cyc.cycle_id} tone="warning" message={`Cycle Notice: ${cyc.resolution_note}`} />
-            ))}
-
             <DataTable
               rows={activeKnowledge.concepts}
               rowKey={(c) => c.concept_id}
               columns={[
-                { key: "name", header: "Concept", render: (c) => <strong>{c.name}{c.sense_label ? ` (${c.sense_label})` : ""}</strong> },
-                { key: "grounding", header: "Semantic Grounding", render: (c) => <StatusBadge tone={groundingTone(c.grounding)}>{c.grounding}</StatusBadge> },
+                {
+                  key: "name",
+                  header: "Concept",
+                  render: (c) => (
+                    <strong>
+                      {c.name}
+                      {c.sense_label ? ` (${c.sense_label})` : ""}
+                    </strong>
+                  ),
+                },
+                {
+                  key: "grounding",
+                  header: "Grounding",
+                  render: (c) => <StatusBadge tone={groundingTone(c.grounding)}>{c.grounding}</StatusBadge>,
+                },
                 {
                   key: "ev",
-                  header: "Source Evidence",
+                  header: "Evidence",
                   render: (c) =>
                     c.evidence_bindings.length > 0
                       ? c.evidence_bindings.map((b) => `${b.evidence_id} (p.${b.page_number})`).join(", ")
-                      : "None (Unverified)",
+                      : "None",
                 },
                 { key: "summary", header: "Summary", render: (c) => c.canonical_summary },
               ]}
             />
-
             {activeKnowledge.relationships.length > 0 && (
-              <div style={{ fontSize: "0.85rem" }}>
-                <strong>Typed Relationships:</strong>{" "}
+              <div style={{ fontSize: "0.84rem" }}>
+                <strong>Concept Relationships:</strong>{" "}
                 {activeKnowledge.relationships
                   .map((r) => `${r.source_concept_name} [${r.relation_type}] ${r.target_concept_name}`)
                   .join(" • ")}
               </div>
             )}
-
-            <div className="viora-stack">
-              <strong>Structured Lesson Outline ({activeOutline.estimated_total_minutes} min total)</strong>
-              {activeOutline.modules.map((mod) => (
-                <div key={mod.module_id} style={{ padding: "0.75rem", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }}>
-                  <div className="viora-row" style={{ justifyContent: "space-between" }}>
-                    <strong>{mod.title}</strong>
-                    <StatusBadge tone={groundingTone(mod.module_grounding)}>{mod.module_grounding}</StatusBadge>
-                  </div>
-                  <ol style={{ marginTop: "0.4rem", paddingLeft: "1.25rem", fontSize: "0.85rem" }}>
-                    {mod.steps.map((s) => (
-                      <li key={s.concept_id}>
-                        <strong>{s.concept_name}</strong> ({s.estimated_minutes}m) — {s.canonical_summary}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ))}
-            </div>
           </>
+        )}
+      </div>
+    </details>
+  );
+
+  const subtitle = isSubjectTeacher
+    ? `${source.visibility === "offering_published" ? "Shared with class" : "Teacher draft"} • ${source.lifecycle_state === "active" ? "Active" : "Archived"}`
+    : isPersonalStudentNote
+      ? "Personal study note"
+      : "Published lesson material";
+
+  return (
+    <SectionCard
+      title={source.title}
+      subtitle={subtitle}
+      actions={
+        isSubjectTeacher && source.origin_kind === "teacher_resource" ? (
+          <div className="viora-row">
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm"
+              disabled={busy || source.lifecycle_state !== "active"}
+              onClick={() =>
+                void runAction(
+                  "Update visibility",
+                  () =>
+                    apiClient.PATCH("/api/v1/tenants/{tenant_id}/sources/{source_id}", {
+                      params: { path: { tenant_id: tenantId, source_id: source.source_id } },
+                      body: {
+                        visibility:
+                          source.visibility === "offering_published"
+                            ? "teacher_only"
+                            : "offering_published",
+                      },
+                    }),
+                  "Updated material visibility.",
+                  true,
+                )
+              }
+            >
+              {source.visibility === "offering_published" ? "Make Private" : "Share with Class"}
+            </button>
+            <button
+              type="button"
+              className="viora-btn viora-btn-sm"
+              disabled={busy}
+              onClick={() =>
+                void runAction(
+                  "Update lifecycle",
+                  () =>
+                    apiClient.PATCH("/api/v1/tenants/{tenant_id}/sources/{source_id}", {
+                      params: { path: { tenant_id: tenantId, source_id: source.source_id } },
+                      body: {
+                        lifecycle_state: source.lifecycle_state === "active" ? "archived" : "active",
+                      },
+                    }),
+                  "Updated material status.",
+                  true,
+                )
+              }
+            >
+              {source.lifecycle_state === "active" ? "Archive" : "Reactivate"}
+            </button>
+          </div>
+        ) : undefined
+      }
+    >
+      <div className="viora-stack">
+        {alerts}
+        {loading && <LoadingSpinner message="Loading lesson content..." />}
+
+        {activeOutline && (
+          <div className="viora-stack">
+            <div className="viora-row">
+              {canInspectDraft && pubState && (
+                <>
+                  <StatusBadge tone={reviewTone(pubState.review_status)}>
+                    Curriculum: {pubState.teacher_approved ? "Approved" : pubState.review_status}
+                  </StatusBadge>
+                  <StatusBadge tone={pubState.published_to_students ? "success" : "neutral"}>
+                    {pubState.published_to_students ? "Published to Students" : "Draft"}
+                  </StatusBadge>
+                </>
+              )}
+              {activeOutline.learning_request_only && (
+                <StatusBadge tone="warning">Topic Study Guide</StatusBadge>
+              )}
+            </div>
+
+            {activeOutline.prerequisite_analysis.cycles.map((cyc) => (
+              <AlertBanner key={cyc.cycle_id} tone="warning" message={`Ordering note: ${cyc.resolution_note}`} />
+            ))}
+
+            <strong>Lesson Outline ({activeOutline.estimated_total_minutes} min)</strong>
+            {activeOutline.modules.map((mod) => (
+              <div
+                key={mod.module_id}
+                style={{
+                  padding: "0.75rem",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-sm)",
+                }}
+              >
+                <strong>{mod.title}</strong>
+                <ol style={{ marginTop: "0.4rem", paddingLeft: "1.25rem", fontSize: "0.85rem" }}>
+                  {mod.steps.map((s) => (
+                    <li key={s.concept_id}>
+                      <strong>{s.concept_name}</strong> ({s.estimated_minutes}m) — {s.canonical_summary}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
         )}
 
         {!canInspectDraft && !studentPkg && !publishedBlueprint && !loading && (
-          <AlertBanner tone="info" message="No teacher-approved educational lesson has been published for this resource version yet." />
+          <AlertBanner
+            tone="info"
+            message="No teacher-approved lesson has been published for this material yet."
+          />
         )}
 
         {!canInspectDraft && studentPkg && !publishedBlueprint && !loading && (
-          <AlertBanner tone="info" message="Curriculum outline is published, but no teacher-approved lesson blueprint is published for this version yet." />
+          <AlertBanner
+            tone="info"
+            message="The curriculum outline above is published. No interactive lesson guide has been published yet."
+          />
         )}
 
         {!canInspectDraft && publishedBlueprint && (
           <LessonBlueprintPreview mode="student" published={publishedBlueprint} />
         )}
 
+        {isTeacherManageable && !activeOutline && !bpRecord && !loading && (
+          <AlertBanner
+            tone="info"
+            message="No lesson outline or blueprint has been generated for this material yet. Use Advanced Resource Processing below to process it."
+          />
+        )}
+
         {isTeacherManageable && concepts && pubState && (
           <div className="viora-stack" style={{ borderTop: "1px solid var(--color-border)", paddingTop: "0.75rem" }}>
             <form className="viora-stack" onSubmit={handleReviewSubmit}>
               <div className="viora-row">
-                <FormField label="Teacher Review Decision" htmlFor="review-decision">
+                <FormField label="Curriculum Review Decision" htmlFor="review-decision">
                   <select
                     id="review-decision"
                     className="viora-select"
@@ -566,7 +620,7 @@ export function SourceKnowledgePanel({
                     className="viora-input"
                     value={reviewNotes}
                     onChange={(e) => setReviewNotes(e.target.value)}
-                    placeholder="Optional verification notes"
+                    placeholder="Optional notes"
                   />
                 </FormField>
               </div>
@@ -577,7 +631,7 @@ export function SourceKnowledgePanel({
                     checked={ackTopicRequest}
                     onChange={(e) => setAckTopicRequest(e.target.checked)}
                   />
-                  <span>Acknowledge that topic descriptions are learning requests (not factual source evidence)</span>
+                  <span>Acknowledge that topic descriptions are study requests rather than source excerpts</span>
                 </label>
               )}
               <div className="viora-row">
@@ -600,12 +654,12 @@ export function SourceKnowledgePanel({
                           },
                         ),
                       pubState.published_to_students
-                        ? "Unpublished educational lesson from students."
-                        : "Published approved lesson to enrolled students.",
+                        ? "Unpublished lesson outline from students."
+                        : "Published approved lesson outline to enrolled students.",
                     )
                   }
                 >
-                  {pubState.published_to_students ? "Unpublish Lesson" : "Publish Approved Lesson"}
+                  {pubState.published_to_students ? "Unpublish Outline" : "Publish Approved Outline"}
                 </button>
               </div>
             </form>
@@ -627,7 +681,7 @@ export function SourceKnowledgePanel({
             />
             {canApproveLessonBlueprint(isSubjectTeacher, source, pubState, bpRecord) && (
               <div className="viora-stack" style={{ borderTop: "1px solid var(--color-border)", paddingTop: "0.75rem" }}>
-                <strong>Blueprint Approval, Publication &amp; Revocation (v{bpRecord.blueprint_version})</strong>
+                <strong>Blueprint Approval &amp; Publication (v{bpRecord.blueprint_version})</strong>
                 <div className="viora-row">
                   <FormField label="Blueprint Decision" htmlFor="bp-review-decision">
                     <select
@@ -647,7 +701,7 @@ export function SourceKnowledgePanel({
                       className="viora-input"
                       value={bpReviewNotes}
                       onChange={(e) => setBpReviewNotes(e.target.value)}
-                      placeholder="Review scenes, narration, and answer keys"
+                      placeholder="Review narration and practice questions"
                     />
                   </FormField>
                 </div>
@@ -676,7 +730,7 @@ export function SourceKnowledgePanel({
                       )
                     }
                   >
-                    Save Blueprint Review
+                    Save Review
                   </button>
                   <button
                     type="button"
@@ -698,11 +752,11 @@ export function SourceKnowledgePanel({
                               },
                             },
                           ),
-                        "Approved and published lesson blueprint to enrolled students.",
+                        "Approved and published lesson to enrolled students.",
                       )
                     }
                   >
-                    Approve &amp; Publish Blueprint
+                    Approve &amp; Publish to Students
                   </button>
                   {bpApproval?.published_to_students && (
                     <button
@@ -725,23 +779,25 @@ export function SourceKnowledgePanel({
                                 },
                               },
                             ),
-                          "Revoked student access to lesson blueprint.",
+                          "Unpublished lesson blueprint from students.",
                         )
                       }
                     >
-                      Revoke Blueprint Publication
+                      Unpublish Lesson
                     </button>
                   )}
                 </div>
                 {(source.visibility !== "offering_published" || !pubState?.published_to_students) && (
                   <p style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
-                    Note: Share source with offering and publish approved curriculum concepts before publishing a blueprint to students.
+                    Share this material with the class and publish the curriculum outline before publishing the lesson to students.
                   </p>
                 )}
               </div>
             )}
           </>
         )}
+
+        {processingControlsBlock}
       </div>
     </SectionCard>
   );

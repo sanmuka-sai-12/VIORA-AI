@@ -28,15 +28,18 @@ export function AlertBanner({
       className={`viora-alert viora-alert-${tone}`}
       role={tone === "error" ? "alert" : "status"}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
         {title && <strong>{title}</strong>}
         <span>{displayMessage}</span>
         {error && (
-          <span style={{ fontSize: "0.75rem", opacity: 0.85 }}>
-            Code: <code>{error.code}</code>
-            {error.status > 0 ? ` (HTTP ${error.status})` : ""}
-            {error.requestId ? ` • Request ID: ${error.requestId}` : ""}
-          </span>
+          <details style={{ fontSize: "0.75rem", opacity: 0.85 }}>
+            <summary style={{ cursor: "pointer" }}>Technical details</summary>
+            <div style={{ marginTop: "0.2rem" }}>
+              Code: <code>{error.code}</code>
+              {error.status > 0 ? ` (HTTP ${error.status})` : ""}
+              {error.requestId ? ` • Request ID: ${error.requestId}` : ""}
+            </div>
+          </details>
         )}
       </div>
       <div className="viora-row">

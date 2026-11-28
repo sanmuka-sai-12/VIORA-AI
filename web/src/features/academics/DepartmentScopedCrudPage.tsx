@@ -50,8 +50,10 @@ interface DepartmentScopedCrudConfig<T extends DepartmentScopedEntity> {
 
 export function DepartmentScopedCrudPage<T extends DepartmentScopedEntity>({
   config,
+  embedded = false,
 }: {
   config: DepartmentScopedCrudConfig<T>;
+  embedded?: boolean;
 }) {
   useAuth();
   const { snapshot: tenant } = useTenant();
@@ -178,7 +180,7 @@ export function DepartmentScopedCrudPage<T extends DepartmentScopedEntity>({
 
   return (
     <div className="viora-stack">
-      <PageHeader title={config.pageTitle} subtitle={config.pageSubtitle} />
+      {!embedded && <PageHeader title={config.pageTitle} subtitle={config.pageSubtitle} />}
       {feedback.alerts}
       <AcademicCrudSection
         entityLabel={config.entityLabel}
@@ -226,7 +228,6 @@ export function DepartmentScopedCrudPage<T extends DepartmentScopedEntity>({
               resolveLabelById(options.departments, item.department_id) ??
               (item.department_id ? <UuidChip value={item.department_id} /> : "Unassigned"),
           },
-          { key: "id", header: config.idColumnHeader, render: (item) => <UuidChip value={item.id} /> },
         ]}
         canEditRow={() => flags.isAdmin}
         canToggleRow={() => flags.isAdmin}

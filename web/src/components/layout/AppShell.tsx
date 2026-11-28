@@ -7,6 +7,7 @@ import type {
 import type { AppRouteId } from "../../auth/routeGuard";
 import {
   buildNavigationItems,
+  defaultRouteForRoles,
   ROLE_LABELS,
   type NavItemDescriptor,
 } from "../../tenant/navigation";
@@ -22,17 +23,24 @@ export interface AppShellProps {
   onNavigate?: (route: AppRouteId) => void;
   onSelectInstitution?: (tenantId: string) => void;
   onLogout?: () => void;
-  onLogoutAll?: () => void;
   authBusy?: boolean;
 }
 
 const SECTION_LABELS: Record<NavItemDescriptor["section"], string> = {
+  learning: "Learning",
+  teaching: "Teaching",
+  college: "College Head",
   institution: "Institution",
-  academics: "Academic Structure",
-  people: "People & Governance",
-  account: "Account & System",
-  future: "Phase 2 Modules (Disabled)",
+  account: "Account",
 };
+
+const SECTION_ORDER: readonly NavItemDescriptor["section"][] = [
+  "learning",
+  "teaching",
+  "college",
+  "institution",
+  "account",
+];
 
 export function AppShell({
   children,
@@ -44,7 +52,6 @@ export function AppShell({
   onNavigate,
   onSelectInstitution,
   onLogout,
-  onLogoutAll,
   authBusy = false,
 }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -60,6 +67,13 @@ export function AppShell({
     setMobileMenuOpen(false);
     onNavigate?.(route);
   };
+
+  const brandTargetRoute: AppRouteId = authenticated
+    ? defaultRouteForRoles(
+        selectedInstitution?.roles ?? [],
+        selectedInstitution !== null,
+      )
+    : "login";
 
   const renderRoleBadges = () => {
     if (!selectedInstitution || selectedInstitution.roles.length === 0) {
@@ -99,16 +113,14 @@ export function AppShell({
           <button
             type="button"
             className="viora-brand"
-            onClick={() =>
-              handleNavClick(authenticated ? "institution" : "login")
-            }
+            onClick={() => handleNavClick(brandTargetRoute)}
           >
             <span className="viora-brand-mark" aria-hidden="true">
               V
             </span>
             <span>
               <span className="viora-brand-title">VIORA-AI</span>{" "}
-              <span className="viora-brand-subtitle">Institutional Portal</span>
+              <span className="viora-brand-subtitle">Academic Workspace</span>
             </span>
           </button>
 
@@ -166,7 +178,7 @@ export function AppShell({
                 className="viora-btn viora-btn-sm"
                 onClick={() => handleNavClick("account-password")}
               >
-                Security
+                Account
               </button>
               <button
                 type="button"
@@ -176,25 +188,9 @@ export function AppShell({
               >
                 Sign out
               </button>
-              <button
-                type="button"
-                className="viora-btn viora-btn-sm viora-btn-danger"
-                disabled={authBusy}
-                onClick={onLogoutAll}
-                title="Revoke every active session across all browsers and devices"
-              >
-                Sign out all
-              </button>
             </>
           ) : (
             <div className="viora-row">
-              <button
-                type="button"
-                className="viora-btn viora-btn-sm"
-                onClick={() => handleNavClick("health")}
-              >
-                System Health
-              </button>
               <button
                 type="button"
                 className="viora-btn viora-btn-sm viora-btn-primary"
@@ -211,17 +207,9 @@ export function AppShell({
         {authenticated && (
           <nav
             className={`viora-sidebar ${mobileMenuOpen ? "is-open" : ""}`}
-            aria-label="Institutional navigation"
+            aria-label="Workspace navigation"
           >
-            {(
-              [
-                "institution",
-                "academics",
-                "people",
-                "account",
-                "future",
-              ] as const
-            ).map((section) => {
+            {SECTION_ORDER.map((section) => {
               const sectionItems = navItems.filter(
                 (item) => item.section === section,
               );
@@ -235,28 +223,16 @@ export function AppShell({
                   </div>
                   <ul className="viora-nav-list">
                     {sectionItems.map((item) => {
-                      const active =
-                        item.route !== undefined && item.route === currentRoute;
+                      const active = item.route === currentRoute;
                       return (
                         <li key={item.id}>
                           <button
                             type="button"
                             className={`viora-nav-item ${active ? "is-active" : ""}`}
-                            disabled={item.disabled}
-                            aria-disabled={item.disabled ? "true" : undefined}
                             aria-current={active ? "page" : undefined}
-                            onClick={() => {
-                              if (item.route && !item.disabled) {
-                                handleNavClick(item.route);
-                              }
-                            }}
+                            onClick={() => handleNavClick(item.route)}
                           >
                             <span>{item.label}</span>
-                            {item.badge && (
-                              <span className="viora-nav-badge">
-                                {item.badge}
-                              </span>
-                            )}
                           </button>
                         </li>
                       );
@@ -274,8 +250,7 @@ export function AppShell({
       </div>
 
       <footer className="viora-footer">
-        VIORA-AI Platform &copy; 2026 &mdash; Tenant isolation and authorization
-        enforced server-side via PostgreSQL RLS.
+        VIORA-AI &copy; 2026
       </footer>
     </div>
   );

@@ -11,7 +11,7 @@ import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { resolveLabelById, useTenantOptions } from "../common/useTenantOptions";
 
-export function DepartmentsPage() {
+export function DepartmentsPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
@@ -111,14 +111,16 @@ export function DepartmentsPage() {
 
   return (
     <div className="viora-stack">
-      <PageHeader
-        title="Departments & Department Heads"
-        subtitle={
-          flags.isAdmin
-            ? "Create academic departments and assign department heads."
-            : "Departments within your administrative scope."
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          title="Departments & Department Heads"
+          subtitle={
+            flags.isAdmin
+              ? "Create academic departments and assign department heads."
+              : "Departments within your administrative scope."
+          }
+        />
+      )}
       {feedback.alerts}
       <AcademicCrudSection
         entityLabel="Department"
@@ -202,7 +204,6 @@ export function DepartmentsPage() {
               resolveLabelById(options.campuses, d.campus_id) ??
               (d.campus_id ? <UuidChip value={d.campus_id} /> : "Institution-wide"),
           },
-          { key: "id", header: "Department ID", render: (d) => <UuidChip value={d.id} /> },
         ]}
         extraRowActions={(d) => (
           <button

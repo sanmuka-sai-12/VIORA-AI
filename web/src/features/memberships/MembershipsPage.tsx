@@ -36,7 +36,7 @@ function statusTone(
   return "neutral";
 }
 
-export function MembershipsPage() {
+export function MembershipsPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient, snapshot: auth } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
@@ -169,17 +169,19 @@ export function MembershipsPage() {
 
   return (
     <div className="viora-stack">
-      <PageHeader
-        title="Institutional Memberships & Roles"
-        subtitle="Associate existing verified global users with this institution, manage lifecycle states, and assign institutional roles."
-      />
+      {!embedded && (
+        <PageHeader
+          title="Institutional Memberships & Roles"
+          subtitle="Associate verified users with this institution, manage membership status, and assign roles."
+        />
+      )}
 
       {feedback.alerts}
 
       {flags.isAdmin && (
         <SectionCard
-          title="Associate Verified User"
-          subtitle="Requires an existing verified global user UUID. Public self-signup and open invitations remain deferred."
+          title="Add Member"
+          subtitle="Enter an existing verified User ID to associate them with this institution."
         >
           <form onSubmit={handleAddMember} className="viora-row" style={{ alignItems: "flex-end" }}>
             <div style={{ flex: 2, minWidth: "280px" }}>
@@ -257,13 +259,10 @@ export function MembershipsPage() {
                   key: "name",
                   header: "Member",
                   render: (m) => (
-                    <div className="viora-stack" style={{ gap: "0.2rem" }}>
-                      <strong>
-                        {m.display_name}
-                        {auth.user?.user_id === m.user_id ? " (You)" : ""}
-                      </strong>
-                      <UuidChip value={m.user_id} />
-                    </div>
+                    <strong>
+                      {m.display_name}
+                      {auth.user?.user_id === m.user_id ? " (You)" : ""}
+                    </strong>
                   ),
                 },
                 {
@@ -375,11 +374,15 @@ export function MembershipsPage() {
       <ModalDialog
         open={roleModalMember !== null}
         title={`Manage Roles — ${roleModalMember?.display_name ?? ""}`}
-        description="Backend enforces role hierarchy: only owners can manage admin/owner roles, self-promotion is blocked, and the last active owner cannot be removed."
+        description="Only institution owners can assign or revoke owner and administrator roles."
         onClose={() => setRoleModalMember(null)}
       >
         {roleModalMember && (
           <div className="viora-stack">
+            <div className="viora-row">
+              <span className="viora-field-hint">User ID:</span>
+              <UuidChip value={roleModalMember.user_id} />
+            </div>
             <div>
               <div className="viora-field-label" style={{ marginBottom: "0.4rem" }}>
                 Assigned Roles

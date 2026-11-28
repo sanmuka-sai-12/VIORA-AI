@@ -142,7 +142,11 @@ class SqlPersonalLearningRepository:
         self.session = session
 
     def register_material(
-        self, context: TenantContext, att: PersonalLearningAttachment
+        self,
+        context: TenantContext,
+        att: PersonalLearningAttachment,
+        *,
+        origin_source_id: UUID | None = None,
     ) -> PersonalLearningAttachment:
         row = PersonalLearningMaterialModel(
             tenant_id=context.tenant_id,
@@ -159,6 +163,7 @@ class SqlPersonalLearningRepository:
             char_count=att.char_count,
             preview_excerpt=att.preview_excerpt,
             doc_sha256=att.doc_sha256,
+            origin_source_id=origin_source_id,
             created_at=att.created_at,
         )
         self.session.add(row)
@@ -211,6 +216,23 @@ class SqlPersonalLearningRepository:
                 )
             )
         return tuple(refs)
+
+    def origin_source_ids_for_materials(
+        self, context: TenantContext, attachment_ids: Sequence[UUID]
+    ) -> list[UUID]:
+        unique_ids = list(dict.fromkeys(attachment_ids))[:5]
+        if not unique_ids:
+            return []
+        rows = self.session.scalars(
+            select(PersonalLearningMaterialModel.origin_source_id).where(
+                PersonalLearningMaterialModel.tenant_id == context.tenant_id,
+                PersonalLearningMaterialModel.owner_user_id == context.actor_id,
+                PersonalLearningMaterialModel.attachment_id.in_(unique_ids),
+                PersonalLearningMaterialModel.deleted_at.is_(None),
+                PersonalLearningMaterialModel.origin_source_id.is_not(None),
+            )
+        ).all()
+        return [r for r in rows if r is not None]
 
     def _load_materials_map(
         self, context: TenantContext, attachment_ids: Sequence[UUID]

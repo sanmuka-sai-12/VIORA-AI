@@ -185,6 +185,14 @@
           "subject_name": {
             "title": "Subject Name",
             "type": "string"
+          },
+          "teacher_names": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Teacher Names",
+            "type": "array"
           }
         },
         "required": [
@@ -6217,6 +6225,24 @@
               "$ref": "#/components/schemas/AssignedOfferingSummary"
             },
             "title": "Enrolled Offerings",
+            "type": "array"
+          },
+          "homeroom_section": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedSectionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "homeroom_teacher_names": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Homeroom Teacher Names",
             "type": "array"
           },
           "teaching_offerings": {

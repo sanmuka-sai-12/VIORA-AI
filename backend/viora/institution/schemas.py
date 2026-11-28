@@ -346,6 +346,7 @@ class AssignedOfferingSummary(Contract):
     academic_year_name: str
     department_id: UUID | None
     department_name: str | None
+    teacher_names: tuple[str, ...] = ()
 
 
 class FacultyResponsibilitiesSummary(Contract):
@@ -360,6 +361,8 @@ class MyClassroomsSummary(Contract):
     user_id: UUID
     teaching_offerings: tuple[AssignedOfferingSummary, ...]
     enrolled_offerings: tuple[AssignedOfferingSummary, ...]
+    homeroom_section: AssignedSectionSummary | None = None
+    homeroom_teacher_names: tuple[str, ...] = ()
 
 
 AnnouncementBodyText = Annotated[

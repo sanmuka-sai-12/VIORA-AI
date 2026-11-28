@@ -23,6 +23,7 @@ import { PasswordChangePage } from "./features/auth/PasswordChangePage";
 import { GuardiansPage } from "./features/guardians/GuardiansPage";
 import { SystemHealthDashboard } from "./features/health/SystemHealthDashboard";
 import { InstitutionOverviewPage } from "./features/institution/InstitutionOverviewPage";
+import { StudentInstitutionalDashboard } from "./features/institution/StudentInstitutionalDashboard";
 import { ClassroomPage } from "./features/classroom/ClassroomPage";
 import { StudentLearningPage } from "./features/learning/StudentLearningPage";
 import { clearAllLearningSessionHints } from "./features/learning/learningSessionState";
@@ -31,6 +32,7 @@ import { TeacherDepartmentPage } from "./features/teaching/TeacherDepartmentPage
 import { TeacherSubjectsPage } from "./features/teaching/TeacherSubjectsPage";
 import {
   defaultRouteForRoles,
+  deriveRoleFlags,
   type AssignedResponsibilitiesFlags,
 } from "./tenant/navigation";
 import { TenantProvider, useTenant } from "./tenant/TenantContext";
@@ -46,12 +48,22 @@ function PortalRouter() {
     academicTabFromPathname(window.location.pathname),
   );
   const [authBusy, setAuthBusy] = useState(false);
+  const [selectedClassroomId, setSelectedClassroomId] = useState<string | undefined>(
+    undefined,
+  );
   const [responsibilities, setResponsibilities] = useState<
     AssignedResponsibilitiesFlags | undefined
   >(undefined);
 
   const selectedTenantId = tenant.selectedTenantId;
   const selectedRoles = tenant.selectedInstitution?.roles ?? [];
+  const roleFlags = deriveRoleFlags(selectedRoles);
+  const isPureStudent =
+    roleFlags.isStudent &&
+    !roleFlags.isAdmin &&
+    !roleFlags.isSubjectTeacher &&
+    !roleFlags.isClassCoordinator &&
+    !roleFlags.isDepartmentHead;
   const mayHaveTeachingResponsibilities =
     selectedRoles.includes("class_coordinator") ||
     selectedRoles.includes("subject_teacher");
@@ -169,6 +181,19 @@ function PortalRouter() {
       return <PasswordChangePage />;
     }
     if (activeRoute === "institution") {
+      if (isPureStudent) {
+        return (
+          <StudentInstitutionalDashboard
+            onNavigate={navigate}
+            onOpenClassroom={(offeringId) => {
+              setSelectedClassroomId(offeringId);
+              navigate("student-classrooms");
+            }}
+            onLogout={() => void handleLogout()}
+            authBusy={authBusy}
+          />
+        );
+      }
       return <InstitutionOverviewPage onNavigate={navigate} />;
     }
     if (activeRoute === "student-learning") {
@@ -185,7 +210,13 @@ function PortalRouter() {
       );
     }
     if (activeRoute === "student-classrooms") {
-      return <ClassroomPage mode="student" onNavigate={navigate} />;
+      return (
+        <ClassroomPage
+          mode="student"
+          initialOfferingId={selectedClassroomId}
+          onNavigate={navigate}
+        />
+      );
     }
     if (activeRoute === "teacher-class") {
       return <TeacherClassPage />;
@@ -218,7 +249,8 @@ function PortalRouter() {
   if (
     auth.status === "authenticated" &&
     decision.reason !== "initializing" &&
-    decision.effectiveRoute === "student-learning"
+    (decision.effectiveRoute === "student-learning" ||
+      (decision.effectiveRoute === "institution" && isPureStudent))
   ) {
     return (
       <div key={workspaceKey} className="viora-student-root">

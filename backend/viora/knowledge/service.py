@@ -859,7 +859,7 @@ class ConceptKnowledgeService:
                 )
             if scope.session is not None:
                 return SqlPersonalLearningRepository(scope.session).register_material(
-                    scoped_context, attachment
+                    scoped_context, attachment, origin_source_id=source_id
                 )
             return attachment
 
@@ -1032,6 +1032,24 @@ class ConceptKnowledgeService:
                         att.attachment_id for att in detail.attachments[:5]
                     ]
             if dedup_active_ids:
+                for origin_src_id in pl_repo.origin_source_ids_for_materials(
+                    scope.context, dedup_active_ids
+                ):
+                    try:
+                        scope.recheck(
+                            "source.read",
+                            ResourceRef(
+                                tenant_id=scope.context.tenant_id,
+                                kind="source",
+                                resource_id=origin_src_id,
+                            ),
+                        )
+                    except AccessError:
+                        raise AccessError(
+                            403,
+                            "material_access_revoked",
+                            "Imported classroom material is no longer accessible after withdrawal or unenrolment",
+                        ) from None
                 db_refs = pl_repo.resolve_material_refs(scope.context, dedup_active_ids)
                 seen_att_ids = {r.attachment_id for r in resolved_refs}
                 for dref in db_refs:

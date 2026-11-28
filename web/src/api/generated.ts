@@ -2111,6 +2111,11 @@ export interface components {
             subject_id: string;
             /** Subject Name */
             subject_name: string;
+            /**
+             * Teacher Names
+             * @default []
+             */
+            teacher_names: string[];
         };
         /** AssignedSectionSummary */
         AssignedSectionSummary: {
@@ -4667,6 +4672,12 @@ export interface components {
         MyClassroomsSummary: {
             /** Enrolled Offerings */
             enrolled_offerings: components["schemas"]["AssignedOfferingSummary"][];
+            homeroom_section?: components["schemas"]["AssignedSectionSummary"] | null;
+            /**
+             * Homeroom Teacher Names
+             * @default []
+             */
+            homeroom_teacher_names: string[];
             /** Teaching Offerings */
             teaching_offerings: components["schemas"]["AssignedOfferingSummary"][];
             /**

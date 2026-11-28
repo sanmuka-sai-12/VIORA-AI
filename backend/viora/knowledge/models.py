@@ -681,6 +681,7 @@ class PersonalLearningMaterialModel(Base):
     char_count: Mapped[int] = mapped_column(Integer)
     preview_excerpt: Mapped[str | None] = mapped_column(Text, default=None)
     doc_sha256: Mapped[str] = mapped_column(Text)
+    origin_source_id: Mapped[UUID | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

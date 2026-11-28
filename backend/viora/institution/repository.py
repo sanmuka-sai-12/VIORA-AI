@@ -2238,6 +2238,24 @@ class SqlAcademicRepository:
             )
             .order_by(SubjectOffering.name, Section.name)
         ).all()
+        offering_ids = [r.offering_id for r in rows]
+        teachers_by_offering: dict[UUID, list[str]] = {oid: [] for oid in offering_ids}
+        if offering_ids:
+            t_rows = self.session.execute(
+                select(TeacherAssignment.offering_id, TeacherAssignment.user_id).where(
+                    TeacherAssignment.tenant_id == tenant_id,
+                    TeacherAssignment.offering_id.in_(offering_ids),
+                    TeacherAssignment.active.is_(True),
+                )
+            ).all()
+            t_names = user_display_names(
+                self.session, list({tr.user_id for tr in t_rows})
+            )
+            for oid, uid in t_rows:
+                name = t_names.get(uid)
+                if name and name not in teachers_by_offering[oid]:
+                    teachers_by_offering[oid].append(name)
+
         return [
             AssignedOfferingSummary(
                 offering_id=r.offering_id,
@@ -2252,6 +2270,7 @@ class SqlAcademicRepository:
                 academic_year_name=r.academic_year_name,
                 department_id=r.department_id,
                 department_name=r.department_name,
+                teacher_names=tuple(sorted(teachers_by_offering[r.offering_id])),
             )
             for r in rows
         ]
@@ -2272,11 +2291,74 @@ class SqlAcademicRepository:
             if InstitutionRole.student in member.roles
             else []
         )
+        homeroom_section: AssignedSectionSummary | None = None
+        homeroom_teacher_names: tuple[str, ...] = ()
+        if InstitutionRole.student in member.roles:
+            sec_id = self.session.scalar(
+                select(StudentProfile.section_id).where(
+                    StudentProfile.tenant_id == tenant_id,
+                    StudentProfile.user_id == user_id,
+                )
+            )
+            if sec_id is not None:
+                sec_row = self.session.execute(
+                    _active_section_chain(
+                        select(
+                            Section.id.label("section_id"),
+                            Section.name.label("section_name"),
+                            Semester.id.label("semester_id"),
+                            Semester.name.label("semester_name"),
+                            AcademicYear.id.label("academic_year_id"),
+                            AcademicYear.name.label("academic_year_name"),
+                            Programme.id.label("programme_id"),
+                            Programme.name.label("programme_name"),
+                            Department.id.label("department_id"),
+                            Department.name.label("department_name"),
+                        )
+                    )
+                    .outerjoin(
+                        Department,
+                        and_(
+                            Department.tenant_id == Programme.tenant_id,
+                            Department.id == Programme.department_id,
+                        ),
+                    )
+                    .where(Section.tenant_id == tenant_id, Section.id == sec_id)
+                ).one_or_none()
+                if sec_row is not None:
+                    homeroom_section = AssignedSectionSummary(
+                        section_id=sec_row.section_id,
+                        section_name=sec_row.section_name,
+                        semester_id=sec_row.semester_id,
+                        semester_name=sec_row.semester_name,
+                        academic_year_id=sec_row.academic_year_id,
+                        academic_year_name=sec_row.academic_year_name,
+                        programme_id=sec_row.programme_id,
+                        programme_name=sec_row.programme_name,
+                        department_id=sec_row.department_id,
+                        department_name=sec_row.department_name,
+                    )
+                coord_ids = list(
+                    self.session.scalars(
+                        select(ClassCoordinator.user_id).where(
+                            ClassCoordinator.tenant_id == tenant_id,
+                            ClassCoordinator.section_id == sec_id,
+                            ClassCoordinator.active.is_(True),
+                        )
+                    ).all()
+                )
+                c_names = user_display_names(self.session, coord_ids)
+                homeroom_teacher_names = tuple(
+                    sorted(c_names[uid] for uid in coord_ids if uid in c_names)
+                )
+
         return MyClassroomsSummary(
             tenant_id=tenant_id,
             user_id=user_id,
             teaching_offerings=tuple(teaching),
             enrolled_offerings=tuple(enrolled),
+            homeroom_section=homeroom_section,
+            homeroom_teacher_names=homeroom_teacher_names,
         )
 
     def _announcement_dto(

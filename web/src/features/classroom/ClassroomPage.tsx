@@ -32,9 +32,11 @@ type ClassroomTab = "overview" | "materials" | "announcements" | "students";
 
 export function ClassroomPage({
   mode,
+  initialOfferingId,
   onNavigate,
 }: {
   mode: "teacher" | "student";
+  initialOfferingId?: string;
   onNavigate?: (route: AppRouteId) => void;
 }) {
   const { apiClient, controller: authController, snapshot: auth } = useAuth();
@@ -116,9 +118,11 @@ export function ClassroomPage({
             : res.data.enrolled_offerings;
         setClassrooms(list);
         setSelectedOfferingId((prev) =>
-          prev && list.some((c) => c.offering_id === prev)
-            ? prev
-            : list[0]?.offering_id ?? "",
+          initialOfferingId && list.some((c) => c.offering_id === initialOfferingId)
+            ? initialOfferingId
+            : prev && list.some((c) => c.offering_id === prev)
+              ? prev
+              : list[0]?.offering_id ?? "",
         );
       } else {
         setClassroomsError(
@@ -132,7 +136,7 @@ export function ClassroomPage({
     } finally {
       setLoadingClassrooms(false);
     }
-  }, [apiClient, authController, mode, tenantId]);
+  }, [apiClient, authController, initialOfferingId, mode, tenantId]);
 
   useEffect(() => {
     void loadClassrooms();

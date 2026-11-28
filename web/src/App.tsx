@@ -128,7 +128,17 @@ function PortalRouter() {
       return <InstitutionOverviewPage onNavigate={navigate} />;
     }
     if (activeRoute === "student-learning") {
-      return <StudentLearningPage />;
+      return (
+        <StudentLearningPage
+          user={auth.user}
+          institutions={tenant.institutions}
+          selectedInstitution={tenant.selectedInstitution}
+          onNavigate={navigate}
+          onSelectInstitution={handleSelectInstitution}
+          onLogout={() => void handleLogout()}
+          authBusy={authBusy}
+        />
+      );
     }
     if (activeRoute === "teacher-class") {
       return <TeacherClassPage />;
@@ -157,6 +167,23 @@ function PortalRouter() {
 
     return <InstitutionOverviewPage onNavigate={navigate} />;
   };
+
+  if (
+    auth.status === "authenticated" &&
+    decision.reason !== "initializing" &&
+    decision.effectiveRoute === "student-learning"
+  ) {
+    return (
+      <div key={workspaceKey} className="viora-student-root">
+        {auth.expiredReason && (
+          <div style={{ padding: "0.75rem 1rem 0" }}>
+            <AlertBanner tone="warning" message={auth.expiredReason} />
+          </div>
+        )}
+        {renderMainContent()}
+      </div>
+    );
+  }
 
   return (
     <AppShell

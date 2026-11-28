@@ -1303,3 +1303,710 @@ textarea:focus-visible {
     padding: 1rem 1rem 2rem;
   }
 }
+
+/* ==========================================================================
+   R3.5A Student UX Redesign: Unified Navigation + Chat Workspace + Study Studio
+   ========================================================================== */
+
+.viora-student-root {
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.viora-student-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  width: 100%;
+  position: relative;
+  background: #ffffff;
+}
+
+.viora-nav-rail {
+  width: 264px;
+  flex-shrink: 0;
+  background: #f4f6fb;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  transition: width 0.18s ease;
+  z-index: 30;
+}
+
+.viora-nav-rail.is-collapsed {
+  width: 68px;
+}
+
+.viora-nav-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 0.9rem 0.65rem;
+  gap: 0.5rem;
+}
+
+.viora-nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 1.02rem;
+  letter-spacing: -0.02em;
+}
+
+.viora-nav-brand-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #2e42a3;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.viora-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.viora-icon-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.viora-nav-new-btn {
+  margin: 0.2rem 0.85rem 0.65rem;
+  height: 40px;
+  border-radius: 10px;
+  border: none;
+  background: #2e42a3;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.88rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(46, 66, 163, 0.18);
+  transition: background 0.15s ease;
+}
+
+.viora-nav-new-btn:hover {
+  background: #243589;
+}
+
+.viora-nav-rail.is-collapsed .viora-nav-new-btn {
+  margin: 0.2rem 0.75rem 0.65rem;
+  padding: 0;
+}
+
+.viora-nav-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0 0.65rem;
+}
+
+.viora-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.52rem 0.65rem;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #334155;
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.viora-nav-link:hover {
+  background: #e9edf7;
+  color: #0f172a;
+}
+
+.viora-nav-link.is-active {
+  background: #e4eaf8;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.viora-nav-rail.is-collapsed .viora-nav-link {
+  justify-content: center;
+  padding: 0.55rem;
+}
+
+.viora-nav-section-label {
+  padding: 0.9rem 0.95rem 0.35rem;
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.viora-nav-sessions {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.viora-nav-session-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 8px;
+  padding-right: 0.2rem;
+  transition: background 0.12s ease;
+}
+
+.viora-nav-session-row:hover {
+  background: #e9edf7;
+}
+
+.viora-nav-session-row.is-active {
+  background: #e4eaf8;
+}
+
+.viora-nav-session-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.48rem 0.55rem;
+  border: none;
+  background: transparent;
+  color: #334155;
+  font-size: 0.83rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.viora-nav-session-row.is-active .viora-nav-session-btn {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.viora-nav-session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viora-nav-session-actions {
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.viora-nav-session-row:hover .viora-nav-session-actions,
+.viora-nav-session-row.is-active .viora-nav-session-actions {
+  opacity: 1;
+}
+
+.viora-nav-footer {
+  border-top: 1px solid #e2e8f0;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  background: #f4f6fb;
+}
+
+.viora-inst-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #1e293b;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.viora-inst-card:hover {
+  border-color: #2e42a3;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.viora-account-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 8px;
+}
+
+.viora-avatar-circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #e4eaf8;
+  color: #2e42a3;
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.viora-account-menu {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  z-index: 50;
+}
+
+.viora-account-menu-item {
+  width: 100%;
+  padding: 0.48rem 0.65rem;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  text-align: left;
+  font-size: 0.83rem;
+  color: #1e293b;
+  cursor: pointer;
+}
+
+.viora-account-menu-item:hover {
+  background: #f1f5f9;
+}
+
+.viora-account-menu-item.is-danger {
+  color: #b91c1c;
+}
+
+/* Main Workspace Area */
+.viora-workspace-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+}
+
+.viora-workspace-topbar {
+  height: 54px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: #ffffff;
+}
+
+.viora-workspace-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Homepage Centered State */
+.viora-home-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.viora-home-container {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.35rem;
+}
+
+.viora-home-title {
+  margin: 0;
+  font-size: 1.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+  text-align: center;
+}
+
+.viora-home-subtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.94rem;
+  color: #64748b;
+  text-align: center;
+}
+
+.viora-composer-card {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 0.85rem 1rem 0.75rem;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.viora-composer-card:focus-within {
+  border-color: #2e42a3;
+  box-shadow: 0 0 0 3px rgba(46, 66, 163, 0.1);
+}
+
+.viora-composer-textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #0f172a;
+  background: transparent;
+  min-height: 44px;
+  max-height: 180px;
+}
+
+.viora-composer-textarea::placeholder {
+  color: #94a3b8;
+}
+
+.viora-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.viora-attach-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.32rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.viora-attach-pill:hover {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.viora-send-circle {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: none;
+  background: #2e42a3;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.14s ease, opacity 0.14s ease;
+}
+
+.viora-send-circle:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.viora-send-circle:not(:disabled):hover {
+  background: #243589;
+}
+
+.viora-starter-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.viora-starter-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 0.85rem 0.95rem;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.viora-starter-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.viora-continue-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.viora-continue-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.viora-continue-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+/* Conversation Center + Study Studio Right Panel */
+.viora-chat-column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+}
+
+.viora-chat-subbar {
+  padding: 0.55rem 1.25rem;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.viora-chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.25rem 1rem;
+}
+
+.viora-chat-thread-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.viora-user-bubble {
+  align-self: flex-end;
+  max-width: 82%;
+  background: #f1f4fb;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.75rem 1rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #0f172a;
+}
+
+.viora-assistant-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.viora-chat-composer-dock {
+  flex-shrink: 0;
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: 1px solid #f1f5f9;
+  background: #ffffff;
+}
+
+.viora-chat-composer-inner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.viora-studio-panel {
+  width: 348px;
+  flex-shrink: 0;
+  border-left: 1px solid #e2e8f0;
+  background: #fafbfe;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.viora-studio-header {
+  padding: 0.95rem 1rem 0.75rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.viora-studio-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.85rem 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.viora-studio-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.viora-studio-tool-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.7rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  transition: transform 0.1s ease, border-color 0.14s ease;
+}
+
+.viora-studio-tool-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.viora-studio-tool-card:not(:disabled):hover {
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+}
+
+.viora-tool-notes { background: #eff4ff; }
+.viora-tool-insights { background: #ecfdf5; }
+.viora-tool-mindmap { background: #f3e8ff; }
+.viora-tool-flashcards { background: #fefce8; }
+.viora-tool-quiz { background: #e0f2fe; }
+.viora-tool-exam { background: #fdf2f8; }
+
+.viora-saved-res-card {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.viora-saved-res-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+@media (max-width: 1080px) {
+  .viora-studio-panel {
+    position: absolute;
+    top: 54px;
+    bottom: 0;
+    right: 0;
+    z-index: 35;
+    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.1);
+  }
+}
+
+@media (max-width: 860px) {
+  .viora-nav-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: 8px 0 24px rgba(15, 23, 42, 0.12);
+  }
+
+  .viora-nav-rail.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .viora-starter-grid,
+  .viora-continue-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -20,6 +20,10 @@ import {
   validateRequiredName,
   validateRequiredUuid,
 } from "./validation.ts";
+import {
+  NEW_CHAT_SENTINEL,
+  resolveInitialSessionIdToOpen,
+} from "../features/learning/learningSessionState.ts";
 
 function buildTenantController(institutions: InstitutionDiscovery[]) {
   const mockFetch: typeof globalThis.fetch = async (input) => {
@@ -373,4 +377,12 @@ test("Personal learning conversation state preserves across route transitions, s
   });
   ctrl.clear();
   assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A), null);
+});
+
+test("Fresh login opens empty homepage (never auto-opens latest session), while explicit session hint restores", () => {
+  const sessions = [{ session_id: "sess-latest" }, { session_id: "sess-older" }];
+  assert.equal(resolveInitialSessionIdToOpen(null, sessions), null);
+  assert.equal(resolveInitialSessionIdToOpen(NEW_CHAT_SENTINEL, sessions), null);
+  assert.equal(resolveInitialSessionIdToOpen("sess-missing", sessions), null);
+  assert.equal(resolveInitialSessionIdToOpen("sess-older", sessions), "sess-older");
 });

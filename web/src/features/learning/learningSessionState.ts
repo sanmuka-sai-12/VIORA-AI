@@ -38,6 +38,16 @@ export interface LearningSessionSnapshot {
 
 export const NEW_CHAT_SENTINEL = "__new__";
 
+export function resolveInitialSessionIdToOpen(
+  hint: string | null,
+  sessions: readonly { session_id: string }[],
+): string | null {
+  if (!hint || hint === NEW_CHAT_SENTINEL) {
+    return null;
+  }
+  return sessions.some((s) => s.session_id === hint) ? hint : null;
+}
+
 export function activeSessionStorageKey(userId: string, tenantId: string): string {
   return `viora.pl.activeSession:${userId}:${tenantId}`;
 }

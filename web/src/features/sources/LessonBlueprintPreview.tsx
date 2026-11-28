@@ -51,65 +51,38 @@ export function LessonBlueprintPreview(props: PreviewProps) {
     >
       <div className="viora-row" style={{ justifyContent: "space-between" }}>
         <strong>
-          Lesson Blueprint Preview (v{blueprintVersion}): {bp.title}
+          {props.mode === "teacher"
+            ? `Lesson Blueprint (v${blueprintVersion}): ${bp.title}`
+            : bp.title}
         </strong>
         <div className="viora-row">
           {props.mode === "teacher" && props.approvalState ? (
             <>
               <StatusBadge tone={reviewTone(props.approvalState.approval_status)}>
-                Blueprint Approval: {props.approvalState.approval_status}
+                Approval: {props.approvalState.approval_status}
               </StatusBadge>
               <StatusBadge
                 tone={props.approvalState.published_to_students ? "success" : "neutral"}
               >
                 {props.approvalState.published_to_students
-                  ? "Published to Students"
-                  : "Unpublished"}
+                  ? "Published to Class"
+                  : "Draft"}
               </StatusBadge>
             </>
           ) : props.mode === "teacher" ? (
-            <StatusBadge tone="warning">Blueprint Approval: pending_review</StatusBadge>
+            <StatusBadge tone="warning">Pending Review</StatusBadge>
           ) : (
-            <>
-              <StatusBadge tone="success">Teacher Approved Lesson</StatusBadge>
-              <StatusBadge tone="success">Published to Students</StatusBadge>
-            </>
+            <StatusBadge tone="success">Teacher Approved Lesson</StatusBadge>
           )}
-          <StatusBadge tone={bp.validation.all_evidence_verified ? "success" : "warning"}>
-            All Evidence Verified: {String(bp.validation.all_evidence_verified)}
-          </StatusBadge>
-          <StatusBadge tone={bp.validation.prerequisite_order_preserved ? "success" : "warning"}>
-            Prerequisite Order Preserved
-          </StatusBadge>
           {bp.learning_request_only && (
             <StatusBadge tone="warning">
-              Learning Request Only (Non-Evidentiary)
+              Study Guide (Topic Outline)
             </StatusBadge>
           )}
         </div>
       </div>
 
-      <p style={{ fontSize: "0.875rem" }}>{bp.lesson_summary}</p>
-
-      {props.mode === "teacher" && (
-        <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-          Provider: <code>{props.record.provider}</code> • Model:{" "}
-          <code>{props.record.model}</code> • Tokens: {props.record.total_tokens} •
-          Versions stored: {props.versions.length || 1} • Executable scene code blocked:{" "}
-          {String(bp.validation.executable_scene_code_blocked)} • TTS synthesized:{" "}
-          {String(bp.tts_synthesized)}
-        </p>
-      )}
-
-      {(bp.validation.rejected_evidence_refs_count > 0 ||
-        bp.validation.rejected_scenes_count > 0 ||
-        bp.validation.rejected_scene_commands_count > 0 ||
-        bp.validation.rejected_assessment_items_count > 0) && (
-        <AlertBanner
-          tone="warning"
-          message={`Safety & grounding filters rejected: ${bp.validation.rejected_evidence_refs_count} evidence ref(s), ${bp.validation.rejected_scenes_count} scene(s), ${bp.validation.rejected_scene_commands_count} scene command(s), ${bp.validation.rejected_assessment_items_count} assessment item(s).`}
-        />
-      )}
+      <p style={{ fontSize: "0.9rem" }}>{bp.lesson_summary}</p>
 
       {bp.learning_objectives.length > 0 && (
         <div className="viora-stack" style={{ gap: "0.4rem" }}>
@@ -118,27 +91,8 @@ export function LessonBlueprintPreview(props: PreviewProps) {
             rows={bp.learning_objectives}
             rowKey={(o) => o.objective_id}
             columns={[
-              { key: "bloom", header: "Bloom", render: (o) => o.bloom_level },
+              { key: "bloom", header: "Focus", render: (o) => o.bloom_level },
               { key: "stmt", header: "Objective", render: (o) => o.statement },
-              {
-                key: "label",
-                header: "Grounding / Label",
-                render: (o) => (
-                  <div className="viora-row">
-                    <StatusBadge tone={groundingTone(o.grounding)}>
-                      {o.grounding}
-                    </StatusBadge>
-                    <StatusBadge tone="neutral">
-                      {formatInterpretationLabel(o.interpretation_label)}
-                    </StatusBadge>
-                  </div>
-                ),
-              },
-              {
-                key: "ev",
-                header: "Provenance",
-                render: (o) => formatEvidenceList(o.evidence_bindings),
-              },
             ]}
           />
         </div>
@@ -146,7 +100,7 @@ export function LessonBlueprintPreview(props: PreviewProps) {
 
       {bp.explanations.length > 0 && (
         <div className="viora-stack" style={{ gap: "0.5rem" }}>
-          <strong>Ordered Explanations ({bp.explanations.length})</strong>
+          <strong>Lesson Walkthrough ({bp.explanations.length})</strong>
           {bp.explanations.map((step) => (
             <div
               key={`${step.step_index}-${step.concept_id}`}
@@ -156,38 +110,22 @@ export function LessonBlueprintPreview(props: PreviewProps) {
                 borderRadius: "var(--radius-sm)",
               }}
             >
-              <div className="viora-row" style={{ justifyContent: "space-between" }}>
-                <strong>
-                  Step {step.step_index}: {step.concept_name}
-                </strong>
-                <div className="viora-row">
-                  <StatusBadge tone={groundingTone(step.grounding)}>
-                    {step.grounding}
-                  </StatusBadge>
-                  <StatusBadge tone="neutral">
-                    {formatInterpretationLabel(step.interpretation_label)}
-                  </StatusBadge>
-                  <StatusBadge tone={step.supported_by_source ? "success" : "warning"}>
-                    {step.supported_by_source ? "Source-Supported" : "Not Verbatim Source"}
-                  </StatusBadge>
-                </div>
-              </div>
+              <strong>
+                Step {step.step_index}: {step.concept_name}
+              </strong>
               <p style={{ fontSize: "0.875rem", marginTop: "0.35rem" }}>
                 {step.explanation}
               </p>
               {step.key_points.length > 0 && (
-                <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
                   Key points: {step.key_points.join(" • ")}
                 </p>
               )}
               {step.formulas.length > 0 && (
-                <p style={{ fontSize: "0.8rem" }}>
+                <p style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}>
                   Formulas: <code>{step.formulas.join(" ; ")}</code>
                 </p>
               )}
-              <p style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
-                Evidence: {formatEvidenceList(step.evidence_bindings)}
-              </p>
             </div>
           ))}
         </div>
@@ -205,12 +143,7 @@ export function LessonBlueprintPreview(props: PreviewProps) {
                 borderRadius: "var(--radius-sm)",
               }}
             >
-              <div className="viora-row" style={{ justifyContent: "space-between" }}>
-                <strong>{ex.title}</strong>
-                <StatusBadge tone={groundingTone(ex.grounding)}>
-                  {formatInterpretationLabel(ex.interpretation_label)}
-                </StatusBadge>
-              </div>
+              <strong>{ex.title}</strong>
               <p style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>
                 {ex.problem_statement}
               </p>
@@ -220,8 +153,7 @@ export function LessonBlueprintPreview(props: PreviewProps) {
                 ))}
               </ol>
               <p style={{ fontSize: "0.84rem", marginTop: "0.25rem" }}>
-                <strong>Result:</strong> {ex.final_answer} • Provenance:{" "}
-                {formatEvidenceList(ex.evidence_bindings)}
+                <strong>Result:</strong> {ex.final_answer}
               </p>
             </div>
           ))}
@@ -230,36 +162,21 @@ export function LessonBlueprintPreview(props: PreviewProps) {
 
       {bp.scenes.length > 0 && (
         <div className="viora-stack" style={{ gap: "0.4rem" }}>
-          <strong>Typed Visual Scene Specifications ({bp.scenes.length})</strong>
+          <strong>Visual Lesson Segments ({bp.scenes.length})</strong>
           <DataTable
             rows={bp.scenes}
             rowKey={(s) => s.scene_id}
             columns={[
               {
                 key: "scene",
-                header: "Scene / Template",
-                render: (s) => (
-                  <div>
-                    <strong>#{s.order_index} {s.scene_id}</strong>{" "}
-                    <code>{s.template}</code>
-                  </div>
-                ),
+                header: "Segment",
+                render: (s) => <strong>#{s.order_index}</strong>,
               },
-              { key: "intent", header: "Visual Intent", render: (s) => s.visual_intent },
+              { key: "intent", header: "Visual Focus", render: (s) => s.visual_intent },
               {
-                key: "elements",
-                header: "Typed Spec",
-                render: (s) =>
-                  `${s.objects.length} object(s), ${s.actions.length} action(s), ${s.duration_seconds}s, anchors=[${s.timing_anchors.join(", ")}]`,
-              },
-              {
-                key: "label",
-                header: "Label",
-                render: (s) => (
-                  <StatusBadge tone={groundingTone(s.grounding)}>
-                    {formatInterpretationLabel(s.interpretation_label)}
-                  </StatusBadge>
-                ),
+                key: "duration",
+                header: "Duration",
+                render: (s) => `${s.duration_seconds}s`,
               },
             ]}
           />
@@ -268,22 +185,13 @@ export function LessonBlueprintPreview(props: PreviewProps) {
 
       {bp.narrations.length > 0 && (
         <div className="viora-stack" style={{ gap: "0.4rem" }}>
-          <strong>Narration Script & Timeline Cues ({bp.narrations.length})</strong>
+          <strong>Lesson Narration ({bp.narrations.length})</strong>
           <DataTable
             rows={bp.narrations}
             rowKey={(n) => n.segment_id}
             columns={[
-              { key: "scene", header: "Scene", render: (n) => <code>{n.scene_id}</code> },
-              { key: "script", header: "Script", render: (n) => n.script_text },
+              { key: "script", header: "Narration", render: (n) => n.script_text },
               { key: "caption", header: "Caption", render: (n) => n.caption_text },
-              {
-                key: "cues",
-                header: "Cues",
-                render: (n) =>
-                  n.cues.length > 0
-                    ? n.cues.map((c) => `${c.cue_id}@${c.anchor}`).join(", ")
-                    : "None",
-              },
             ]}
           />
         </div>
@@ -292,8 +200,9 @@ export function LessonBlueprintPreview(props: PreviewProps) {
       {bp.assessments.length > 0 && (
         <div className="viora-stack" style={{ gap: "0.4rem" }}>
           <strong>
-            Formative Assessments ({bp.assessments.length})
-            {props.mode === "student" ? " — Student Practice (Answer Keys Isolated)" : ""}
+            {props.mode === "student"
+              ? `Practice Questions (${bp.assessments.length})`
+              : `Formative Assessments (${bp.assessments.length})`}
           </strong>
           {props.mode === "teacher" ? (
             <DataTable
@@ -321,7 +230,7 @@ export function LessonBlueprintPreview(props: PreviewProps) {
                 },
                 {
                   key: "key",
-                  header: "Verified Answer Key (Teacher Only)",
+                  header: "Verified Answer Key",
                   render: (q) => (
                     <div>
                       <code>{q.correct_answer}</code>
@@ -335,11 +244,6 @@ export function LessonBlueprintPreview(props: PreviewProps) {
                       </div>
                     </div>
                   ),
-                },
-                {
-                  key: "prov",
-                  header: "Provenance",
-                  render: (q) => formatEvidenceList(q.evidence_bindings),
                 },
               ]}
             />
@@ -369,30 +273,72 @@ export function LessonBlueprintPreview(props: PreviewProps) {
                     </div>
                   ),
                 },
-                {
-                  key: "label",
-                  header: "Grounding / Label",
-                  render: (q) => (
-                    <div className="viora-row">
-                      <StatusBadge tone={groundingTone(q.grounding)}>
-                        {q.grounding}
-                      </StatusBadge>
-                      <StatusBadge tone="neutral">
-                        {formatInterpretationLabel(q.interpretation_label)}
-                      </StatusBadge>
-                    </div>
-                  ),
-                },
-                {
-                  key: "prov",
-                  header: "Provenance",
-                  render: (q) => formatEvidenceList(q.evidence_bindings),
-                },
               ]}
             />
           )}
         </div>
       )}
+
+      <details className="viora-details">
+        <summary>
+          {props.mode === "teacher"
+            ? "Advanced Verification & Technical Details"
+            : "Source Verification Details"}
+        </summary>
+        <div className="viora-stack" style={{ gap: "0.65rem" }}>
+          <div className="viora-row">
+            <StatusBadge tone={bp.validation.all_evidence_verified ? "success" : "warning"}>
+              All Evidence Verified: {String(bp.validation.all_evidence_verified)}
+            </StatusBadge>
+            <StatusBadge tone={bp.validation.prerequisite_order_preserved ? "success" : "warning"}>
+              Prerequisite Order Preserved
+            </StatusBadge>
+          </div>
+
+          {props.mode === "teacher" && (
+            <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+              Provider: <code>{props.record.provider}</code> • Model:{" "}
+              <code>{props.record.model}</code> • Tokens: {props.record.total_tokens} •
+              Versions stored: {props.versions.length || 1} • Executable scene code blocked:{" "}
+              {String(bp.validation.executable_scene_code_blocked)} • TTS synthesized:{" "}
+              {String(bp.tts_synthesized)}
+            </p>
+          )}
+
+          {(bp.validation.rejected_evidence_refs_count > 0 ||
+            bp.validation.rejected_scenes_count > 0 ||
+            bp.validation.rejected_scene_commands_count > 0 ||
+            bp.validation.rejected_assessment_items_count > 0) && (
+            <AlertBanner
+              tone="warning"
+              message={`Safety & grounding filters rejected: ${bp.validation.rejected_evidence_refs_count} evidence ref(s), ${bp.validation.rejected_scenes_count} scene(s), ${bp.validation.rejected_scene_commands_count} scene command(s), ${bp.validation.rejected_assessment_items_count} assessment item(s).`}
+            />
+          )}
+
+          {bp.learning_objectives.length > 0 && (
+            <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+              <strong>Objective Grounding:</strong>{" "}
+              {bp.learning_objectives
+                .map(
+                  (o) =>
+                    `${o.objective_id} (${formatInterpretationLabel(o.interpretation_label)}: ${formatEvidenceList(o.evidence_bindings)})`,
+                )
+                .join(" • ")}
+            </div>
+          )}
+
+          {bp.explanations.length > 0 && (
+            <div className="viora-row" style={{ gap: "0.4rem" }}>
+              {bp.explanations.map((step) => (
+                <StatusBadge key={`diag-${step.step_index}`} tone={groundingTone(step.grounding)}>
+                  Step {step.step_index}: {formatInterpretationLabel(step.interpretation_label)} (
+                  {formatEvidenceList(step.evidence_bindings)})
+                </StatusBadge>
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

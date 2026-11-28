@@ -53,6 +53,45 @@ export type PublishedLessonBlueprint = ApiSchema<"PublishedLessonBlueprint">;
 export type BlueprintAssessmentItem = ApiSchema<"BlueprintAssessmentItem">;
 export type StudentSafeAssessmentItem = ApiSchema<"StudentSafeAssessmentItem">;
 export type TypedVisualSceneSpec = ApiSchema<"TypedVisualSceneSpec">;
+export type PersonalLearningAttachment = ApiSchema<"PersonalLearningAttachment">;
+export type PersonalLearningAttachmentKind = PersonalLearningAttachment["kind"];
+export type PersonalLearningAttachmentStatus = PersonalLearningAttachment["status"];
+export type PersonalLearningAttachmentRef = ApiSchema<"PersonalLearningAttachmentRef">;
+export type PersonalLearningAttachmentTextRequest =
+  ApiSchema<"PersonalLearningAttachmentTextRequest">;
+export type PersonalLearningSourceRef = ApiSchema<"PersonalLearningSourceRef">;
+export type PersonalLearningTurn = ApiSchema<"PersonalLearningTurn">;
+export type PersonalLearningRequest = ApiSchema<"PersonalLearningRequest">;
+export type PersonalLearningResponse = ApiSchema<"PersonalLearningResponse">;
+export type PersonalLearningSessionSummary =
+  ApiSchema<"PersonalLearningSessionSummary">;
+export type PersonalLearningMessageRecord =
+  ApiSchema<"PersonalLearningMessageRecord">;
+export type PersonalLearningSessionDetail =
+  ApiSchema<"PersonalLearningSessionDetail">;
+export type PersonalLearningSessionCreateRequest =
+  ApiSchema<"PersonalLearningSessionCreateRequest">;
+export type PersonalLearningSessionUpdateRequest =
+  ApiSchema<"PersonalLearningSessionUpdateRequest">;
+export type PersonalLearningDeleteResult =
+  ApiSchema<"PersonalLearningDeleteResult">;
+export type PersonalLearningStudyResource =
+  ApiSchema<"PersonalLearningStudyResource">;
+export type MindMapGraph = ApiSchema<"MindMapGraph">;
+export type MindMapNode = ApiSchema<"MindMapNode">;
+export type FlashcardDeck = ApiSchema<"FlashcardDeck">;
+export type FlashcardItem = ApiSchema<"FlashcardItem">;
+export type FlashcardStatus = FlashcardItem["status"];
+export type PracticeQuizData = ApiSchema<"PracticeQuizData">;
+export type PracticeQuizAttemptRecord = ApiSchema<"PracticeQuizAttemptRecord">;
+export type PracticeExamData = ApiSchema<"PracticeExamData">;
+export type PracticeExamActiveAttempt = ApiSchema<"PracticeExamActiveAttempt">;
+export type PracticeExamAttemptRecord = ApiSchema<"PracticeExamAttemptRecord">;
+export type QuizDifficulty = PracticeQuizData["difficulty"];
+export type PersonalLearningResourceGenerateRequest =
+  ApiSchema<"PersonalLearningResourceGenerateRequest">;
+export type LearningToolKind = PersonalLearningStudyResource["tool_kind"];
+export type LearningPromptMode = PersonalLearningRequest["mode"];
 
 export interface NormalizedApiError {
   status: number;

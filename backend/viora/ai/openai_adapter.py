@@ -458,6 +458,12 @@ class OpenAIAdapter(AIGateway):
         )
 
         content = self._validate_completion_content(response)
+        raw_finish = getattr(response.choices[0], "finish_reason", None)
+        finish_reason = (
+            raw_finish.strip().lower()
+            if isinstance(raw_finish, str) and raw_finish.strip()
+            else None
+        )
         usage = _extract_usage(getattr(response, "usage", None), include_output=True)
         model_used = _extract_model_name(response, self.default_model)
         metadata = GatewayMetadata(
@@ -486,6 +492,7 @@ class OpenAIAdapter(AIGateway):
             model=model_used,
             usage=usage,
             metadata=metadata,
+            finish_reason=finish_reason,
         )
 
     def complete_structured(

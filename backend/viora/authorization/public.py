@@ -119,6 +119,7 @@ class AuthorizationService:
                     False,
                 )
             else:
+                bind_actor(session, context.actor_id)
                 audit.record(context, action, resource, True)
                 yield AuthorizedTransaction(session, context, audit, access)
         # A rejected decision is committed before the HTTP error is raised.

@@ -10,7 +10,7 @@ import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { resolveLabelById, useTenantOptions } from "../common/useTenantOptions";
 
-export function AcademicYearsSemestersPage() {
+export function AcademicYearsSemestersPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
@@ -190,10 +190,12 @@ export function AcademicYearsSemestersPage() {
 
   return (
     <div className="viora-stack">
-      <PageHeader
-        title="Academic Years & Semesters"
-        subtitle="Define institutional academic calendars and semester terms."
-      />
+      {!embedded && (
+        <PageHeader
+          title="Academic Years & Semesters"
+          subtitle="Define institutional academic calendars and semester terms."
+        />
+      )}
       {feedback.alerts}
 
       <AcademicCrudSection
@@ -229,7 +231,6 @@ export function AcademicYearsSemestersPage() {
         emptyDescription="Create an academic year above before adding semesters."
         columns={[
           { key: "name", header: "Year", render: (y) => <strong>{y.name}</strong> },
-          { key: "id", header: "Year ID", render: (y) => <UuidChip value={y.id} /> },
         ]}
         extraRowActions={(y) => (
           <button
@@ -350,7 +351,6 @@ export function AcademicYearsSemestersPage() {
                 <UuidChip value={s.academic_year_id} />
               ),
           },
-          { key: "id", header: "Semester ID", render: (s) => <UuidChip value={s.id} /> },
         ]}
         canEditRow={() => flags.isAdmin}
         canToggleRow={() => flags.isAdmin}

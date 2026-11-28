@@ -5,7 +5,11 @@ import {
   normalizeApiError,
   type InstitutionDiscovery,
 } from "../api/client.ts";
-import { buildNavigationItems, deriveRoleFlags } from "./navigation.ts";
+import {
+  buildNavigationItems,
+  defaultRouteForRoles,
+  deriveRoleFlags,
+} from "./navigation.ts";
 import { createTenantController } from "./tenantState.ts";
 import {
   advanceCursorPage,
@@ -96,32 +100,49 @@ test("TenantController supports switching across multiple institutions and clear
   assert.equal(ctrl.getSnapshot().selectedTenantId, null);
 });
 
-test("buildNavigationItems tailors navigation per role and keeps Phase 2 modules disabled", () => {
-  const adminNav = buildNavigationItems(["institution_admin"], true);
-  assert.ok(adminNav.some((i) => i.route === "memberships"));
-  assert.ok(adminNav.some((i) => i.route === "academics-campuses"));
+test("buildNavigationItems and defaultRouteForRoles provide clean role-specific navigation without placeholders or diagnostics", () => {
+  const headNav = buildNavigationItems(["institution_admin"], true);
+  assert.deepEqual(
+    headNav.map((i) => i.route),
+    ["head-students", "head-faculty", "head-academics", "head-permissions", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["institution_admin"], true), "head-students");
 
-  const teacherNav = buildNavigationItems(["subject_teacher"], true);
-  assert.ok(teacherNav.some((i) => i.route === "academics-offerings"));
-  assert.ok(teacherNav.some((i) => i.route === "sources"));
-  assert.equal(teacherNav.some((i) => i.route === "memberships"), false);
-  assert.equal(teacherNav.some((i) => i.route === "academics-campuses"), false);
+  const teacherSubjectNav = buildNavigationItems(["subject_teacher"], true);
+  assert.deepEqual(
+    teacherSubjectNav.map((i) => i.route),
+    ["teacher-subjects", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["subject_teacher"], true), "teacher-subjects");
+
+  const teacherCoordNav = buildNavigationItems(["class_coordinator"], true);
+  assert.deepEqual(
+    teacherCoordNav.map((i) => i.route),
+    ["teacher-class", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["class_coordinator"], true), "teacher-class");
+
+  const teacherBothNav = buildNavigationItems(["class_coordinator", "subject_teacher"], true);
+  assert.deepEqual(
+    teacherBothNav.map((i) => i.route),
+    ["teacher-class", "teacher-subjects", "account-password"],
+  );
 
   const studentNav = buildNavigationItems(["student"], true);
-  assert.ok(studentNav.some((i) => i.route === "academics-offerings"));
-  assert.ok(studentNav.some((i) => i.route === "sources"));
-  assert.ok(studentNav.some((i) => i.route === "guardians"));
+  assert.deepEqual(
+    studentNav.map((i) => i.route),
+    ["student-learning", "institution", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["student"], true), "student-learning");
+  assert.equal(studentNav.some((i) => i.route === "guardians"), false);
+  assert.equal(studentNav.some((i) => i.route === "health"), false);
 
-  const guardianNav = buildNavigationItems(["guardian"], true);
-  assert.ok(guardianNav.some((i) => i.route === "guardians"));
-  assert.equal(guardianNav.some((i) => i.route === "academics-offerings"), false);
-  assert.equal(guardianNav.some((i) => i.route === "sources"), false);
-
-  const futureModules = adminNav.filter((i) => i.section === "future");
-  assert.equal(futureModules.length, 4);
-  for (const mod of futureModules) {
-    assert.equal(mod.disabled, true);
-  }
+  const guardianOnlyNav = buildNavigationItems(["guardian"], true);
+  assert.deepEqual(
+    guardianOnlyNav.map((i) => i.route),
+    ["guardians", "account-password"],
+  );
+  assert.equal(defaultRouteForRoles(["guardian"], true), "guardians");
 
   const flags = deriveRoleFlags(["institution_owner", "department_head"]);
   assert.equal(flags.isOwner, true);
@@ -167,6 +188,15 @@ test("Validation and pagination state helpers validate inputs and maintain curso
 });
 
 import {
+  clearLearningSession,
+  formatSourcePageLabel,
+  loadLearningSession,
+  mapSessionDetailToChatEntries,
+  saveLearningSession,
+  toActiveAttachmentIds,
+  toActiveAttachmentRefs,
+} from "../features/learning/learningSessionState.ts";
+import {
   canOwnerStudentProcess,
   canTeacherManageSource,
   groundingTone,
@@ -201,4 +231,146 @@ test("Source authorization and badge helpers enforce role boundaries", () => {
   assert.equal(groundingTone("source_supported"), "success");
   assert.equal(groundingTone("learning_request"), "warning");
   assert.equal(reviewTone("approved"), "success");
+});
+
+test("Personal learning conversation state preserves across route transitions, scopes to user & institution, and clears on sign-out", () => {
+  const ctrl = buildTenantController([
+    { tenant_id: TENANT_A, name: "Northbridge College", roles: ["student"] },
+    { tenant_id: TENANT_B, name: "Southvale Institute", roles: ["student"] },
+  ]);
+  ctrl.selectInstitution(TENANT_A);
+
+  saveLearningSession(ctrl, {
+    userId: "user-1",
+    tenantId: TENANT_A,
+    sessionId: "sess-1",
+    sessionTitle: "Chain Rule",
+    mode: "explain",
+    prompt: "Follow up draft",
+    messages: [{ id: "m1", role: "user", content: "Explain chain rule" }],
+    attachments: [
+      {
+        included: true,
+        attachment: {
+          attachment_id: "att-1",
+          doc_sha256: "a".repeat(64),
+          title: "calculus.pdf",
+          original_filename: "calculus.pdf",
+          kind: "pdf",
+          input_format: "digital_pdf",
+          status: "ready",
+          status_message: "Extracted 2 pages.",
+          page_count: 2,
+          chunk_count: 3,
+          char_count: 420,
+          preview_excerpt: "Derivative notes...",
+          created_at: "2026-11-28T00:00:00Z",
+        },
+      },
+      {
+        included: true,
+        attachment: {
+          attachment_id: "att-2",
+          doc_sha256: "b".repeat(64),
+          title: "blank.png",
+          original_filename: "blank.png",
+          kind: "image",
+          input_format: "png",
+          status: "unreadable",
+          status_message: "No readable text found.",
+          page_count: 1,
+          chunk_count: 0,
+          char_count: 0,
+          preview_excerpt: null,
+          created_at: "2026-11-28T00:00:00Z",
+        },
+      },
+    ],
+    resources: [],
+  });
+
+  // Same user & tenant restores preserved conversation and active attachments
+  const restored = loadLearningSession(ctrl, "user-1", TENANT_A);
+  assert.equal(restored?.sessionId, "sess-1");
+  assert.equal(restored?.sessionTitle, "Chain Rule");
+  assert.equal(restored?.messages.length, 1);
+  assert.equal(restored?.prompt, "Follow up draft");
+  assert.equal(restored?.attachments.length, 2);
+  assert.deepEqual(toActiveAttachmentRefs(restored!.attachments), [
+    { attachment_id: "att-1", doc_sha256: "a".repeat(64) },
+  ]);
+  assert.deepEqual(toActiveAttachmentIds(restored!.attachments), ["att-1"]);
+  assert.deepEqual(
+    mapSessionDetailToChatEntries({
+      session_id: "sess-1",
+      title: "Chain Rule",
+      mode: "explain",
+      attachments: [],
+      messages: [
+        {
+          message_id: "m1",
+          sequence_no: 1,
+          role: "user",
+          content: "Explain chain rule",
+          mode: "explain",
+          attached_titles: ["calculus.pdf"],
+          sources: [],
+          follow_up_prompts: [],
+          truncated: false,
+          created_at: "2026-11-28T00:00:00Z",
+        },
+      ],
+      resources: [],
+      created_at: "2026-11-28T00:00:00Z",
+      updated_at: "2026-11-28T00:00:00Z",
+    }),
+    [
+      {
+        id: "m1",
+        role: "user",
+        content: "Explain chain rule",
+        mode: "explain",
+        attachedTitles: ["calculus.pdf"],
+        followUps: undefined,
+        sources: undefined,
+        truncated: false,
+      },
+    ],
+  );
+  assert.equal(
+    formatSourcePageLabel({
+      attachment_id: "att-1",
+      title: "calculus.pdf",
+      page_start: 2,
+      page_end: 2,
+      section_title: null,
+      excerpt: "text",
+    }),
+    "p. 2",
+  );
+
+  // Different user or tenant does not leak state or attachments
+  assert.equal(loadLearningSession(ctrl, "user-2", TENANT_A), null);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_B), null);
+
+  // Explicit New Topic clears active conversation and attachments
+  clearLearningSession(ctrl, "user-1", TENANT_A);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.messages.length, 0);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.attachments.length, 0);
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A)?.sessionId, null);
+
+  // Sign-out (ctrl.clear()) wipes cached conversation and attachments completely
+  saveLearningSession(ctrl, {
+    userId: "user-1",
+    tenantId: TENANT_A,
+    sessionId: "sess-1",
+    sessionTitle: "Active",
+    mode: "question",
+    prompt: "",
+    messages: [{ id: "m2", role: "user", content: "Active chat" }],
+    attachments: [],
+    resources: [],
+  });
+  ctrl.clear();
+  assert.equal(loadLearningSession(ctrl, "user-1", TENANT_A), null);
 });

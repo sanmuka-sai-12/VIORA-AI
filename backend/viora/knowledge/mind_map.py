@@ -1,0 +1,294 @@
+"""Bounded structured mind-map prompting, tree validation, and outline export."""
+
+from __future__ import annotations
+
+import json
+import re
+
+from pydantic import ValidationError
+
+from ..security import AccessError
+from .prompts import sanitize_untrusted_text
+from .schemas import MindMapGraph, MindMapNode, RawMindMapPayload
+
+MIND_MAP_SYSTEM_PROMPT = (
+    "You are VIORA, an academic tutor generating a compact concept mind map as raw JSON.\n"
+    "Return ONLY valid JSON (no markdown fences, no commentary) matching this exact shape:\n"
+    '{"title":"Topic","nodes":[{"id":"n1","parent_id":null,"label":"Root Concept","relation":null,"explanation":"Clear 1-sentence explanation.","key_formula":null},{"id":"n2","parent_id":"n1","label":"Subtopic","relation":"uses","explanation":"Clear 1-sentence explanation.","key_formula":"a^2+b^2=c^2"}]}\n'
+    "RULES:\n"
+    "- Produce 6 to 10 concise nodes so the entire JSON fits comfortably within 350 tokens.\n"
+    "- Exactly ONE root node with parent_id: null; 2 to 4 depth-1 branches and concise depth-2 children.\n"
+    "- Keep label 2-4 words, relation 1-3 words, explanation 1 concise sentence (<= 140 chars).\n"
+    "- Set key_formula to null unless mathematically relevant (clean LaTeX without outer $$).\n"
+    "- Do NOT include executable code unless the topic is explicitly programming.\n"
+    "- Ground concepts in the provided topic, conversation, and study material excerpts."
+)
+
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
+
+
+def _clean_text(value: str | None, *, max_len: int) -> str:
+    if not value:
+        return ""
+    sanitized, _ = sanitize_untrusted_text(" ".join(value.split()).strip())
+    if len(sanitized) <= max_len:
+        return sanitized
+    return sanitized[: max_len - 3].rstrip() + "..."
+
+
+def normalize_mind_map_payload(raw: RawMindMapPayload) -> MindMapGraph:
+    """Validate, repair dangling/cyclic parent links, and bound depths to 0..4."""
+    dedup_nodes: list[tuple[str, str | None, str, str | None, str, str | None]] = []
+    seen_ids: set[str] = set()
+
+    for idx, node in enumerate(raw.nodes[:16], start=1):
+        nid = _clean_text(node.id, max_len=32) or f"n{idx}"
+        if nid in seen_ids:
+            nid = f"n{idx}"
+        seen_ids.add(nid)
+
+        label = _clean_text(node.label, max_len=80)
+        explanation = _clean_text(node.explanation, max_len=280)
+        if not label or not explanation:
+            continue
+        parent = _clean_text(node.parent_id, max_len=32) or None
+        relation = _clean_text(node.relation, max_len=40) or None
+        formula = _clean_text(node.key_formula, max_len=120) or None
+        dedup_nodes.append((nid, parent, label, relation, explanation, formula))
+
+    if len(dedup_nodes) < 2:
+        raise AccessError(
+            422,
+            "mind_map_incomplete",
+            "Could not build a complete mind map from this output. Please narrow the topic or try regenerating.",
+        )
+
+    valid_ids = {item[0] for item in dedup_nodes}
+    # Choose the first rootless node (or first node overall) as canonical root.
+    root_id = next((item[0] for item in dedup_nodes if item[1] is None), dedup_nodes[0][0])
+
+    parent_map: dict[str, str | None] = {}
+    for nid, parent, *_ in dedup_nodes:
+        if nid == root_id:
+            parent_map[nid] = None
+        elif parent is None or parent not in valid_ids or parent == nid:
+            parent_map[nid] = root_id
+        else:
+            parent_map[nid] = parent
+
+    # Break any cycles cleanly by re-attaching back-edges to root_id.
+    depths: dict[str, int] = {root_id: 0}
+
+    def resolve_depth(node_id: str) -> int:
+        if node_id in depths:
+            return depths[node_id]
+        trail: list[str] = []
+        visiting: set[str] = set()
+        cur: str | None = node_id
+        while cur is not None and cur not in depths:
+            if cur in visiting:
+                # Cycle detected: break at `cur` by attaching to root_id.
+                parent_map[cur] = root_id
+                break
+            visiting.add(cur)
+            trail.append(cur)
+            cur = parent_map.get(cur)
+
+        base_depth = depths.get(cur, 0) if cur is not None else 0
+        for offset, item in enumerate(reversed(trail), start=1):
+            d = base_depth + offset
+            if d > 4:
+                # Clamp over-deep chains onto root_id cleanly.
+                parent_map[item] = root_id
+                depths[item] = 1
+            else:
+                depths[item] = d
+        return depths[node_id]
+
+    for nid, *_ in dedup_nodes:
+        resolve_depth(nid)
+
+    canonical_nodes: list[MindMapNode] = []
+    for nid, _, label, relation, explanation, formula in dedup_nodes:
+        resolved_parent = parent_map[nid]
+        canonical_nodes.append(
+            MindMapNode(
+                node_id=nid,
+                parent_id=resolved_parent,
+                depth=depths[nid],
+                label=label,
+                relation=None if nid == root_id else relation,
+                explanation=explanation,
+                key_formula=formula,
+            )
+        )
+
+    title = _clean_text(raw.title, max_len=120) or canonical_nodes[0].label
+    return MindMapGraph(title=title, root_id=root_id, nodes=tuple(canonical_nodes))
+
+
+def mind_map_to_markdown(graph: MindMapGraph) -> str:
+    """Render a clean hierarchical markdown outline for copy/fallback compatibility."""
+    children: dict[str | None, list[MindMapNode]] = {}
+    for node in graph.nodes:
+        children.setdefault(node.parent_id, []).append(node)
+
+    lines: list[str] = []
+
+    def walk(node: MindMapNode, indent: int) -> None:
+        prefix = "  " * indent
+        rel = f" *({node.relation})*" if node.relation else ""
+        formula = f" — `${node.key_formula}$`" if node.key_formula else ""
+        lines.append(f"{prefix}- **{node.label}**{rel}: {node.explanation}{formula}")
+        for child in children.get(node.node_id, ()):
+            walk(child, indent + 1)
+
+    for root in children.get(None, ()):
+        walk(root, 0)
+    return "\n".join(lines)
+
+
+def _extract_json_text(raw_content: str) -> str:
+    text = raw_content.strip()
+    if not text:
+        return ""
+    fence_match = _FENCED_JSON_RE.search(text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+    return text
+
+
+def _repair_llm_json(text: str) -> str:
+    """Repair common LLM JSON mistakes (unescaped LaTeX backslashes, trailing commas)
+    while strictly rejecting unbalanced/truncated JSON."""
+    out: list[str] = []
+    in_string = False
+    brace_depth = 0
+    bracket_depth = 0
+    i = 0
+    n = len(text)
+    hex_digits = "0123456789abcdefABCDEF"
+
+    while i < n:
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                if i + 1 >= n:
+                    raise json.JSONDecodeError("Dangling backslash in JSON string", text, i)
+                nxt = text[i + 1]
+                if nxt in ('"', "\\", "/", "n"):
+                    out.append("\\" + nxt)
+                    i += 2
+                elif (
+                    nxt == "u"
+                    and i + 5 < n
+                    and all(c in hex_digits for c in text[i + 2 : i + 6])
+                ):
+                    out.append(text[i : i + 6])
+                    i += 6
+                elif nxt in ("f", "b", "r", "t"):
+                    if i + 2 < n and text[i + 2].isalpha():
+                        # Likely a LaTeX macro such as \frac, \bar, \rho, \text, \to
+                        out.append("\\\\" + nxt)
+                    else:
+                        out.append("\\" + nxt)
+                    i += 2
+                else:
+                    # Invalid JSON escape such as \sum, \mu, \lim, \infty, \Pr, \{
+                    out.append("\\\\" + nxt)
+                    i += 2
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+                i += 1
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                i += 1
+                continue
+            if ch == "\r":
+                i += 1
+                continue
+            out.append(ch)
+            i += 1
+            continue
+
+        # Outside string literal
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+        elif ch == "{":
+            brace_depth += 1
+            out.append(ch)
+        elif ch == "}":
+            brace_depth -= 1
+            if brace_depth < 0:
+                raise json.JSONDecodeError("Unbalanced closing brace", text, i)
+            out.append(ch)
+        elif ch == "[":
+            bracket_depth += 1
+            out.append(ch)
+        elif ch == "]":
+            bracket_depth -= 1
+            if bracket_depth < 0:
+                raise json.JSONDecodeError("Unbalanced closing bracket", text, i)
+            out.append(ch)
+        elif ch == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in ("}", "]"):
+                # Drop trailing comma before closing delimiter
+                i += 1
+                continue
+            out.append(ch)
+        else:
+            out.append(ch)
+        i += 1
+
+    if in_string or brace_depth != 0 or bracket_depth != 0:
+        raise json.JSONDecodeError("Truncated or unbalanced JSON", text, n)
+    return "".join(out)
+
+
+def loads_llm_json(raw_content: str) -> object:
+    """Extract and parse JSON from an LLM response, repairing unescaped LaTeX and trailing commas."""
+    json_text = _extract_json_text(raw_content)
+    if not json_text:
+        raise json.JSONDecodeError("Empty JSON payload", raw_content, 0)
+    try:
+        return json.loads(json_text)
+    except json.JSONDecodeError:
+        repaired = _repair_llm_json(json_text)
+        return json.loads(repaired)
+
+
+def parse_mind_map_response(
+    raw_content: str,
+    *,
+    finish_reason: str | None = None,
+) -> MindMapGraph:
+    """Parse optional fenced JSON from complete(), validate schema, and normalize hierarchy."""
+    if finish_reason == "length":
+        raise AccessError(
+            422,
+            "mind_map_incomplete",
+            "The mind map output reached the response length limit before finishing. Try narrowing the focus topic or clicking Regenerate.",
+        )
+
+    try:
+        parsed_obj = loads_llm_json(raw_content)
+        raw_payload = RawMindMapPayload.model_validate(parsed_obj)
+    except (json.JSONDecodeError, ValidationError):
+        raise AccessError(
+            422,
+            "mind_map_incomplete",
+            "The mind map output was incomplete or malformed. Try narrowing the focus topic or clicking Regenerate.",
+        ) from None
+
+    return normalize_mind_map_payload(raw_payload)

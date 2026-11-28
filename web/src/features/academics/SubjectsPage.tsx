@@ -3,7 +3,7 @@ import type { SubjectSummary } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { DepartmentScopedCrudPage } from "./DepartmentScopedCrudPage";
 
-export function SubjectsPage() {
+export function SubjectsPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient } = useAuth();
   const config = useMemo(
     () => ({
@@ -48,5 +48,5 @@ export function SubjectsPage() {
     }),
     [apiClient],
   );
-  return <DepartmentScopedCrudPage<SubjectSummary> config={config} />;
+  return <DepartmentScopedCrudPage<SubjectSummary> config={config} embedded={embedded} />;
 }

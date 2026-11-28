@@ -126,10 +126,8 @@ export function LoginPage() {
               lineHeight: 1.45,
             }}
           >
-            Public self-registration is disabled. Accounts and institutional
-            memberships are provisioned by authorized operators and institutional
-            administrators. Access tokens are held in memory only; refresh cookies
-            are HttpOnly.
+            Sign in with your institution-verified email or phone number. Contact
+            your college administrator if you need account access.
           </p>
         </form>
       </SectionCard>

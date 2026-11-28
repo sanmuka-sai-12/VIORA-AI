@@ -44,6 +44,7 @@ class CompletionResult:
     model: str
     usage: Usage
     metadata: GatewayMetadata = field(default_factory=GatewayMetadata)
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)

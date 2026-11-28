@@ -38,7 +38,12 @@ from .document_contracts import (
     TableBlock,
     TextBlock,
 )
-from .extraction import AdaptiveDocumentExtractor, ExtractionCancelledError
+from .extraction import (
+    AdaptiveDocumentExtractor,
+    ExtractionCancelledError,
+    validate_and_sniff_text_input,
+    validate_and_sniff_upload,
+)
 from .ocr import (
     RAPIDOCR_EXTRACTOR_ID,
     RAPIDOCR_EXTRACTOR_VERSION,
@@ -115,6 +120,8 @@ __all__ = [
     "registered_table",
     "router",
     "source_directory",
+    "validate_and_sniff_text_input",
+    "validate_and_sniff_upload",
 ]
 
 registered_table = models.Source.__table__

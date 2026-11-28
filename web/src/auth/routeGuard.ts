@@ -1,17 +1,17 @@
 import type { AuthStatus } from "./session";
 
 export type AppRouteId =
+  | "root"
   | "login"
   | "institution"
-  | "academics-campuses"
-  | "academics-departments"
-  | "academics-programmes"
-  | "academics-calendar"
-  | "academics-sections"
-  | "academics-subjects"
-  | "academics-offerings"
-  | "sources"
-  | "memberships"
+  | "student-learning"
+  | "teacher-class"
+  | "teacher-subjects"
+  | "teacher-department"
+  | "head-students"
+  | "head-faculty"
+  | "head-academics"
+  | "head-permissions"
   | "guardians"
   | "account-password"
   | "health";
@@ -21,6 +21,7 @@ export interface RouteAccessInput {
   requestedRoute: AppRouteId;
   hasSelectedInstitution: boolean;
   tenantStatus?: "idle" | "loading" | "ready" | "error";
+  defaultRoute?: AppRouteId;
 }
 
 export interface RouteDecision {
@@ -33,15 +34,14 @@ export const PUBLIC_ROUTES = new Set<AppRouteId>(["login", "health"]);
 
 export const INSTITUTION_SCOPED_ROUTES = new Set<AppRouteId>([
   "institution",
-  "academics-campuses",
-  "academics-departments",
-  "academics-programmes",
-  "academics-calendar",
-  "academics-sections",
-  "academics-subjects",
-  "academics-offerings",
-  "sources",
-  "memberships",
+  "student-learning",
+  "teacher-class",
+  "teacher-subjects",
+  "teacher-department",
+  "head-students",
+  "head-faculty",
+  "head-academics",
+  "head-permissions",
   "guardians",
 ]);
 
@@ -51,6 +51,7 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     requestedRoute,
     hasSelectedInstitution,
     tenantStatus = "ready",
+    defaultRoute = "institution",
   } = input;
 
   if (requestedRoute === "health") {
@@ -73,24 +74,26 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     };
   }
 
-  // Authenticated user
-  if (requestedRoute === "login") {
-    return {
-      allowed: true,
-      effectiveRoute: "institution",
-      reason: "ok",
-    };
-  }
-
+  // Authenticated user: wait for initial institution discovery before resolving landing/scoped routes.
   if (
-    INSTITUTION_SCOPED_ROUTES.has(requestedRoute) &&
     !hasSelectedInstitution &&
-    (tenantStatus === "idle" || tenantStatus === "loading")
+    (tenantStatus === "idle" || tenantStatus === "loading") &&
+    (requestedRoute === "login" ||
+      requestedRoute === "root" ||
+      INSTITUTION_SCOPED_ROUTES.has(requestedRoute))
   ) {
     return {
       allowed: false,
       effectiveRoute: requestedRoute,
       reason: "initializing",
+    };
+  }
+
+  if (requestedRoute === "login" || requestedRoute === "root") {
+    return {
+      allowed: true,
+      effectiveRoute: hasSelectedInstitution ? defaultRoute : "institution",
+      reason: "ok",
     };
   }
 
@@ -113,35 +116,43 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
 }
 
 const PATH_TO_ROUTE: Record<string, AppRouteId> = {
-  "/": "institution",
+  "/": "root",
   "/login": "login",
   "/institution": "institution",
-  "/academics/campuses": "academics-campuses",
-  "/academics/departments": "academics-departments",
-  "/academics/programmes": "academics-programmes",
-  "/academics/calendar": "academics-calendar",
-  "/academics/sections": "academics-sections",
-  "/academics/subjects": "academics-subjects",
-  "/academics/offerings": "academics-offerings",
-  "/sources": "sources",
-  "/memberships": "memberships",
+  "/learning": "student-learning",
+  "/teaching/class": "teacher-class",
+  "/teaching/subjects": "teacher-subjects",
+  "/teaching/department": "teacher-department",
+  "/college/students": "head-students",
+  "/college/faculty": "head-faculty",
+  "/college/academics": "head-academics",
+  "/college/permissions": "head-permissions",
+  "/academics/campuses": "head-academics",
+  "/academics/departments": "head-academics",
+  "/academics/programmes": "head-academics",
+  "/academics/calendar": "head-academics",
+  "/academics/sections": "head-academics",
+  "/academics/subjects": "head-academics",
+  "/academics/offerings": "head-academics",
+  "/sources": "teacher-subjects",
+  "/memberships": "head-permissions",
   "/guardians": "guardians",
   "/account/password": "account-password",
   "/health": "health",
 };
 
 const ROUTE_TO_PATH: Record<AppRouteId, string> = {
+  root: "/",
   login: "/login",
   institution: "/institution",
-  "academics-campuses": "/academics/campuses",
-  "academics-departments": "/academics/departments",
-  "academics-programmes": "/academics/programmes",
-  "academics-calendar": "/academics/calendar",
-  "academics-sections": "/academics/sections",
-  "academics-subjects": "/academics/subjects",
-  "academics-offerings": "/academics/offerings",
-  sources: "/sources",
-  memberships: "/memberships",
+  "student-learning": "/learning",
+  "teacher-class": "/teaching/class",
+  "teacher-subjects": "/teaching/subjects",
+  "teacher-department": "/teaching/department",
+  "head-students": "/college/students",
+  "head-faculty": "/college/faculty",
+  "head-academics": "/college/academics",
+  "head-permissions": "/college/permissions",
   guardians: "/guardians",
   "account-password": "/account/password",
   health: "/health",
@@ -152,7 +163,7 @@ export function routeFromPathname(pathname: string): AppRouteId {
     pathname.length > 1 && pathname.endsWith("/")
       ? pathname.slice(0, -1)
       : pathname;
-  return PATH_TO_ROUTE[normalized] ?? "institution";
+  return PATH_TO_ROUTE[normalized] ?? "root";
 }
 
 export function pathnameForRoute(route: AppRouteId): string {

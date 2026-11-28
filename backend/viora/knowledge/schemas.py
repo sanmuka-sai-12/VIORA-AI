@@ -1188,3 +1188,367 @@ class LessonBlueprintApprovalState(Contract):
     published_by_user_id: UUID | None = None
     published_at: datetime | None = None
     updated_at: datetime
+
+
+LearningPromptMode = Literal["question", "explain"]
+LearningToolKind = Literal[
+    "study_notes",
+    "academic_insights",
+    "mind_map",
+    "flashcards",
+    "practice_quiz",
+    "practice_exam",
+]
+QuizDifficulty = Literal["easy", "medium", "hard"]
+FlashcardStatus = Literal["unseen", "known", "unknown"]
+LearningResourceSourceScope = Literal["topic", "conversation", "materials", "combined"]
+PersonalLearningAttachmentStatus = Literal["ready", "partial", "unreadable"]
+PersonalLearningAttachmentKind = Literal["pdf", "image", "text"]
+
+
+class PersonalLearningAttachment(Contract):
+    attachment_id: UUID
+    doc_sha256: Digest
+    title: str = Field(min_length=1, max_length=200)
+    original_filename: str | None = None
+    kind: PersonalLearningAttachmentKind
+    input_format: SourceInputFormat
+    status: PersonalLearningAttachmentStatus
+    status_message: str = Field(min_length=1, max_length=300)
+    page_count: int = Field(default=1, ge=0)
+    chunk_count: int = Field(default=0, ge=0)
+    char_count: int = Field(default=0, ge=0)
+    preview_excerpt: str | None = None
+    created_at: datetime
+
+
+class PersonalLearningAttachmentRef(Contract):
+    attachment_id: UUID
+    doc_sha256: Digest
+
+
+class PersonalLearningAttachmentTextRequest(Contract):
+    title: str | None = Field(default=None, max_length=200)
+    content: str = Field(min_length=1, max_length=200_000)
+
+
+class PersonalLearningSourceRef(Contract):
+    attachment_id: UUID
+    title: str
+    page_start: int = Field(ge=1)
+    page_end: int = Field(ge=1)
+    section_title: str | None = None
+    excerpt: str
+
+
+class PersonalLearningTurn(Contract):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class PersonalLearningRequest(Contract):
+    prompt: str = Field(min_length=1, max_length=2000)
+    mode: LearningPromptMode = "question"
+    session_id: UUID | None = None
+    history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
+    attachments: tuple[PersonalLearningAttachmentRef, ...] = Field(
+        default=(), max_length=5
+    )
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5)
+
+
+class PersonalLearningResponse(Contract):
+    answer: str
+    mode: LearningPromptMode
+    model: str
+    provider: str
+    session_id: UUID | None = None
+    session_title: str | None = None
+    follow_up_prompts: tuple[str, ...] = ()
+    sources: tuple[PersonalLearningSourceRef, ...] = ()
+    usage_tokens: int = Field(default=0, ge=0)
+    truncated: bool = False
+
+
+class PersonalLearningSessionSummary(Contract):
+    session_id: UUID
+    title: str
+    mode: LearningPromptMode
+    message_count: int = Field(ge=0)
+    last_message_preview: str | None = None
+    attachment_ids: tuple[UUID, ...] = ()
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalLearningMessageRecord(Contract):
+    message_id: UUID
+    sequence_no: int = Field(ge=1)
+    role: Literal["user", "assistant"]
+    content: str
+    mode: LearningPromptMode
+    attached_titles: tuple[str, ...] = ()
+    sources: tuple[PersonalLearningSourceRef, ...] = ()
+    follow_up_prompts: tuple[str, ...] = ()
+    truncated: bool = False
+    created_at: datetime
+
+
+class RawMindMapNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=32)
+    parent_id: str | None = Field(default=None, max_length=32)
+    label: str = Field(min_length=1, max_length=80)
+    relation: str | None = Field(default=None, max_length=40)
+    explanation: str = Field(min_length=1, max_length=280)
+    key_formula: str | None = Field(default=None, max_length=120)
+
+
+class RawMindMapPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=120)
+    nodes: list[RawMindMapNode] = Field(min_length=2, max_length=18)
+
+
+class MindMapNode(Contract):
+    node_id: str = Field(min_length=1, max_length=32)
+    parent_id: str | None = None
+    depth: int = Field(ge=0, le=4)
+    label: str = Field(min_length=1, max_length=80)
+    relation: str | None = None
+    explanation: str = Field(min_length=1, max_length=280)
+    key_formula: str | None = None
+
+
+class MindMapGraph(Contract):
+    title: str = Field(min_length=1, max_length=120)
+    root_id: str
+    nodes: tuple[MindMapNode, ...]
+
+
+class RawFlashcardItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    front: str = Field(min_length=1, max_length=240)
+    back: str = Field(min_length=1, max_length=400)
+    hint: str | None = Field(default=None, max_length=160)
+
+
+class RawFlashcardsPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=160)
+    cards: list[RawFlashcardItem] = Field(min_length=2, max_length=10)
+
+
+class FlashcardItem(Contract):
+    card_id: str
+    front: str
+    back: str
+    hint: str | None = None
+    status: FlashcardStatus = "unseen"
+
+
+class FlashcardDeck(Contract):
+    title: str
+    cards: tuple[FlashcardItem, ...]
+
+
+class FlashcardProgressUpdateRequest(Contract):
+    statuses: dict[str, FlashcardStatus] = Field(min_length=1, max_length=20)
+
+
+class RawPracticeQuizQuestion(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    prompt: str = Field(min_length=1, max_length=320)
+    options: list[str] = Field(min_length=4, max_length=4)
+    correct_index: int = Field(ge=0, le=3)
+    explanation: str = Field(min_length=1, max_length=400)
+    topic: str | None = Field(default=None, max_length=80)
+
+
+class RawPracticeQuizPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=160)
+    questions: list[RawPracticeQuizQuestion] = Field(min_length=2, max_length=8)
+
+
+class StudentSafeQuizQuestion(Contract):
+    """Student-facing quiz question with server-held answer keys stripped."""
+
+    question_id: str
+    prompt: str
+    options: tuple[str, ...]
+
+
+class PracticeQuizQuestionResult(Contract):
+    question_id: str
+    prompt: str
+    options: tuple[str, ...]
+    selected_index: int = Field(ge=0, le=3)
+    correct_index: int = Field(ge=0, le=3)
+    is_correct: bool
+    explanation: str
+
+
+class PracticeQuizAttemptRecord(Contract):
+    attempt_id: UUID
+    score: int = Field(ge=0)
+    total_questions: int = Field(ge=1)
+    percentage: int = Field(ge=0, le=100)
+    submitted_at: datetime
+    results: tuple[PracticeQuizQuestionResult, ...]
+
+
+class PracticeQuizData(Contract):
+    title: str
+    difficulty: QuizDifficulty
+    questions: tuple[StudentSafeQuizQuestion, ...]
+    attempts: tuple[PracticeQuizAttemptRecord, ...] = ()
+
+
+class PracticeQuizSubmitRequest(Contract):
+    answers: dict[str, int] = Field(min_length=1, max_length=12)
+
+
+class PracticeExamQuestion(Contract):
+    """Student-facing exam question with server-held answer keys stripped."""
+
+    question_id: str
+    prompt: str
+    options: tuple[str, ...]
+    topic_tag: str
+
+
+class PracticeExamActiveAttempt(Contract):
+    attempt_id: UUID
+    started_at: datetime
+    expires_at: datetime
+    server_now: datetime
+    remaining_seconds: int = Field(ge=0)
+    answers: dict[str, int] = Field(default_factory=dict)
+    marked_for_review: tuple[str, ...] = ()
+
+
+class PracticeExamTopicPerformance(Contract):
+    topic: str
+    correct: int = Field(ge=0)
+    total: int = Field(ge=1)
+    percentage: int = Field(ge=0, le=100)
+
+
+class PracticeExamQuestionResult(Contract):
+    question_id: str
+    topic_tag: str
+    prompt: str
+    options: tuple[str, ...]
+    selected_index: int | None = Field(default=None, ge=0, le=3)
+    correct_index: int = Field(ge=0, le=3)
+    is_correct: bool
+    explanation: str
+
+
+class PracticeExamAttemptRecord(Contract):
+    attempt_id: UUID
+    score: int = Field(ge=0)
+    total_questions: int = Field(ge=1)
+    percentage: int = Field(ge=0, le=100)
+    started_at: datetime
+    submitted_at: datetime
+    duration_seconds: int = Field(ge=0)
+    timed_out: bool = False
+    topic_breakdown: tuple[PracticeExamTopicPerformance, ...] = ()
+    results: tuple[PracticeExamQuestionResult, ...]
+
+
+class PracticeExamData(Contract):
+    title: str
+    difficulty: QuizDifficulty
+    question_count: int = Field(ge=5, le=20)
+    duration_minutes: int = Field(ge=5, le=60)
+    questions: tuple[PracticeExamQuestion, ...]
+    active_attempt: PracticeExamActiveAttempt | None = None
+    attempts: tuple[PracticeExamAttemptRecord, ...] = ()
+
+
+class PracticeExamProgressUpdateRequest(Contract):
+    attempt_id: UUID
+    answers: dict[str, int] = Field(default_factory=dict, max_length=25)
+    marked_for_review: tuple[str, ...] = Field(default=(), max_length=25)
+
+
+class PracticeExamSubmitRequest(Contract):
+    attempt_id: UUID
+    answers: dict[str, int] = Field(default_factory=dict, max_length=25)
+    auto_submitted: bool = False
+
+
+class PersonalLearningStudyResource(Contract):
+    resource_id: UUID
+    session_id: UUID
+    session_title: str | None = None
+    tool_kind: LearningToolKind
+    source_scope: LearningResourceSourceScope
+    title: str
+    focus_topic: str | None = None
+    content: str
+    mind_map: MindMapGraph | None = None
+    flashcards: FlashcardDeck | None = None
+    practice_quiz: PracticeQuizData | None = None
+    practice_exam: PracticeExamData | None = None
+    sources: tuple[PersonalLearningSourceRef, ...] = ()
+    model: str
+    provider: str
+    usage_tokens: int = Field(default=0, ge=0)
+    truncated: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalLearningResourceGenerateRequest(Contract):
+    tool_kind: LearningToolKind
+    session_id: UUID | None = None
+    topic: str | None = Field(default=None, max_length=500)
+    difficulty: QuizDifficulty = "medium"
+    exam_question_count: int = Field(default=10, ge=5, le=20)
+    exam_duration_minutes: int = Field(default=15, ge=5, le=60)
+    include_conversation: bool = True
+    history: tuple[PersonalLearningTurn, ...] = Field(default=(), max_length=10)
+    attachments: tuple[PersonalLearningAttachmentRef, ...] = Field(
+        default=(), max_length=5
+    )
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5)
+    replace_resource_id: UUID | None = None
+
+
+class PersonalLearningSessionDetail(Contract):
+    session_id: UUID
+    title: str
+    mode: LearningPromptMode
+    attachments: tuple[PersonalLearningAttachment, ...] = ()
+    messages: tuple[PersonalLearningMessageRecord, ...] = ()
+    resources: tuple[PersonalLearningStudyResource, ...] = ()
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalLearningSessionCreateRequest(Contract):
+    title: str | None = Field(default=None, max_length=200)
+    mode: LearningPromptMode = "question"
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5)
+
+
+class PersonalLearningSessionUpdateRequest(Contract):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    mode: LearningPromptMode | None = None
+    attachment_ids: tuple[UUID, ...] | None = Field(default=None, max_length=5)
+
+
+class PersonalLearningDeleteResult(Contract):
+    deleted: bool = True
+
+

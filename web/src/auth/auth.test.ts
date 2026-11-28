@@ -374,7 +374,7 @@ test("Route guard enforces authentication and institution selection without clob
   assert.equal(
     evaluateRouteAccess({
       authStatus: "initializing",
-      requestedRoute: "academics-departments",
+      requestedRoute: "head-academics",
       hasSelectedInstitution: false,
     }).reason,
     "initializing",
@@ -383,7 +383,7 @@ test("Route guard enforces authentication and institution selection without clob
   assert.equal(
     evaluateRouteAccess({
       authStatus: "unauthenticated",
-      requestedRoute: "memberships",
+      requestedRoute: "head-permissions",
       hasSelectedInstitution: false,
     }).effectiveRoute,
     "login",
@@ -402,9 +402,21 @@ test("Route guard enforces authentication and institution selection without clob
   assert.equal(
     evaluateRouteAccess({
       authStatus: "authenticated",
-      requestedRoute: "academics-departments",
+      requestedRoute: "head-academics",
       hasSelectedInstitution: false,
       tenantStatus: "loading",
+    }).reason,
+    "initializing",
+  );
+
+  // Authenticated login/root while tenant discovery is still running waits for role default
+  assert.equal(
+    evaluateRouteAccess({
+      authStatus: "authenticated",
+      requestedRoute: "login",
+      hasSelectedInstitution: false,
+      tenantStatus: "loading",
+      defaultRoute: "student-learning",
     }).reason,
     "initializing",
   );
@@ -413,24 +425,37 @@ test("Route guard enforces authentication and institution selection without clob
   assert.equal(
     evaluateRouteAccess({
       authStatus: "authenticated",
-      requestedRoute: "academics-departments",
+      requestedRoute: "head-academics",
       hasSelectedInstitution: false,
       tenantStatus: "ready",
     }).effectiveRoute,
     "institution",
   );
 
+  // Authenticated root/login with selected institution uses role-specific default route
+  assert.equal(
+    evaluateRouteAccess({
+      authStatus: "authenticated",
+      requestedRoute: "root",
+      hasSelectedInstitution: true,
+      tenantStatus: "ready",
+      defaultRoute: "student-learning",
+    }).effectiveRoute,
+    "student-learning",
+  );
+
   // Selected institution -> permits scoped routes
   assert.equal(
     evaluateRouteAccess({
       authStatus: "authenticated",
-      requestedRoute: "academics-offerings",
+      requestedRoute: "teacher-subjects",
       hasSelectedInstitution: true,
       tenantStatus: "ready",
     }).effectiveRoute,
-    "academics-offerings",
+    "teacher-subjects",
   );
 
-  assert.equal(routeFromPathname("/academics/offerings/"), "academics-offerings");
-  assert.equal(pathnameForRoute("memberships"), "/memberships");
+  assert.equal(routeFromPathname("/academics/offerings/"), "head-academics");
+  assert.equal(routeFromPathname("/learning/"), "student-learning");
+  assert.equal(pathnameForRoute("head-permissions"), "/college/permissions");
 });

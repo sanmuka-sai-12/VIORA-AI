@@ -11,7 +11,7 @@ import { useActionFeedback } from "../common/useActionFeedback";
 import { useCursorList } from "../common/useCursorList";
 import { resolveLabelById, useTenantOptions } from "../common/useTenantOptions";
 
-export function SectionsPage() {
+export function SectionsPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient } = useAuth();
   const { snapshot: tenant } = useTenant();
   const tenantId = tenant.selectedTenantId;
@@ -122,14 +122,16 @@ export function SectionsPage() {
 
   return (
     <div className="viora-stack">
-      <PageHeader
-        title="Class Sections & Coordinators"
-        subtitle={
-          flags.isAdmin
-            ? "Create student cohorts tied to semesters/programmes and assign class coordinators."
-            : "Class sections assigned to your coordination scope."
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          title="Class Sections & Coordinators"
+          subtitle={
+            flags.isAdmin
+              ? "Create student cohorts tied to semesters/programmes and assign class coordinators."
+              : "Class sections assigned to your coordination scope."
+          }
+        />
+      )}
       {feedback.alerts}
       <AcademicCrudSection
         entityLabel="Section"

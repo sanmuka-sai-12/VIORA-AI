@@ -1,25 +1,33 @@
-import { useEffect, useState, type FormEvent } from "react";
-import {
-  normalizeApiError,
-  type InstitutionInfo,
-  type InstitutionRole,
-  type NormalizedApiError,
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import type {
+  InstitutionRole,
+  SourceSummary,
+  SubjectOfferingSummary,
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import type { AppRouteId } from "../../auth/routeGuard";
 import {
-  ActiveBadge,
   AlertBanner,
+  DataTable,
   FormField,
   PageHeader,
+  PaginationBar,
   SectionCard,
   StatusBadge,
   UuidChip,
 } from "../../components/common/UiPrimitives";
 import { ErrorState, LoadingSpinner } from "../../components/common/FeedbackStates";
-import { deriveRoleFlags, ROLE_LABELS } from "../../tenant/navigation";
+import {
+  defaultRouteForRoles,
+  deriveRoleFlags,
+  ROLE_LABELS,
+} from "../../tenant/navigation";
 import { useTenant } from "../../tenant/TenantContext";
-import { validateRequiredName } from "../../tenant/validation";
+import { useActionFeedback } from "../common/useActionFeedback";
+import { useCursorList } from "../common/useCursorList";
+import { OfferingQAPanel } from "../sources/OfferingQAPanel";
+import { SourceKnowledgePanel } from "../sources/SourceKnowledgePanel";
+import { buildSourceUploadFormData } from "../sources/sourceHelpers";
 
 export function InstitutionOverviewPage({
   onNavigate,
@@ -28,85 +36,103 @@ export function InstitutionOverviewPage({
 }) {
   const { apiClient, controller: authController, snapshot: auth } = useAuth();
   const { snapshot: tenant, controller: tenantController } = useTenant();
+  const feedback = useActionFeedback();
 
   const selected = tenant.selectedInstitution;
+  const tenantId = selected?.tenant_id ?? null;
   const flags = deriveRoleFlags(selected?.roles ?? []);
 
-  const [details, setDetails] = useState<InstitutionInfo | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState<NormalizedApiError | null>(null);
+  const [offerings, setOfferings] = useState<SubjectOfferingSummary[]>([]);
+  const [offeringsLoading, setOfferingsLoading] = useState(false);
+  const [selectedOfferingId, setSelectedOfferingId] = useState("");
+  const [selectedSource, setSelectedSource] = useState<SourceSummary | null>(null);
 
-  const [editName, setEditName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<NormalizedApiError | null>(null);
+  const [noteMode, setNoteMode] = useState<"text" | "file">("text");
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [noteFile, setNoteFile] = useState<File | null>(null);
+  const [submittingNote, setSubmittingNote] = useState(false);
 
   useEffect(() => {
-    setDetails(null);
-    setDetailsError(null);
-    setSaveMessage(null);
-    setSaveError(null);
-
-    if (!selected || !flags.isAdmin) {
-      setEditName(selected?.name ?? "");
+    setOfferings([]);
+    setSelectedOfferingId("");
+    setSelectedSource(null);
+    if (
+      !selected ||
+      (!flags.isStudent && !flags.isSubjectTeacher && !flags.isClassCoordinator)
+    ) {
       return;
     }
 
-    setEditName(selected.name);
     let cancelled = false;
-    setDetailsLoading(true);
+    setOfferingsLoading(true);
 
     void authController
       .runWithFreshToken(() =>
-        apiClient.GET("/api/v1/institutions/{tenant_id}", {
-          params: { path: { tenant_id: selected.tenant_id } },
+        apiClient.GET("/api/v1/tenants/{tenant_id}/offerings", {
+          params: { path: { tenant_id: selected.tenant_id }, query: { limit: 100 } },
         }),
       )
       .then((res) => {
-        if (cancelled) {
-          return;
-        }
-        if (res.data) {
-          setDetails(res.data);
-          setEditName(res.data.name);
-        } else {
-          setDetailsError(
-            normalizeApiError(
-              res.error,
-              res.response.status,
-              "Unable to fetch institution metadata.",
-            ),
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDetailsError({
-            status: 0,
-            code: "network_error",
-            message: "Unable to communicate with backend service.",
-          });
+        if (!cancelled && res.data) {
+          setOfferings(res.data.items);
+          if (res.data.items.length > 0) {
+            setSelectedOfferingId((prev) =>
+              prev && res.data!.items.some((o) => o.id === prev)
+                ? prev
+                : res.data!.items[0].id,
+            );
+          }
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setDetailsLoading(false);
+          setOfferingsLoading(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [apiClient, authController, flags.isAdmin, selected?.tenant_id]);
+  }, [
+    apiClient,
+    authController,
+    flags.isClassCoordinator,
+    flags.isStudent,
+    flags.isSubjectTeacher,
+    selected,
+  ]);
+
+  useEffect(() => {
+    setSelectedSource(null);
+  }, [selectedOfferingId]);
+
+  const sourcesFetcher = useCallback(
+    ({ cursor, limit }: { cursor?: string; limit: number }) =>
+      apiClient.GET("/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources", {
+        params: {
+          path: { tenant_id: tenantId!, offering_id: selectedOfferingId },
+          query: { cursor, limit },
+        },
+      }),
+    [apiClient, selectedOfferingId, tenantId],
+  );
+
+  const sourcesList = useCursorList<SourceSummary>(
+    tenantId && selectedOfferingId && flags.isStudent
+      ? `${tenantId}:${selectedOfferingId}`
+      : null,
+    sourcesFetcher,
+  );
 
   if (tenant.status === "loading" || tenant.status === "idle") {
-    return <LoadingSpinner message="Discovering your active institutions..." />;
+    return <LoadingSpinner message="Loading your institutions..." />;
   }
 
   if (tenant.status === "error") {
     return (
       <ErrorState
-        title="Unable to discover institutions"
+        title="Unable to load institutions"
         message={tenant.error?.message}
         onRetry={() => void tenantController.discover()}
       />
@@ -118,19 +144,21 @@ export function InstitutionOverviewPage({
       <div className="viora-stack">
         <PageHeader
           title="No Active Institutional Memberships"
-          subtitle="Your global identity is verified, but you have no active memberships in any institution."
+          subtitle="Your account is signed in, but it is not yet associated with an institution."
         />
         <SectionCard title="Next Step">
           <div className="viora-stack">
             <p style={{ fontSize: "0.9rem" }}>
-              Share your global User ID below with an institutional administrator or
-              operator so they can add your membership and assign a role.
+              Contact your college administrator to add you to an institution.
             </p>
             {auth.user && (
-              <div className="viora-row">
-                <strong>Your User ID:</strong>
-                <UuidChip value={auth.user.user_id} />
-              </div>
+              <details className="viora-details">
+                <summary>Share User ID with your administrator</summary>
+                <div className="viora-row">
+                  <strong>User ID:</strong>
+                  <UuidChip value={auth.user.user_id} />
+                </div>
+              </details>
             )}
             <div>
               <button
@@ -152,7 +180,7 @@ export function InstitutionOverviewPage({
       <div className="viora-stack">
         <PageHeader
           title="Select an Institution"
-          subtitle="Your account holds active memberships in multiple institutions. Choose one to enter its isolated workspace."
+          subtitle="Choose an institution to open your workspace."
         />
         <div className="viora-grid-2">
           {tenant.institutions.map((inst) => (
@@ -163,28 +191,26 @@ export function InstitutionOverviewPage({
                 <button
                   type="button"
                   className="viora-btn viora-btn-primary viora-btn-sm"
-                  onClick={() => tenantController.selectInstitution(inst.tenant_id)}
+                  onClick={() => {
+                    if (tenantController.selectInstitution(inst.tenant_id)) {
+                      onNavigate(defaultRouteForRoles(inst.roles, true));
+                    }
+                  }}
                 >
                   Open workspace
                 </button>
               }
             >
-              <div className="viora-stack">
-                <div className="viora-row">
-                  <span className="viora-field-hint">Tenant ID:</span>
-                  <UuidChip value={inst.tenant_id} />
-                </div>
-                <div className="viora-row">
-                  {inst.roles.length === 0 ? (
-                    <StatusBadge tone="neutral">No role hints</StatusBadge>
-                  ) : (
-                    inst.roles.map((r) => (
-                      <StatusBadge key={r} tone="brand">
-                        {ROLE_LABELS[r as InstitutionRole] ?? r}
-                      </StatusBadge>
-                    ))
-                  )}
-                </div>
+              <div className="viora-row">
+                {inst.roles.length === 0 ? (
+                  <StatusBadge tone="neutral">Member</StatusBadge>
+                ) : (
+                  inst.roles.map((r) => (
+                    <StatusBadge key={r} tone="brand">
+                      {ROLE_LABELS[r as InstitutionRole] ?? r}
+                    </StatusBadge>
+                  ))
+                )}
               </div>
             </SectionCard>
           ))}
@@ -193,85 +219,105 @@ export function InstitutionOverviewPage({
     );
   }
 
-  const handleSaveMetadata = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaveMessage(null);
-    setSaveError(null);
+  const activeOffering = offerings.find((o) => o.id === selectedOfferingId) ?? null;
+  const teacherLessons = sourcesList.items.filter(
+    (item) => item.origin_kind === "teacher_resource",
+  );
+  const personalNotes = sourcesList.items.filter(
+    (item) => item.origin_kind === "student_submission",
+  );
 
-    const problem = validateRequiredName(editName, "Institution name", 160);
-    if (problem) {
-      setSaveError({
-        status: 422,
-        code: "validation_error",
-        message: problem,
-      });
+  const handleSubmitNote = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!tenantId || !selectedOfferingId) return;
+    if (!noteTitle.trim()) {
+      feedback.setValidationError("Title is required.");
+      return;
+    }
+    if (noteMode === "file" && !noteFile) {
+      feedback.setValidationError("Select a file to upload.");
       return;
     }
 
-    setSaving(true);
-    try {
-      const res = await authController.runWithFreshToken(() =>
-        apiClient.PATCH("/api/v1/institutions/{tenant_id}", {
-          params: { path: { tenant_id: selected.tenant_id } },
-          body: { name: editName.trim() },
-        }),
-      );
-      if (res.data) {
-        setDetails(res.data);
-        setEditName(res.data.name);
-        tenantController.updateInstitutionNameLocal(
-          selected.tenant_id,
-          res.data.name,
+    await feedback.runApiAction({
+      setBusy: setSubmittingNote,
+      call: () =>
+        noteMode === "text"
+          ? apiClient.POST(
+              "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources",
+              {
+                params: {
+                  path: { tenant_id: tenantId, offering_id: selectedOfferingId },
+                },
+                body: {
+                  title: noteTitle.trim(),
+                  input_format: "typed_notes",
+                  content: noteContent,
+                  origin_kind: "student_submission",
+                  visibility: "owner_private",
+                },
+              },
+            )
+          : apiClient.POST(
+              "/api/v1/tenants/{tenant_id}/offerings/{offering_id}/sources/files",
+              {
+                params: {
+                  path: { tenant_id: tenantId, offering_id: selectedOfferingId },
+                },
+                body: buildSourceUploadFormData({
+                  title: noteTitle,
+                  file: noteFile!,
+                  originKind: "student_submission",
+                  visibility: "owner_private",
+                }) as never,
+              },
+            ),
+      fallbackError: "Unable to submit personal study notes.",
+      onSuccess: (data) => {
+        setNoteTitle("");
+        setNoteContent("");
+        setNoteFile(null);
+        setSelectedSource(data.source);
+        feedback.setActionSuccess(
+          `Saved personal study note "${data.source.title}".`,
         );
-        setSaveMessage("Institution metadata saved.");
-      } else {
-        setSaveError(
-          normalizeApiError(
-            res.error,
-            res.response.status,
-            "Failed to update institution metadata.",
-          ),
-        );
-      }
-    } catch {
-      setSaveError({
-        status: 0,
-        code: "network_error",
-        message: "Unable to communicate with backend service.",
-      });
-    } finally {
-      setSaving(false);
-    }
+        sourcesList.resetToFirstPage();
+        sourcesList.reload();
+      },
+    });
   };
 
   return (
     <div className="viora-stack">
       <PageHeader
-        title={details?.name ?? selected.name}
-        subtitle="Institutional context and role-scoped navigation."
+        title={selected.name}
+        subtitle="Your enrolled subjects, published course materials, and subject-grounded Q&A."
         actions={
-          details ? <ActiveBadge active={details.active} /> : undefined
+          flags.isStudent ? (
+            <button
+              type="button"
+              className="viora-btn"
+              onClick={() => onNavigate("student-learning")}
+            >
+              Open Personal Learning
+            </button>
+          ) : undefined
         }
       />
 
-      <SectionCard
-        title="Workspace Summary"
-        subtitle="Discovery roles below are navigation hints only; all endpoint permissions and RLS tenant isolation are enforced by the backend."
-      >
+      {feedback.alerts}
+
+      <SectionCard title="Membership">
         <div className="viora-grid-2">
           <div>
-            <div className="viora-field-hint">Tenant UUID</div>
-            <UuidChip value={selected.tenant_id} />
+            <div className="viora-field-hint">Institution</div>
+            <strong>{selected.name}</strong>
           </div>
           <div>
-            <div className="viora-field-hint">Your User UUID</div>
-            {auth.user && <UuidChip value={auth.user.user_id} />}
-          </div>
-          <div>
-            <div className="viora-field-hint">Assigned Roles in Institution</div>
+            <div className="viora-field-hint">Your Roles</div>
             <div className="viora-row" style={{ marginTop: "0.25rem" }}>
               {selected.roles.length === 0 ? (
-                <StatusBadge tone="neutral">Member (no active role)</StatusBadge>
+                <StatusBadge tone="neutral">Member (no assigned role)</StatusBadge>
               ) : (
                 selected.roles.map((r) => (
                   <StatusBadge key={r} tone="brand">
@@ -284,167 +330,247 @@ export function InstitutionOverviewPage({
         </div>
       </SectionCard>
 
-      {flags.isAdmin && (
+      {flags.isStudent && (
         <SectionCard
-          title="Institution Metadata"
-          subtitle="Update the institution's display name."
+          title="My Enrolled Subjects"
+          subtitle="Select an enrolled subject to view published lessons and ask questions grounded in teacher materials."
         >
-          {detailsLoading && <LoadingSpinner message="Loading institution record..." />}
-          {detailsError && (
+          {offeringsLoading ? (
+            <LoadingSpinner message="Loading your enrolled subjects..." />
+          ) : offerings.length === 0 ? (
             <AlertBanner
-              tone="error"
-              title="Could not load institution record"
-              error={detailsError}
+              tone="info"
+              message="You are not enrolled in any active subject offerings yet. You can still use Personal Learning anytime for independent study."
             />
-          )}
-          {!detailsLoading && !detailsError && (
-            <form
-              onSubmit={handleSaveMetadata}
-              className="viora-stack"
-              style={{ maxWidth: "460px" }}
-            >
-              {saveMessage && (
-                <AlertBanner tone="success" message={saveMessage} />
-              )}
-              {saveError && (
-                <AlertBanner
-                  tone="error"
-                  title="Update rejected"
-                  error={saveError}
-                />
-              )}
-              <FormField label="Institution name" htmlFor="inst-name-input">
-                <input
-                  id="inst-name-input"
-                  type="text"
-                  className="viora-input"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  disabled={saving}
-                  required
-                />
-              </FormField>
-              <div>
-                <button
-                  type="submit"
-                  className="viora-btn viora-btn-primary"
-                  disabled={saving}
-                >
-                  {saving ? "Saving..." : "Save metadata"}
-                </button>
-              </div>
-            </form>
+          ) : (
+            <div className="viora-subject-grid">
+              {offerings.map((o) => {
+                const isSelected = o.id === selectedOfferingId;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className={`viora-subject-card ${isSelected ? "is-selected" : ""}`}
+                    onClick={() => setSelectedOfferingId(o.id)}
+                  >
+                    <strong style={{ color: "var(--color-brand-primary)" }}>
+                      {o.name}
+                    </strong>
+                    <span className="viora-field-hint">
+                      {isSelected ? "Selected subject" : "Select to view lessons & Q&A"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </SectionCard>
       )}
 
-      <SectionCard
-        title="Available Actions for Your Roles"
-        subtitle="Jump directly to permitted workflows for this institution."
-      >
-        <div className="viora-row">
-          {flags.isAdmin && (
-            <>
-              <button
-                type="button"
-                className="viora-btn viora-btn-primary"
-                onClick={() => onNavigate("memberships")}
-              >
-                Manage Members & Roles
-              </button>
-              <button
-                type="button"
-                className="viora-btn"
-                onClick={() => onNavigate("academics-campuses")}
-              >
-                Manage Campuses
-              </button>
-              <button
-                type="button"
-                className="viora-btn"
-                onClick={() => onNavigate("academics-departments")}
-              >
-                Manage Departments
-              </button>
-              <button
-                type="button"
-                className="viora-btn"
-                onClick={() => onNavigate("academics-offerings")}
-              >
-                Manage Offerings & Enrolments
-              </button>
-              <button
-                type="button"
-                className="viora-btn"
-                onClick={() => onNavigate("guardians")}
-              >
-                Guardian Links
-              </button>
-            </>
-          )}
-
-          {!flags.isAdmin && flags.isDepartmentHead && (
-            <>
-              <button
-                type="button"
-                className="viora-btn viora-btn-primary"
-                onClick={() => onNavigate("academics-departments")}
-              >
-                View My Departments
-              </button>
-              <button
-                type="button"
-                className="viora-btn"
-                onClick={() => onNavigate("academics-programmes")}
-              >
-                View Programmes
-              </button>
-              <button
-                type="button"
-                className="viora-btn"
-                onClick={() => onNavigate("academics-subjects")}
-              >
-                View Subjects
-              </button>
-            </>
-          )}
-
-          {!flags.isAdmin && flags.isClassCoordinator && (
-            <button
-              type="button"
-              className="viora-btn viora-btn-primary"
-              onClick={() => onNavigate("academics-sections")}
-            >
-              View Coordinated Sections
-            </button>
-          )}
-
-          {!flags.isAdmin &&
-            (flags.isSubjectTeacher || flags.isStudent || flags.isClassCoordinator) && (
-              <button
-                type="button"
-                className="viora-btn viora-btn-primary"
-                onClick={() => onNavigate("academics-offerings")}
-              >
-                {flags.isStudent
-                  ? "View My Enrolled Offerings"
-                  : "View Assigned Offerings"}
-              </button>
+      {flags.isStudent && tenantId && selectedOfferingId && (
+        <>
+          <SectionCard
+            title={`Published Lessons — ${activeOffering?.name ?? "Subject"}`}
+            subtitle="Teacher-published course materials and approved lesson guides."
+          >
+            {sourcesList.loading && <LoadingSpinner message="Loading subject materials..." />}
+            {sourcesList.error && (
+              <ErrorState
+                title="Could not load subject materials"
+                message={sourcesList.error.message}
+                onRetry={sourcesList.reload}
+              />
             )}
+            {!sourcesList.loading && !sourcesList.error && (
+              <>
+                <DataTable
+                  rows={teacherLessons}
+                  rowKey={(s) => s.source_id}
+                  emptyTitle="No published materials yet"
+                  emptyDescription="Your teacher has not published materials for this subject yet."
+                  columns={[
+                    {
+                      key: "title",
+                      header: "Lesson / Material",
+                      render: (s) => <strong>{s.title}</strong>,
+                    },
+                    {
+                      key: "open",
+                      header: "Action",
+                      render: (s) => (
+                        <button
+                          type="button"
+                          className="viora-btn viora-btn-sm viora-btn-primary"
+                          onClick={() => setSelectedSource(s)}
+                        >
+                          {selectedSource?.source_id === s.source_id
+                            ? "Viewing"
+                            : "Open Lesson"}
+                        </button>
+                      ),
+                    },
+                  ]}
+                />
+                <PaginationBar
+                  limit={sourcesList.limit}
+                  onLimitChange={sourcesList.setLimit}
+                  hasPrevious={sourcesList.hasPrevious}
+                  hasNext={sourcesList.hasNext}
+                  onPrevious={sourcesList.goPrevious}
+                  onNext={sourcesList.goNext}
+                  count={sourcesList.items.length}
+                />
+              </>
+            )}
+          </SectionCard>
 
-          {!flags.isAdmin && (flags.isStudent || flags.isGuardian) && (
-            <button
-              type="button"
-              className="viora-btn"
-              onClick={() => onNavigate("guardians")}
-            >
-              {flags.isGuardian
-                ? "View Linked Student Summaries"
-                : "Manage Guardian Consent"}
-            </button>
+          {selectedSource && (
+            <SourceKnowledgePanel
+              tenantId={tenantId}
+              source={selectedSource}
+              isSubjectTeacher={false}
+              policy={null}
+              onSourceUpdated={sourcesList.reload}
+            />
           )}
-        </div>
-      </SectionCard>
+
+          <OfferingQAPanel
+            tenantId={tenantId}
+            offeringId={selectedOfferingId}
+            offeringName={activeOffering?.name ?? ""}
+            isSubjectTeacher={false}
+          />
+
+          <details className="viora-details">
+            <summary>Personal Subject Notes (Advanced)</summary>
+            <div className="viora-stack">
+              {personalNotes.length > 0 && (
+                <DataTable
+                  rows={personalNotes}
+                  rowKey={(s) => s.source_id}
+                  columns={[
+                    {
+                      key: "title",
+                      header: "My Note",
+                      render: (s) => <strong>{s.title}</strong>,
+                    },
+                    {
+                      key: "open",
+                      header: "Inspect",
+                      render: (s) => (
+                        <button
+                          type="button"
+                          className="viora-btn viora-btn-sm"
+                          onClick={() => setSelectedSource(s)}
+                        >
+                          Open
+                        </button>
+                      ),
+                    },
+                  ]}
+                />
+              )}
+
+              <form className="viora-stack" onSubmit={handleSubmitNote}>
+                <div className="viora-row">
+                  <button
+                    type="button"
+                    className={`viora-btn viora-btn-sm ${noteMode === "text" ? "viora-btn-primary" : ""}`}
+                    onClick={() => setNoteMode("text")}
+                  >
+                    Typed Notes
+                  </button>
+                  <button
+                    type="button"
+                    className={`viora-btn viora-btn-sm ${noteMode === "file" ? "viora-btn-primary" : ""}`}
+                    onClick={() => setNoteMode("file")}
+                  >
+                    PDF / Image Upload
+                  </button>
+                </div>
+                <FormField label="Note title" htmlFor="inst-note-title">
+                  <input
+                    id="inst-note-title"
+                    className="viora-input"
+                    value={noteTitle}
+                    onChange={(e) => setNoteTitle(e.target.value)}
+                    placeholder="My revision summary"
+                    required
+                  />
+                </FormField>
+                {noteMode === "text" ? (
+                  <FormField label="Notes" htmlFor="inst-note-content">
+                    <textarea
+                      id="inst-note-content"
+                      className="viora-input"
+                      rows={3}
+                      value={noteContent}
+                      onChange={(e) => setNoteContent(e.target.value)}
+                      required
+                    />
+                  </FormField>
+                ) : (
+                  <FormField
+                    label="Document File (PDF, PNG, JPEG)"
+                    htmlFor="inst-note-file"
+                  >
+                    <input
+                      id="inst-note-file"
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      onChange={(e) => setNoteFile(e.target.files?.[0] ?? null)}
+                      required
+                    />
+                  </FormField>
+                )}
+                <div>
+                  <button
+                    type="submit"
+                    className="viora-btn viora-btn-sm viora-btn-primary"
+                    disabled={submittingNote}
+                  >
+                    {submittingNote ? "Saving..." : "Save Personal Note"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </details>
+        </>
+      )}
+
+      {!flags.isStudent && (flags.isSubjectTeacher || flags.isClassCoordinator) && (
+        <SectionCard
+          title="My Assigned Offerings"
+          subtitle="Active subject offerings in your teaching or coordination scope."
+        >
+          {offeringsLoading ? (
+            <LoadingSpinner message="Loading offerings..." />
+          ) : (
+            <DataTable
+              rows={offerings}
+              rowKey={(o) => o.id}
+              emptyTitle="No active subjects"
+              emptyDescription="No active subject offerings are assigned in this institution."
+              columns={[
+                {
+                  key: "name",
+                  header: "Subject Offering",
+                  render: (o) => <strong>{o.name}</strong>,
+                },
+                {
+                  key: "status",
+                  header: "Status",
+                  render: (o) => (
+                    <StatusBadge tone={o.active ? "success" : "neutral"}>
+                      {o.active ? "Active" : "Archived"}
+                    </StatusBadge>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </SectionCard>
+      )}
     </div>
   );
 }

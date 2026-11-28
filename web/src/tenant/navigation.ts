@@ -12,12 +12,10 @@ export interface RoleFlags {
 }
 
 export interface NavItemDescriptor {
-  id: AppRouteId | string;
+  id: AppRouteId;
   label: string;
-  section: "institution" | "academics" | "people" | "account" | "future";
-  route?: AppRouteId;
-  disabled?: boolean;
-  badge?: string;
+  section: "learning" | "teaching" | "college" | "institution" | "account";
+  route: AppRouteId;
 }
 
 export const ALL_INSTITUTION_ROLES: readonly InstitutionRole[] = [
@@ -30,9 +28,15 @@ export const ALL_INSTITUTION_ROLES: readonly InstitutionRole[] = [
   "guardian",
 ];
 
+export const FACULTY_ROLES: readonly InstitutionRole[] = [
+  "department_head",
+  "class_coordinator",
+  "subject_teacher",
+];
+
 export const ROLE_LABELS: Record<InstitutionRole, string> = {
-  institution_owner: "Institution Owner",
-  institution_admin: "Institution Admin",
+  institution_owner: "College Head (Owner)",
+  institution_admin: "College Head (Admin)",
   department_head: "Department Head",
   class_coordinator: "Class Coordinator",
   subject_teacher: "Subject Teacher",
@@ -56,7 +60,40 @@ export function deriveRoleFlags(roles: readonly string[]): RoleFlags {
 }
 
 /**
- * Computes navigation items from institution discovery roles.
+ * Resolves the default landing workspace for the user's active institution roles.
+ */
+export function defaultRouteForRoles(
+  roles: readonly string[],
+  hasSelectedInstitution: boolean,
+): AppRouteId {
+  if (!hasSelectedInstitution) {
+    return "institution";
+  }
+  const flags = deriveRoleFlags(roles);
+
+  if (flags.isAdmin) {
+    return "head-students";
+  }
+  if (flags.isSubjectTeacher) {
+    return "teacher-subjects";
+  }
+  if (flags.isClassCoordinator) {
+    return "teacher-class";
+  }
+  if (flags.isDepartmentHead) {
+    return "teacher-department";
+  }
+  if (flags.isStudent) {
+    return "student-learning";
+  }
+  if (flags.isGuardian) {
+    return "guardians";
+  }
+  return "institution";
+}
+
+/**
+ * Computes role-specific navigation items from institution discovery roles.
  * Returned roles are navigation hints only; backend policy and RLS remain authoritative.
  */
 export function buildNavigationItems(
@@ -66,178 +103,131 @@ export function buildNavigationItems(
   const flags = deriveRoleFlags(roles);
   const items: NavItemDescriptor[] = [];
 
-  items.push({
-    id: "institution",
-    label: hasSelectedInstitution ? "Institution Overview" : "Select Institution",
-    section: "institution",
-    route: "institution",
-  });
-
-  if (hasSelectedInstitution) {
-    if (flags.isAdmin) {
-      items.push(
-        {
-          id: "academics-campuses",
-          label: "Campuses",
-          section: "academics",
-          route: "academics-campuses",
-        },
-        {
-          id: "academics-departments",
-          label: "Departments & Heads",
-          section: "academics",
-          route: "academics-departments",
-        },
-        {
-          id: "academics-programmes",
-          label: "Programmes",
-          section: "academics",
-          route: "academics-programmes",
-        },
-        {
-          id: "academics-calendar",
-          label: "Years & Semesters",
-          section: "academics",
-          route: "academics-calendar",
-        },
-        {
-          id: "academics-sections",
-          label: "Class Sections",
-          section: "academics",
-          route: "academics-sections",
-        },
-        {
-          id: "academics-subjects",
-          label: "Subjects",
-          section: "academics",
-          route: "academics-subjects",
-        },
-        {
-          id: "academics-offerings",
-          label: "Offerings & Enrolments",
-          section: "academics",
-          route: "academics-offerings",
-        },
-        {
-          id: "memberships",
-          label: "Members & Roles",
-          section: "people",
-          route: "memberships",
-        },
-        {
-          id: "guardians",
-          label: "Guardian Links",
-          section: "people",
-          route: "guardians",
-        },
-      );
-    } else {
-      if (flags.isDepartmentHead) {
-        items.push(
-          {
-            id: "academics-departments",
-            label: "My Departments",
-            section: "academics",
-            route: "academics-departments",
-          },
-          {
-            id: "academics-programmes",
-            label: "Programmes",
-            section: "academics",
-            route: "academics-programmes",
-          },
-          {
-            id: "academics-subjects",
-            label: "Subjects",
-            section: "academics",
-            route: "academics-subjects",
-          },
-        );
-      }
-
-      if (flags.isClassCoordinator) {
-        items.push({
-          id: "academics-sections",
-          label: "Coordinated Sections",
-          section: "academics",
-          route: "academics-sections",
-        });
-      }
-
-      if (flags.isClassCoordinator || flags.isSubjectTeacher || flags.isStudent) {
-        items.push({
-          id: "academics-offerings",
-          label: flags.isStudent ? "My Enrolled Offerings" : "Subject Offerings",
-          section: "academics",
-          route: "academics-offerings",
-        });
-      }
-
-      if (flags.isSubjectTeacher || flags.isStudent) {
-        items.push({
-          id: "sources",
-          label:
-            flags.isSubjectTeacher
-              ? "Resources & Curriculum"
-              : "Lessons & Notes",
-          section: "academics",
-          route: "sources",
-        });
-      }
-
-      if (flags.isStudent || flags.isGuardian) {
-        items.push({
-          id: "guardians",
-          label: flags.isGuardian ? "Linked Students" : "Guardian Consent",
-          section: "people",
-          route: "guardians",
-        });
-      }
-    }
-  }
-
-  items.push(
-    {
+  if (!hasSelectedInstitution) {
+    items.push({
+      id: "institution",
+      label: "Select Institution",
+      section: "institution",
+      route: "institution",
+    });
+    items.push({
       id: "account-password",
-      label: "Password & Security",
+      label: "Account & Security",
       section: "account",
       route: "account-password",
-    },
-    {
-      id: "health",
-      label: "System Health",
-      section: "account",
-      route: "health",
-    },
-    {
-      id: "future-tutor",
-      label: "AI Tutor",
-      section: "future",
-      disabled: true,
-      badge: "Phase 2",
-    },
-    {
-      id: "future-lessons",
-      label: "Lessons",
-      section: "future",
-      disabled: true,
-      badge: "Phase 2",
-    },
-    {
-      id: "future-assessments",
-      label: "Assessments",
-      section: "future",
-      disabled: true,
-      badge: "Phase 2",
-    },
-    {
-      id: "future-analytics",
-      label: "Analytics",
-      section: "future",
-      disabled: true,
-      badge: "Phase 2",
-    },
-  );
+    });
+    return items;
+  }
+
+  if (flags.isAdmin) {
+    items.push(
+      {
+        id: "head-students",
+        label: "Students",
+        section: "college",
+        route: "head-students",
+      },
+      {
+        id: "head-faculty",
+        label: "Faculty",
+        section: "college",
+        route: "head-faculty",
+      },
+      {
+        id: "head-academics",
+        label: "Academic Structure",
+        section: "college",
+        route: "head-academics",
+      },
+      {
+        id: "head-permissions",
+        label: "Permissions",
+        section: "college",
+        route: "head-permissions",
+      },
+    );
+  }
+
+  if (flags.isClassCoordinator) {
+    items.push({
+      id: "teacher-class",
+      label: "My Class",
+      section: "teaching",
+      route: "teacher-class",
+    });
+  }
+
+  if (flags.isSubjectTeacher) {
+    items.push({
+      id: "teacher-subjects",
+      label: "My Teaching Subjects",
+      section: "teaching",
+      route: "teacher-subjects",
+    });
+  }
+
+  if (!flags.isAdmin && flags.isDepartmentHead) {
+    items.push({
+      id: "teacher-department",
+      label: "My Department",
+      section: "teaching",
+      route: "teacher-department",
+    });
+  }
+
+  if (flags.isStudent) {
+    items.push({
+      id: "student-learning",
+      label: "Personal Learning",
+      section: "learning",
+      route: "student-learning",
+    });
+    items.push({
+      id: "institution",
+      label: "My Institution",
+      section: "institution",
+      route: "institution",
+    });
+  }
+
+  if (
+    flags.isGuardian &&
+    !flags.isAdmin &&
+    !flags.isStudent &&
+    !flags.isSubjectTeacher &&
+    !flags.isClassCoordinator &&
+    !flags.isDepartmentHead
+  ) {
+    items.push({
+      id: "guardians",
+      label: "Linked Students",
+      section: "institution",
+      route: "guardians",
+    });
+  }
+
+  if (
+    !flags.isAdmin &&
+    !flags.isStudent &&
+    !flags.isSubjectTeacher &&
+    !flags.isClassCoordinator &&
+    !flags.isDepartmentHead &&
+    !flags.isGuardian
+  ) {
+    items.push({
+      id: "institution",
+      label: "My Institution",
+      section: "institution",
+      route: "institution",
+    });
+  }
+
+  items.push({
+    id: "account-password",
+    label: "Account & Security",
+    section: "account",
+    route: "account-password",
+  });
 
   return items;
 }

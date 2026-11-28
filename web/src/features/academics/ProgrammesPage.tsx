@@ -3,7 +3,7 @@ import type { ProgrammeSummary } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { DepartmentScopedCrudPage } from "./DepartmentScopedCrudPage";
 
-export function ProgrammesPage() {
+export function ProgrammesPage({ embedded = false }: { embedded?: boolean }) {
   const { apiClient } = useAuth();
   const config = useMemo(
     () => ({
@@ -48,5 +48,5 @@ export function ProgrammesPage() {
     }),
     [apiClient],
   );
-  return <DepartmentScopedCrudPage<ProgrammeSummary> config={config} />;
+  return <DepartmentScopedCrudPage<ProgrammeSummary> config={config} embedded={embedded} />;
 }
